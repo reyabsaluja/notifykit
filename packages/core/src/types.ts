@@ -112,6 +112,37 @@ export type EmailProvider = {
   }): Promise<{ providerMessageId?: string }>;
 };
 
+export type DeliveryJob = {
+  deliveryId: string;
+  notificationRecordId: string;
+  recipientId: string;
+  notificationId: string;
+  channel: "email";
+  provider: string;
+  to: string;
+  subject: string;
+  body: string;
+};
+
+export type Queue = {
+  enqueue(
+    job: DeliveryJob,
+    run: (job: DeliveryJob) => Promise<void>,
+  ): void | Promise<void>;
+  /** Resolves when all enqueued jobs (and their retries) have settled. */
+  drain(): Promise<void>;
+};
+
+export type RetryPolicy = {
+  /** Total attempts including the first. Defaults to 3. */
+  maxAttempts: number;
+  /**
+   * Delay before the given attempt number (1-indexed). Return 0 or a negative
+   * value to skip waiting. Defaults to exponential backoff: 0 / 250 / 1000 ms.
+   */
+  delayMs(attempt: number): number;
+};
+
 export type DatabaseAdapter = {
   recipients: {
     upsert(input: UpsertRecipientInput): Promise<Recipient>;
@@ -133,6 +164,7 @@ export type DatabaseAdapter = {
         attempts?: number;
       },
     ): Promise<DeliveryRecord>;
+    findById(id: string): Promise<DeliveryRecord | null>;
     update(
       id: string,
       patch: Partial<Omit<DeliveryRecord, "id" | "createdAt">>,

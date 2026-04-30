@@ -128,13 +128,27 @@ describe("drizzleSqliteAdapter", () => {
     expect(items[0]!.readAt).toBeInstanceOf(Date);
   });
 
-  test("delivery.failed persists error text", async () => {
-    ctx.provider.setFailOnNext(true);
-    await ctx.notify.upsertRecipient({
+  test("delivery.failed persists error text after retries exhausted", async () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    await createSqliteTables(db);
+    const alwaysFail = {
+      id: "always-fail",
+      async send() {
+        throw new Error("simulated failure");
+      },
+    };
+    const notify = createNotifyKit({
+      notifications: [commentMentioned, welcome] as const,
+      database: drizzleSqliteAdapter(db),
+      providers: { email: alwaysFail },
+      retry: { maxAttempts: 2, delayMs: () => 0 },
+    });
+    await notify.upsertRecipient({
       id: "user_1",
       email: "a@example.com",
     });
-    const result = await ctx.notify.send({
+    const result = await notify.send({
       recipientId: "user_1",
       notificationId: "comment_mentioned",
       payload: {
@@ -145,8 +159,9 @@ describe("drizzleSqliteAdapter", () => {
     });
     expect(result.deliveries[0]!.status).toBe("failed");
     expect(result.deliveries[0]!.error).toMatch(/simulated failure/);
+    expect(result.deliveries[0]!.attempts).toBe(2);
 
-    const refetched = await ctx.notify.deliveries.list("user_1");
+    const refetched = await notify.deliveries.list("user_1");
     expect(refetched[0]!.status).toBe("failed");
     expect(refetched[0]!.failedAt).toBeInstanceOf(Date);
   });

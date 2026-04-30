@@ -191,6 +191,15 @@ export function drizzleSqliteAdapter(db) {
                 });
                 return record;
             },
+            async findById(id) {
+                const rows = await db
+                    .select()
+                    .from(deliveries)
+                    .where(eq(deliveries.id, id))
+                    .limit(1);
+                const row = rows[0];
+                return row ? rowToDelivery(row) : null;
+            },
             async update(id, patch) {
                 const set = { ...patch, updatedAt: new Date() };
                 const updated = await db

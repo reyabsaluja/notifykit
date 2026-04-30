@@ -8,14 +8,17 @@ import {
 } from "../src/index.js";
 import type {
   DeliveryRecord,
+  EmailProvider,
   InboxItem,
   NotificationRecord,
+  RetryPolicy,
 } from "../src/index.js";
 
 function buildKit(
   extras: {
     hooks?: Parameters<typeof createNotifyKit>[0]["on"];
-    provider?: ReturnType<typeof fakeEmailProvider>;
+    provider?: EmailProvider;
+    retry?: Partial<RetryPolicy>;
   } = {},
 ) {
   const inbox = channel.inbox();
@@ -62,6 +65,7 @@ function buildKit(
     database: db,
     providers: { email: provider },
     on: extras.hooks,
+    retry: extras.retry,
   });
 
   return { notify, db, provider, commentMentioned, welcome };
@@ -418,16 +422,24 @@ describe("NotifyKit core", () => {
     ).rejects.toThrow(/Unknown notification/);
   });
 
-  test("delivery.failed hook fires when provider throws", async () => {
-    const failing = fakeEmailProvider({ failOnNext: true });
+  test("delivery.failed hook fires when provider keeps throwing", async () => {
+    // Provider that fails on every attempt
+    const alwaysFail = {
+      id: "always-fail",
+      async send() {
+        throw new Error("simulated failure");
+      },
+    };
     const events: string[] = [];
     const { notify } = buildKit({
-      provider: failing,
+      provider: alwaysFail,
       hooks: {
         "delivery.failed": ({ delivery }) => {
           events.push(`failed:${delivery.status}`);
         },
       },
+      // Zero-delay retries to keep the test fast
+      retry: { maxAttempts: 2, delayMs: () => 0 },
     });
     await notify.upsertRecipient({
       id: "user_1",
@@ -446,5 +458,6 @@ describe("NotifyKit core", () => {
     expect(events).toEqual(["failed:failed"]);
     expect(result.deliveries[0]!.status).toBe("failed");
     expect(result.deliveries[0]!.error).toMatch(/simulated failure/);
+    expect(result.deliveries[0]!.attempts).toBe(2);
   });
 });

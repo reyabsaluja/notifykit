@@ -231,6 +231,15 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         return record;
       },
 
+      async findById(id: string): Promise<DeliveryRecord | null> {
+        const rows = await db
+          .select()
+          .from(deliveries)
+          .where(eq(deliveries.id, id))
+          .limit(1);
+        const row = rows[0];
+        return row ? rowToDelivery(row) : null;
+      },
       async update(id, patch): Promise<DeliveryRecord | null> {
         const set: Record<string, unknown> = { ...patch, updatedAt: new Date() };
         const updated = await db

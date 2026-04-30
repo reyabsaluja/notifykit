@@ -5,6 +5,11 @@ export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
 export { fakeEmailProvider } from "./providers.js";
 export {
+  defaultRetryPolicy,
+  inlineQueue,
+  setTimeoutQueue,
+} from "./queues.js";
+export {
   NotifyKitError,
   PayloadValidationError,
   renderTemplate,
@@ -43,6 +48,7 @@ export type {
   ChannelPreferenceMap,
   ChannelType,
   DatabaseAdapter,
+  DeliveryJob,
   DeliveryRecord,
   DeliveryStatus,
   EmailChannelConfig,
@@ -57,8 +63,10 @@ export type {
   NotificationRecord,
   PayloadSchema,
   PrimitiveSchema,
+  Queue,
   Recipient,
   RecipientPreference,
+  RetryPolicy,
   SendInput,
   UpdatePreferenceInput,
   UpsertRecipientInput,

@@ -1,6 +1,12 @@
+import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { NotifyKitError, renderTemplate, validatePayload } from "./utils.js";
 export function createNotifyKit(config) {
     const { notifications, database, providers, on } = config;
+    const queue = config.queue ?? inlineQueue();
+    const retry = {
+        maxAttempts: config.retry?.maxAttempts ?? defaultRetryPolicy.maxAttempts,
+        delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
+    };
     const byId = new Map();
     for (const def of notifications) {
         if (byId.has(def.id)) {
@@ -91,34 +97,22 @@ export function createNotifyKit(config) {
                     body,
                     attempts: 0,
                 });
-                try {
-                    const result = await provider.send({
-                        to: recipient.email,
-                        subject,
-                        body,
-                    });
-                    const updated = await database.deliveries.update(delivery.id, {
-                        status: "sent",
-                        providerMessageId: result.providerMessageId,
-                        attempts: delivery.attempts + 1,
-                        sentAt: new Date(),
-                    });
-                    const finalRecord = updated ?? delivery;
-                    deliveries.push(finalRecord);
-                    await runHook("delivery.sent", { delivery: finalRecord });
-                }
-                catch (err) {
-                    const error = err instanceof Error ? err : new Error(String(err));
-                    const updated = await database.deliveries.update(delivery.id, {
-                        status: "failed",
-                        error: error.message,
-                        attempts: delivery.attempts + 1,
-                        failedAt: new Date(),
-                    });
-                    const finalRecord = updated ?? delivery;
-                    deliveries.push(finalRecord);
-                    await runHook("delivery.failed", { delivery: finalRecord, error });
-                }
+                const job = {
+                    deliveryId: delivery.id,
+                    notificationRecordId: notificationRecord.id,
+                    recipientId: recipient.id,
+                    notificationId: def.id,
+                    channel: "email",
+                    provider: provider.id,
+                    to: recipient.email,
+                    subject,
+                    body,
+                };
+                await queue.enqueue(job, (j) => processDeliveryJob(j, provider));
+                // Re-read after enqueue so inline queues return final state; async
+                // queues return "pending" here (callers use drain() + deliveries.list).
+                const latest = await database.deliveries.findById(delivery.id);
+                deliveries.push(latest ?? delivery);
             }
         }
         return {
@@ -127,6 +121,51 @@ export function createNotifyKit(config) {
             deliveries,
             skippedChannels,
         };
+    }
+    async function processDeliveryJob(job, provider) {
+        let lastError = null;
+        for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
+            const wait = retry.delayMs(attempt);
+            if (wait > 0) {
+                await new Promise((r) => setTimeout(r, wait));
+            }
+            try {
+                const result = await provider.send({
+                    to: job.to,
+                    subject: job.subject,
+                    body: job.body,
+                });
+                const updated = await database.deliveries.update(job.deliveryId, {
+                    status: "sent",
+                    providerMessageId: result.providerMessageId,
+                    attempts: attempt,
+                    sentAt: new Date(),
+                    error: undefined,
+                });
+                if (updated) {
+                    await runHook("delivery.sent", { delivery: updated });
+                }
+                return;
+            }
+            catch (err) {
+                lastError = err instanceof Error ? err : new Error(String(err));
+                // Record the attempt; only mark "failed" once we've exhausted retries.
+                await database.deliveries.update(job.deliveryId, {
+                    attempts: attempt,
+                    error: lastError.message,
+                });
+            }
+        }
+        const failed = await database.deliveries.update(job.deliveryId, {
+            status: "failed",
+            failedAt: new Date(),
+        });
+        if (failed) {
+            await runHook("delivery.failed", {
+                delivery: failed,
+                error: lastError ?? new Error("Delivery failed"),
+            });
+        }
     }
     async function updatePreference(rawInput) {
         const input = rawInput;
@@ -171,6 +210,9 @@ export function createNotifyKit(config) {
                 return database.preferences.list(recipientId);
             },
             update: updatePreference,
+        },
+        drain() {
+            return queue.drain();
         },
         definitions: notifications,
     };

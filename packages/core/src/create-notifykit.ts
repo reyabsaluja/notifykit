@@ -1,6 +1,7 @@
 import type {
   ChannelType,
   DatabaseAdapter,
+  DeliveryJob,
   DeliveryRecord,
   EmailProvider,
   GetPreferenceInput,
@@ -9,12 +10,15 @@ import type {
   NotificationDefinition,
   NotificationRecord,
   PayloadSchema,
+  Queue,
   Recipient,
   RecipientPreference,
+  RetryPolicy,
   SendInput,
   UpdatePreferenceInput,
   UpsertRecipientInput,
 } from "./types.js";
+import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { NotifyKitError, renderTemplate, validatePayload } from "./utils.js";
 
 export type CreateNotifyKitInput<
@@ -26,6 +30,14 @@ export type CreateNotifyKitInput<
     email?: EmailProvider;
   };
   on?: Hooks;
+  /**
+   * Queue used to run email deliveries. Defaults to `inlineQueue()` — jobs
+   * run synchronously inside `send()`. Pass `setTimeoutQueue()` (or your own)
+   * to run deliveries asynchronously.
+   */
+  queue?: Queue;
+  /** Retry policy for email deliveries. Defaults to 3 attempts with backoff. */
+  retry?: Partial<RetryPolicy>;
 };
 
 export type SendResult = {
@@ -52,6 +64,8 @@ export type NotifyKit<
     list(recipientId: string): Promise<RecipientPreference[]>;
     update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
   };
+  /** Resolves when the queue has finished all outstanding and retried jobs. */
+  drain(): Promise<void>;
   /** Registered notification definitions. Read-only, for introspection. */
   readonly definitions: T;
 };
@@ -60,6 +74,11 @@ export function createNotifyKit<
   const T extends readonly NotificationDefinition<string, PayloadSchema>[],
 >(config: CreateNotifyKitInput<T>): NotifyKit<T> {
   const { notifications, database, providers, on } = config;
+  const queue = config.queue ?? inlineQueue();
+  const retry: RetryPolicy = {
+    maxAttempts: config.retry?.maxAttempts ?? defaultRetryPolicy.maxAttempts,
+    delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
+  };
 
   const byId = new Map<string, NotificationDefinition<string, PayloadSchema>>();
   for (const def of notifications) {
@@ -176,33 +195,24 @@ export function createNotifyKit<
           attempts: 0,
         });
 
-        try {
-          const result = await provider.send({
-            to: recipient.email,
-            subject,
-            body,
-          });
-          const updated = await database.deliveries.update(delivery.id, {
-            status: "sent",
-            providerMessageId: result.providerMessageId,
-            attempts: delivery.attempts + 1,
-            sentAt: new Date(),
-          });
-          const finalRecord = updated ?? delivery;
-          deliveries.push(finalRecord);
-          await runHook("delivery.sent", { delivery: finalRecord });
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          const updated = await database.deliveries.update(delivery.id, {
-            status: "failed",
-            error: error.message,
-            attempts: delivery.attempts + 1,
-            failedAt: new Date(),
-          });
-          const finalRecord = updated ?? delivery;
-          deliveries.push(finalRecord);
-          await runHook("delivery.failed", { delivery: finalRecord, error });
-        }
+        const job: DeliveryJob = {
+          deliveryId: delivery.id,
+          notificationRecordId: notificationRecord.id,
+          recipientId: recipient.id,
+          notificationId: def.id,
+          channel: "email",
+          provider: provider.id,
+          to: recipient.email,
+          subject,
+          body,
+        };
+
+        await queue.enqueue(job, (j) => processDeliveryJob(j, provider));
+
+        // Re-read after enqueue so inline queues return final state; async
+        // queues return "pending" here (callers use drain() + deliveries.list).
+        const latest = await database.deliveries.findById(delivery.id);
+        deliveries.push(latest ?? delivery);
       }
     }
 
@@ -212,6 +222,54 @@ export function createNotifyKit<
       deliveries,
       skippedChannels,
     };
+  }
+
+  async function processDeliveryJob(
+    job: DeliveryJob,
+    provider: EmailProvider,
+  ): Promise<void> {
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
+      const wait = retry.delayMs(attempt);
+      if (wait > 0) {
+        await new Promise<void>((r) => setTimeout(r, wait));
+      }
+      try {
+        const result = await provider.send({
+          to: job.to,
+          subject: job.subject,
+          body: job.body,
+        });
+        const updated = await database.deliveries.update(job.deliveryId, {
+          status: "sent",
+          providerMessageId: result.providerMessageId,
+          attempts: attempt,
+          sentAt: new Date(),
+          error: undefined,
+        });
+        if (updated) {
+          await runHook("delivery.sent", { delivery: updated });
+        }
+        return;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        // Record the attempt; only mark "failed" once we've exhausted retries.
+        await database.deliveries.update(job.deliveryId, {
+          attempts: attempt,
+          error: lastError.message,
+        });
+      }
+    }
+    const failed = await database.deliveries.update(job.deliveryId, {
+      status: "failed",
+      failedAt: new Date(),
+    });
+    if (failed) {
+      await runHook("delivery.failed", {
+        delivery: failed,
+        error: lastError ?? new Error("Delivery failed"),
+      });
+    }
   }
 
   async function updatePreference(
@@ -271,6 +329,9 @@ export function createNotifyKit<
         return database.preferences.list(recipientId);
       },
       update: updatePreference,
+    },
+    drain() {
+      return queue.drain();
     },
     definitions: notifications,
   };

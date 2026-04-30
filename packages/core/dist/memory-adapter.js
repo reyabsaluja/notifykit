@@ -103,6 +103,9 @@ export function memoryAdapter() {
                 state.deliveries.push(record);
                 return record;
             },
+            async findById(id) {
+                return state.deliveries.find((d) => d.id === id) ?? null;
+            },
             async update(id, patch) {
                 const existing = state.deliveries.find((d) => d.id === id);
                 if (!existing)
