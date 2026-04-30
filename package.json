@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "test": "bun test",
-    "build": "bun run --cwd packages/core build && bun run --cwd packages/drizzle-adapter build && bun run --cwd packages/react build",
+    "build": "bun run --cwd packages/core build && bun run --cwd packages/drizzle-adapter build && bun run --cwd packages/react build && bun run --cwd packages/cli build",
     "example": "bun run --cwd examples/basic start",
     "example:drizzle": "bun run --cwd examples/drizzle start",
     "example:handler": "bun run --cwd examples/handler start"
