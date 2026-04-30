@@ -1,0 +1,35 @@
+{
+  "name": "notifykit-drizzle",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema/sqlite": {
+      "types": "./dist/schema/sqlite.d.ts",
+      "import": "./dist/schema/sqlite.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "drizzle-orm": ">=0.30.0",
+    "notifykit": "workspace:*"
+  },
+  "devDependencies": {
+    "drizzle-orm": "^0.45.2",
+    "notifykit": "workspace:*",
+    "typescript": "^5.6.3"
+  }
+}

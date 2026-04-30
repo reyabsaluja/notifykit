@@ -1,0 +1,17 @@
+{
+  "name": "drizzle-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "notifykit": "workspace:*",
+    "notifykit-drizzle": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
