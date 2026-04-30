@@ -1,0 +1,25 @@
+{
+  "name": "notifykit",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

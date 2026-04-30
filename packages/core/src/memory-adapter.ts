@@ -1,0 +1,143 @@
+import type {
+  DatabaseAdapter,
+  DeliveryRecord,
+  InboxItem,
+  NotificationRecord,
+  Recipient,
+  UpsertRecipientInput,
+} from "./types.js";
+import { createId } from "./utils.js";
+
+export type MemoryAdapter = DatabaseAdapter & {
+  _state: {
+    recipients: Recipient[];
+    notifications: NotificationRecord[];
+    inboxItems: InboxItem[];
+    deliveries: DeliveryRecord[];
+  };
+};
+
+export function memoryAdapter(): MemoryAdapter {
+  const state = {
+    recipients: [] as Recipient[],
+    notifications: [] as NotificationRecord[],
+    inboxItems: [] as InboxItem[],
+    deliveries: [] as DeliveryRecord[],
+  };
+
+  const adapter: MemoryAdapter = {
+    _state: state,
+    recipients: {
+      async upsert(input: UpsertRecipientInput): Promise<Recipient> {
+        const now = new Date();
+        const existing = state.recipients.find((r) => r.id === input.id);
+        if (existing) {
+          if (input.email !== undefined) existing.email = input.email;
+          if (input.name !== undefined) existing.name = input.name;
+          existing.updatedAt = now;
+          return existing;
+        }
+        const recipient: Recipient = {
+          id: input.id,
+          email: input.email,
+          name: input.name,
+          createdAt: now,
+          updatedAt: now,
+        };
+        state.recipients.push(recipient);
+        return recipient;
+      },
+      async findById(id: string): Promise<Recipient | null> {
+        return state.recipients.find((r) => r.id === id) ?? null;
+      },
+    },
+    notifications: {
+      async create(input): Promise<NotificationRecord> {
+        const record: NotificationRecord = {
+          id: createId("ntf"),
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          payload: input.payload,
+          createdAt: new Date(),
+        };
+        state.notifications.push(record);
+        return record;
+      },
+    },
+    inbox: {
+      async create(input): Promise<InboxItem> {
+        const item: InboxItem = {
+          id: createId("inb"),
+          notificationRecordId: input.notificationRecordId,
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          title: input.title,
+          body: input.body,
+          actionUrl: input.actionUrl,
+          readAt: null,
+          createdAt: new Date(),
+        };
+        state.inboxItems.push(item);
+        return item;
+      },
+      async listByRecipient(recipientId: string): Promise<InboxItem[]> {
+        return state.inboxItems
+          .filter((i) => i.recipientId === recipientId)
+          .slice()
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      },
+      async markRead(inboxItemId: string): Promise<InboxItem | null> {
+        const item = state.inboxItems.find((i) => i.id === inboxItemId);
+        if (!item) return null;
+        item.readAt = new Date();
+        return item;
+      },
+    },
+    deliveries: {
+      async create(input): Promise<DeliveryRecord> {
+        const now = new Date();
+        const record: DeliveryRecord = {
+          id: createId("dlv"),
+          notificationRecordId: input.notificationRecordId,
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          channel: input.channel,
+          provider: input.provider,
+          status: input.status,
+          to: input.to,
+          subject: input.subject,
+          body: input.body,
+          providerMessageId: input.providerMessageId,
+          error: input.error,
+          attempts: input.attempts ?? 0,
+          createdAt: now,
+          updatedAt: now,
+          sentAt: input.sentAt ?? null,
+          failedAt: input.failedAt ?? null,
+        };
+        state.deliveries.push(record);
+        return record;
+      },
+      async update(id, patch): Promise<DeliveryRecord | null> {
+        const existing = state.deliveries.find((d) => d.id === id);
+        if (!existing) return null;
+        Object.assign(existing, patch);
+        existing.updatedAt = new Date();
+        return existing;
+      },
+      async list(recipientId?: string): Promise<DeliveryRecord[]> {
+        if (recipientId === undefined) {
+          return state.deliveries
+            .slice()
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        }
+        return state.deliveries
+          .filter((d) => d.recipientId === recipientId)
+          .slice()
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      },
+    },
+  };
+
+  return adapter;
+}

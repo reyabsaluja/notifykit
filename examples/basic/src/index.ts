@@ -1,0 +1,101 @@
+import {
+  channel,
+  createNotifyKit,
+  fakeEmailProvider,
+  memoryAdapter,
+  notification,
+} from "notifykit";
+
+const inbox = channel.inbox();
+const email = channel.email();
+
+const commentMentioned = notification({
+  id: "comment_mentioned",
+  payload: {
+    actorName: "string",
+    postTitle: "string",
+    postUrl: "string",
+  },
+  channels: [
+    inbox({
+      title: "{{actorName}} mentioned you",
+      body: "In {{postTitle}}",
+      actionUrl: "{{postUrl}}",
+    }),
+    email({
+      subject: "{{actorName}} mentioned you in {{postTitle}}",
+      body: "Open {{postUrl}} to reply.",
+    }),
+  ],
+});
+
+const provider = fakeEmailProvider();
+
+const notify = createNotifyKit({
+  notifications: [commentMentioned] as const,
+  database: memoryAdapter(),
+  providers: {
+    email: provider,
+  },
+  on: {
+    "notification.created": ({ notification }) => {
+      console.log(
+        `[hook] notification.created -> ${notification.notificationId} (${notification.id})`,
+      );
+    },
+    "inbox.created": ({ inboxItem }) => {
+      console.log(`[hook] inbox.created -> "${inboxItem.title}"`);
+    },
+    "delivery.sent": ({ delivery }) => {
+      console.log(
+        `[hook] delivery.sent -> ${delivery.to} via ${delivery.provider}`,
+      );
+    },
+    "delivery.failed": ({ delivery, error }) => {
+      console.log(
+        `[hook] delivery.failed -> ${delivery.to}: ${error.message}`,
+      );
+    },
+  },
+});
+
+async function main() {
+  await notify.upsertRecipient({
+    id: "user_123",
+    email: "jane@example.com",
+    name: "Jane",
+  });
+
+  await notify.send({
+    recipientId: "user_123",
+    notificationId: "comment_mentioned",
+    payload: {
+      actorName: "Rey",
+      postTitle: "Launch Plan",
+      postUrl: "/posts/123",
+    },
+  });
+
+  const inboxItems = await notify.inbox.list("user_123");
+  console.log("\nInbox items:");
+  console.log(inboxItems);
+
+  const deliveries = await notify.deliveries.list("user_123");
+  console.log("\nDeliveries:");
+  console.log(deliveries);
+
+  if (inboxItems[0]) {
+    await notify.inbox.markRead(inboxItems[0].id);
+    const refreshed = await notify.inbox.list("user_123");
+    console.log("\nInbox after markRead:");
+    console.log(refreshed);
+  }
+
+  console.log("\nFake provider sent:");
+  console.log(provider.sent);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
