@@ -52,6 +52,8 @@ export type NotifyKit<
     list(recipientId: string): Promise<RecipientPreference[]>;
     update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
   };
+  /** Registered notification definitions. Read-only, for introspection. */
+  readonly definitions: T;
 };
 
 export function createNotifyKit<
@@ -270,5 +272,6 @@ export function createNotifyKit<
       },
       update: updatePreference,
     },
+    definitions: notifications,
   };
 }

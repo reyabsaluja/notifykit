@@ -28,6 +28,8 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
         list(recipientId: string): Promise<RecipientPreference[]>;
         update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
     };
+    /** Registered notification definitions. Read-only, for introspection. */
+    readonly definitions: T;
 };
 export declare function createNotifyKit<const T extends readonly NotificationDefinition<string, PayloadSchema>[]>(config: CreateNotifyKitInput<T>): NotifyKit<T>;
 //# sourceMappingURL=create-notifykit.d.ts.map

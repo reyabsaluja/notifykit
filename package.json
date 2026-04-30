@@ -11,7 +11,8 @@
     "test": "bun test",
     "build": "bun run --cwd packages/core build && bun run --cwd packages/drizzle-adapter build",
     "example": "bun run --cwd examples/basic start",
-    "example:drizzle": "bun run --cwd examples/drizzle start"
+    "example:drizzle": "bun run --cwd examples/drizzle start",
+    "example:handler": "bun run --cwd examples/handler start"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

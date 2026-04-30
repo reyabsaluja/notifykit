@@ -172,6 +172,7 @@ export function createNotifyKit(config) {
             },
             update: updatePreference,
         },
+        definitions: notifications,
     };
 }
 //# sourceMappingURL=create-notifykit.js.map
