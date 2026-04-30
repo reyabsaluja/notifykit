@@ -34,6 +34,13 @@ export function createNotifyKit(config) {
             throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
         }
         const payload = validatePayload(def.payload, input.payload, def.id);
+        const preference = await database.preferences.get(recipient.id, def.id);
+        const isChannelAllowed = (type) => {
+            if (!preference)
+                return true;
+            const value = preference.channels[type];
+            return value !== false;
+        };
         const notificationRecord = await database.notifications.create({
             recipientId: recipient.id,
             notificationId: def.id,
@@ -42,7 +49,12 @@ export function createNotifyKit(config) {
         await runHook("notification.created", { notification: notificationRecord });
         const inboxItems = [];
         const deliveries = [];
+        const skippedChannels = [];
         for (const ch of def.channels) {
+            if (!isChannelAllowed(ch.type)) {
+                skippedChannels.push(ch.type);
+                continue;
+            }
             if (ch.type === "inbox") {
                 const item = await database.inbox.create({
                     notificationRecordId: notificationRecord.id,
@@ -113,7 +125,27 @@ export function createNotifyKit(config) {
             notification: notificationRecord,
             inboxItems,
             deliveries,
+            skippedChannels,
         };
+    }
+    async function updatePreference(rawInput) {
+        const input = rawInput;
+        if (!byId.has(input.notificationId)) {
+            throw new NotifyKitError(`Unknown notification id: "${input.notificationId}".`);
+        }
+        const recipient = await database.recipients.findById(input.recipientId);
+        if (!recipient) {
+            throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
+        }
+        return database.preferences.upsert({
+            recipientId: input.recipientId,
+            notificationId: input.notificationId,
+            channels: input.channels,
+        });
+    }
+    async function getPreference(rawInput) {
+        const input = rawInput;
+        return database.preferences.get(input.recipientId, input.notificationId);
     }
     return {
         async upsertRecipient(input) {
@@ -132,6 +164,13 @@ export function createNotifyKit(config) {
             list(recipientId) {
                 return database.deliveries.list(recipientId);
             },
+        },
+        preferences: {
+            get: getPreference,
+            list(recipientId) {
+                return database.preferences.list(recipientId);
+            },
+            update: updatePreference,
         },
     };
 }

@@ -50,6 +50,14 @@ export type InboxItem = {
     readAt?: Date | null;
     createdAt: Date;
 };
+export type ChannelType = ChannelConfig["type"];
+export type ChannelPreferenceMap = Partial<Record<ChannelType, boolean>>;
+export type RecipientPreference = {
+    recipientId: string;
+    notificationId: string;
+    channels: ChannelPreferenceMap;
+    updatedAt: Date;
+};
 export type DeliveryStatus = "pending" | "sent" | "failed";
 export type DeliveryRecord = {
     id: string;
@@ -100,6 +108,15 @@ export type DatabaseAdapter = {
         update(id: string, patch: Partial<Omit<DeliveryRecord, "id" | "createdAt">>): Promise<DeliveryRecord | null>;
         list(recipientId?: string): Promise<DeliveryRecord[]>;
     };
+    preferences: {
+        get(recipientId: string, notificationId: string): Promise<RecipientPreference | null>;
+        list(recipientId: string): Promise<RecipientPreference[]>;
+        upsert(input: {
+            recipientId: string;
+            notificationId: string;
+            channels: ChannelPreferenceMap;
+        }): Promise<RecipientPreference>;
+    };
 };
 export type Hooks = {
     "notification.created"?: (ctx: {
@@ -126,4 +143,14 @@ export type SendInput<T extends readonly NotificationDefinition<string, PayloadS
         payload: InferSchema<K["payload"]>;
     };
 }[T[number]["id"]];
+export type NotificationIds<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = T[number]["id"];
+export type UpdatePreferenceInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
+    recipientId: string;
+    notificationId: NotificationIds<T>;
+    channels: ChannelPreferenceMap;
+};
+export type GetPreferenceInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
+    recipientId: string;
+    notificationId: NotificationIds<T>;
+};
 //# sourceMappingURL=types.d.ts.map

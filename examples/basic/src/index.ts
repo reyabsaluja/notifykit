@@ -93,6 +93,30 @@ async function main() {
 
   console.log("\nFake provider sent:");
   console.log(provider.sent);
+
+  console.log("\n--- Preferences demo ---");
+  await notify.preferences.update({
+    recipientId: "user_123",
+    notificationId: "comment_mentioned",
+    channels: { email: false },
+  });
+
+  const second = await notify.send({
+    recipientId: "user_123",
+    notificationId: "comment_mentioned",
+    payload: {
+      actorName: "Ada",
+      postTitle: "Q2 Roadmap",
+      postUrl: "/posts/456",
+    },
+  });
+
+  console.log(
+    `Second send — skipped channels: ${second.skippedChannels.join(", ") || "(none)"}`,
+  );
+  console.log(`Inbox items created: ${second.inboxItems.length}`);
+  console.log(`Deliveries created: ${second.deliveries.length}`);
+  console.log(`Total emails sent so far: ${provider.sent.length}`);
 }
 
 main().catch((err) => {

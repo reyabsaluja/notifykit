@@ -4,9 +4,9 @@ export { createNotifyKit } from "./create-notifykit.js";
 export { memoryAdapter } from "./memory-adapter.js";
 export { fakeEmailProvider } from "./providers.js";
 export { NotifyKitError, PayloadValidationError, renderTemplate, } from "./utils.js";
-export type { CreateNotifyKitInput, NotifyKit, } from "./create-notifykit.js";
+export type { CreateNotifyKitInput, NotifyKit, SendResult, } from "./create-notifykit.js";
 export type { EmailChannelFactory, EmailChannelInput, InboxChannelFactory, InboxChannelInput, } from "./channel.js";
 export type { MemoryAdapter } from "./memory-adapter.js";
 export type { FakeEmailProvider, FakeEmailProviderOptions, SentEmail, } from "./providers.js";
-export type { ChannelConfig, DatabaseAdapter, DeliveryRecord, DeliveryStatus, EmailChannelConfig, EmailProvider, Hooks, InboxChannelConfig, InboxItem, InferSchema, NotificationDefinition, NotificationRecord, PayloadSchema, PrimitiveSchema, Recipient, SendInput, UpsertRecipientInput, } from "./types.js";
+export type { ChannelConfig, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryRecord, DeliveryStatus, EmailChannelConfig, EmailProvider, GetPreferenceInput, Hooks, InboxChannelConfig, InboxItem, InferSchema, NotificationDefinition, NotificationIds, NotificationRecord, PayloadSchema, PrimitiveSchema, Recipient, RecipientPreference, SendInput, UpdatePreferenceInput, UpsertRecipientInput, } from "./types.js";
 //# sourceMappingURL=index.d.ts.map

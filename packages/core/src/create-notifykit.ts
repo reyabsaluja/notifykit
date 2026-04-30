@@ -1,14 +1,18 @@
 import type {
+  ChannelType,
   DatabaseAdapter,
   DeliveryRecord,
   EmailProvider,
+  GetPreferenceInput,
   Hooks,
   InboxItem,
   NotificationDefinition,
   NotificationRecord,
   PayloadSchema,
   Recipient,
+  RecipientPreference,
   SendInput,
+  UpdatePreferenceInput,
   UpsertRecipientInput,
 } from "./types.js";
 import { NotifyKitError, renderTemplate, validatePayload } from "./utils.js";
@@ -24,21 +28,29 @@ export type CreateNotifyKitInput<
   on?: Hooks;
 };
 
+export type SendResult = {
+  notification: NotificationRecord;
+  inboxItems: InboxItem[];
+  deliveries: DeliveryRecord[];
+  skippedChannels: ChannelType[];
+};
+
 export type NotifyKit<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 > = {
   upsertRecipient(input: UpsertRecipientInput): Promise<Recipient>;
-  send(input: SendInput<T>): Promise<{
-    notification: NotificationRecord;
-    inboxItems: InboxItem[];
-    deliveries: DeliveryRecord[];
-  }>;
+  send(input: SendInput<T>): Promise<SendResult>;
   inbox: {
     list(recipientId: string): Promise<InboxItem[]>;
     markRead(inboxItemId: string): Promise<InboxItem | null>;
   };
   deliveries: {
     list(recipientId?: string): Promise<DeliveryRecord[]>;
+  };
+  preferences: {
+    get(input: GetPreferenceInput<T>): Promise<RecipientPreference | null>;
+    list(recipientId: string): Promise<RecipientPreference[]>;
+    update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
   };
 };
 
@@ -74,13 +86,7 @@ export function createNotifyKit<
     }
   }
 
-  async function send(
-    rawInput: SendInput<T>,
-  ): Promise<{
-    notification: NotificationRecord;
-    inboxItems: InboxItem[];
-    deliveries: DeliveryRecord[];
-  }> {
+  async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as {
       recipientId: string;
       notificationId: string;
@@ -102,6 +108,13 @@ export function createNotifyKit<
 
     const payload = validatePayload(def.payload, input.payload, def.id);
 
+    const preference = await database.preferences.get(recipient.id, def.id);
+    const isChannelAllowed = (type: ChannelType): boolean => {
+      if (!preference) return true;
+      const value = preference.channels[type];
+      return value !== false;
+    };
+
     const notificationRecord = await database.notifications.create({
       recipientId: recipient.id,
       notificationId: def.id,
@@ -111,8 +124,13 @@ export function createNotifyKit<
 
     const inboxItems: InboxItem[] = [];
     const deliveries: DeliveryRecord[] = [];
+    const skippedChannels: ChannelType[] = [];
 
     for (const ch of def.channels) {
+      if (!isChannelAllowed(ch.type)) {
+        skippedChannels.push(ch.type);
+        continue;
+      }
       if (ch.type === "inbox") {
         const item = await database.inbox.create({
           notificationRecordId: notificationRecord.id,
@@ -190,7 +208,41 @@ export function createNotifyKit<
       notification: notificationRecord,
       inboxItems,
       deliveries,
+      skippedChannels,
     };
+  }
+
+  async function updatePreference(
+    rawInput: UpdatePreferenceInput<T>,
+  ): Promise<RecipientPreference> {
+    const input = rawInput as UpdatePreferenceInput<
+      readonly NotificationDefinition<string, PayloadSchema>[]
+    >;
+    if (!byId.has(input.notificationId)) {
+      throw new NotifyKitError(
+        `Unknown notification id: "${input.notificationId}".`,
+      );
+    }
+    const recipient = await database.recipients.findById(input.recipientId);
+    if (!recipient) {
+      throw new NotifyKitError(
+        `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+      );
+    }
+    return database.preferences.upsert({
+      recipientId: input.recipientId,
+      notificationId: input.notificationId,
+      channels: input.channels,
+    });
+  }
+
+  async function getPreference(
+    rawInput: GetPreferenceInput<T>,
+  ): Promise<RecipientPreference | null> {
+    const input = rawInput as GetPreferenceInput<
+      readonly NotificationDefinition<string, PayloadSchema>[]
+    >;
+    return database.preferences.get(input.recipientId, input.notificationId);
   }
 
   return {
@@ -210,6 +262,13 @@ export function createNotifyKit<
       list(recipientId) {
         return database.deliveries.list(recipientId);
       },
+    },
+    preferences: {
+      get: getPreference,
+      list(recipientId) {
+        return database.preferences.list(recipientId);
+      },
+      update: updatePreference,
     },
   };
 }

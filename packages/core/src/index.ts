@@ -12,6 +12,7 @@ export {
 export type {
   CreateNotifyKitInput,
   NotifyKit,
+  SendResult,
 } from "./create-notifykit.js";
 
 export type {
@@ -31,20 +32,26 @@ export type {
 
 export type {
   ChannelConfig,
+  ChannelPreferenceMap,
+  ChannelType,
   DatabaseAdapter,
   DeliveryRecord,
   DeliveryStatus,
   EmailChannelConfig,
   EmailProvider,
+  GetPreferenceInput,
   Hooks,
   InboxChannelConfig,
   InboxItem,
   InferSchema,
   NotificationDefinition,
+  NotificationIds,
   NotificationRecord,
   PayloadSchema,
   PrimitiveSchema,
   Recipient,
+  RecipientPreference,
   SendInput,
+  UpdatePreferenceInput,
   UpsertRecipientInput,
 } from "./types.js";

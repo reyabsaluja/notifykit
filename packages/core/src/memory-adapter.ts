@@ -4,6 +4,7 @@ import type {
   InboxItem,
   NotificationRecord,
   Recipient,
+  RecipientPreference,
   UpsertRecipientInput,
 } from "./types.js";
 import { createId } from "./utils.js";
@@ -14,6 +15,7 @@ export type MemoryAdapter = DatabaseAdapter & {
     notifications: NotificationRecord[];
     inboxItems: InboxItem[];
     deliveries: DeliveryRecord[];
+    preferences: RecipientPreference[];
   };
 };
 
@@ -23,6 +25,7 @@ export function memoryAdapter(): MemoryAdapter {
     notifications: [] as NotificationRecord[],
     inboxItems: [] as InboxItem[],
     deliveries: [] as DeliveryRecord[],
+    preferences: [] as RecipientPreference[],
   };
 
   const adapter: MemoryAdapter = {
@@ -135,6 +138,43 @@ export function memoryAdapter(): MemoryAdapter {
           .filter((d) => d.recipientId === recipientId)
           .slice()
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      },
+    },
+    preferences: {
+      async get(recipientId, notificationId) {
+        return (
+          state.preferences.find(
+            (p) =>
+              p.recipientId === recipientId &&
+              p.notificationId === notificationId,
+          ) ?? null
+        );
+      },
+      async list(recipientId) {
+        return state.preferences
+          .filter((p) => p.recipientId === recipientId)
+          .slice();
+      },
+      async upsert(input) {
+        const existing = state.preferences.find(
+          (p) =>
+            p.recipientId === input.recipientId &&
+            p.notificationId === input.notificationId,
+        );
+        const now = new Date();
+        if (existing) {
+          existing.channels = { ...existing.channels, ...input.channels };
+          existing.updatedAt = now;
+          return existing;
+        }
+        const record: RecipientPreference = {
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          channels: { ...input.channels },
+          updatedAt: now,
+        };
+        state.preferences.push(record);
+        return record;
       },
     },
   };

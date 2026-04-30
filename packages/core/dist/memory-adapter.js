@@ -5,6 +5,7 @@ export function memoryAdapter() {
         notifications: [],
         inboxItems: [],
         deliveries: [],
+        preferences: [],
     };
     const adapter = {
         _state: state,
@@ -120,6 +121,35 @@ export function memoryAdapter() {
                     .filter((d) => d.recipientId === recipientId)
                     .slice()
                     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+            },
+        },
+        preferences: {
+            async get(recipientId, notificationId) {
+                return (state.preferences.find((p) => p.recipientId === recipientId &&
+                    p.notificationId === notificationId) ?? null);
+            },
+            async list(recipientId) {
+                return state.preferences
+                    .filter((p) => p.recipientId === recipientId)
+                    .slice();
+            },
+            async upsert(input) {
+                const existing = state.preferences.find((p) => p.recipientId === input.recipientId &&
+                    p.notificationId === input.notificationId);
+                const now = new Date();
+                if (existing) {
+                    existing.channels = { ...existing.channels, ...input.channels };
+                    existing.updatedAt = now;
+                    return existing;
+                }
+                const record = {
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                    channels: { ...input.channels },
+                    updatedAt: now,
+                };
+                state.preferences.push(record);
+                return record;
             },
         },
     };

@@ -1,10 +1,11 @@
-import type { DatabaseAdapter, DeliveryRecord, InboxItem, NotificationRecord, Recipient } from "./types.js";
+import type { DatabaseAdapter, DeliveryRecord, InboxItem, NotificationRecord, Recipient, RecipientPreference } from "./types.js";
 export type MemoryAdapter = DatabaseAdapter & {
     _state: {
         recipients: Recipient[];
         notifications: NotificationRecord[];
         inboxItems: InboxItem[];
         deliveries: DeliveryRecord[];
+        preferences: RecipientPreference[];
     };
 };
 export declare function memoryAdapter(): MemoryAdapter;

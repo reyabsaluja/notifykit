@@ -320,6 +320,104 @@ describe("NotifyKit core", () => {
     expect(captured.delivery?.status).toBe("sent");
   });
 
+  test("preferences default to allow when none set", async () => {
+    const { notify, provider } = buildKit();
+    await notify.upsertRecipient({
+      id: "user_1",
+      email: "a@example.com",
+    });
+    const listed = await notify.preferences.list("user_1");
+    expect(listed).toEqual([]);
+
+    const result = await notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: {
+        actorName: "Rey",
+        postTitle: "Launch Plan",
+        postUrl: "/posts/123",
+      },
+    });
+    expect(result.skippedChannels).toEqual([]);
+    expect(result.inboxItems).toHaveLength(1);
+    expect(result.deliveries).toHaveLength(1);
+    expect(provider.sent).toHaveLength(1);
+  });
+
+  test("preferences.update opts out of email but keeps inbox", async () => {
+    const { notify, provider } = buildKit();
+    await notify.upsertRecipient({
+      id: "user_1",
+      email: "a@example.com",
+    });
+    const pref = await notify.preferences.update({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+    expect(pref.channels.email).toBe(false);
+
+    const result = await notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: {
+        actorName: "Rey",
+        postTitle: "Launch Plan",
+        postUrl: "/posts/123",
+      },
+    });
+
+    expect(result.skippedChannels).toEqual(["email"]);
+    expect(result.inboxItems).toHaveLength(1);
+    expect(result.deliveries).toHaveLength(0);
+    expect(provider.sent).toHaveLength(0);
+  });
+
+  test("preferences.update merges channel settings across calls", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({
+      id: "user_1",
+      email: "a@example.com",
+    });
+    await notify.preferences.update({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+    await notify.preferences.update({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      channels: { inbox: true },
+    });
+    const pref = await notify.preferences.get({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+    });
+    expect(pref).not.toBeNull();
+    expect(pref!.channels).toEqual({ email: false, inbox: true });
+  });
+
+  test("preferences.update throws for unknown notification or recipient", async () => {
+    const { notify } = buildKit();
+    await expect(
+      notify.preferences.update({
+        recipientId: "ghost",
+        notificationId: "comment_mentioned",
+        channels: { email: false },
+      }),
+    ).rejects.toThrow(/Unknown recipient/);
+
+    await notify.upsertRecipient({ id: "user_1" });
+    await expect(
+      notify.preferences.update({
+        recipientId: "user_1",
+        // @ts-expect-error — unknown id at compile time
+        notificationId: "nope",
+        channels: { email: false },
+      }),
+    ).rejects.toThrow(/Unknown notification/);
+  });
+
   test("delivery.failed hook fires when provider throws", async () => {
     const failing = fakeEmailProvider({ failOnNext: true });
     const events: string[] = [];
