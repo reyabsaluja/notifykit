@@ -1,6 +1,8 @@
+import { verifyUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, PayloadValidationError } from "./utils.js";
 export function createHandler(notify, options) {
     const basePath = normalizeBasePath(options.basePath ?? "/api/notifykit");
+    const unsubscribeSecret = options.unsubscribeSecret;
     return async function handler(request) {
         const url = new URL(request.url);
         const path = url.pathname;
@@ -15,6 +17,40 @@ export function createHandler(notify, options) {
         // notifications.list is public metadata — no auth required
         if (route.kind === "notifications.list") {
             return json({ data: buildNotificationsIndex(notify) });
+        }
+        // Unsubscribe routes use HMAC token as auth — bypass identify().
+        if (route.kind === "unsubscribe.get" || route.kind === "unsubscribe.post") {
+            if (!unsubscribeSecret) {
+                return json({ error: "Not found" }, 404);
+            }
+            const token = await extractUnsubscribeToken(request, url);
+            if (!token) {
+                return unsubscribeHtml("This unsubscribe link is missing its token.", 400);
+            }
+            const claims = verifyUnsubscribeToken(token, unsubscribeSecret);
+            if (!claims) {
+                return unsubscribeHtml("This unsubscribe link is invalid or has been tampered with.", 400);
+            }
+            try {
+                await notify.preferences.update({
+                    recipientId: claims.recipientId,
+                    notificationId: claims.notificationId,
+                    channels: { email: false },
+                });
+            }
+            catch (err) {
+                if (err instanceof NotifyKitError) {
+                    return unsubscribeHtml("This unsubscribe link refers to a notification or account that no longer exists.", 404);
+                }
+                throw err;
+            }
+            if (route.kind === "unsubscribe.post") {
+                // RFC 8058 one-click: return 200 with empty body. 204 is fine too
+                // but some mail-provider crawlers insist on 2xx text, so 200/"" is
+                // the safest choice.
+                return new Response("", { status: 200 });
+            }
+            return unsubscribeHtml(`You've been unsubscribed from "${escapeHtml(claims.notificationId)}" emails.`, 200);
         }
         const recipientId = await options.identify(request);
         if (!recipientId) {
@@ -106,6 +142,13 @@ function matchRoute(method, sub) {
             return { kind: "notifications.list" };
         return { kind: "not_found" };
     }
+    if (trimmed === "/unsubscribe") {
+        if (method === "GET")
+            return { kind: "unsubscribe.get" };
+        if (method === "POST")
+            return { kind: "unsubscribe.post" };
+        return { kind: "not_found" };
+    }
     return { kind: "not_found" };
 }
 function normalizeBasePath(input) {
@@ -140,5 +183,64 @@ function json(body, status = 200) {
         status,
         headers: { "content-type": "application/json" },
     });
+}
+async function extractUnsubscribeToken(request, url) {
+    const fromQuery = url.searchParams.get("token");
+    if (fromQuery)
+        return fromQuery;
+    if (request.method === "POST") {
+        const contentType = request.headers.get("content-type") ?? "";
+        if (contentType.includes("application/x-www-form-urlencoded")) {
+            try {
+                const body = await request.text();
+                const params = new URLSearchParams(body);
+                const fromForm = params.get("token");
+                if (fromForm)
+                    return fromForm;
+            }
+            catch {
+                return null;
+            }
+        }
+        else if (contentType.includes("application/json")) {
+            try {
+                const body = (await request.json());
+                if (body && typeof body.token === "string")
+                    return body.token;
+            }
+            catch {
+                return null;
+            }
+        }
+        // RFC 8058: List-Unsubscribe-Post header with "List-Unsubscribe=One-Click"
+        // uses no body and no query — the signed token lives in the URL the
+        // sender built. Callers who omit the token on POST fail here as expected.
+    }
+    return null;
+}
+function unsubscribeHtml(message, status) {
+    const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Unsubscribe</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body style="font-family: system-ui, sans-serif; max-width: 36rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5;">
+    <p>${message}</p>
+  </body>
+</html>`;
+    return new Response(html, {
+        status,
+        headers: { "content-type": "text/html; charset=utf-8" },
+    });
+}
+function escapeHtml(s) {
+    return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 //# sourceMappingURL=handler.js.map

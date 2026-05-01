@@ -14,6 +14,18 @@ export type CreateNotifyKitInput<T extends readonly NotificationDefinition<strin
     queue?: Queue;
     /** Retry policy for email deliveries. Defaults to 3 attempts with backoff. */
     retry?: Partial<RetryPolicy>;
+    /**
+     * Enable unsubscribe links. When set, email templates can reference
+     * `{{_unsubscribeUrl}}` and the handler exposes a public route that flips
+     * `preferences.channels.email = false` for the signed recipient +
+     * notification pair. Omit to disable the feature entirely.
+     */
+    unsubscribe?: {
+        /** HMAC secret used to sign tokens. Rotate with care — existing links break. */
+        secret: string;
+        /** Absolute URL (including scheme + host) the handler is mounted at, e.g. "https://app.com/api/notifykit". */
+        baseUrl: string;
+    };
 };
 export type SendResult = {
     notification: NotificationRecord | null;

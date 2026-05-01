@@ -20,6 +20,7 @@ import type {
 } from "./types.js";
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
+import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, renderTemplate, validatePayload } from "./utils.js";
 
 export type CreateNotifyKitInput<
@@ -39,6 +40,18 @@ export type CreateNotifyKitInput<
   queue?: Queue;
   /** Retry policy for email deliveries. Defaults to 3 attempts with backoff. */
   retry?: Partial<RetryPolicy>;
+  /**
+   * Enable unsubscribe links. When set, email templates can reference
+   * `{{_unsubscribeUrl}}` and the handler exposes a public route that flips
+   * `preferences.channels.email = false` for the signed recipient +
+   * notification pair. Omit to disable the feature entirely.
+   */
+  unsubscribe?: {
+    /** HMAC secret used to sign tokens. Rotate with care — existing links break. */
+    secret: string;
+    /** Absolute URL (including scheme + host) the handler is mounted at, e.g. "https://app.com/api/notifykit". */
+    baseUrl: string;
+  };
 };
 
 export type SendResult = {
@@ -111,6 +124,20 @@ export function createNotifyKit<
     maxAttempts: config.retry?.maxAttempts ?? defaultRetryPolicy.maxAttempts,
     delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
   };
+  const unsubscribeConfig = config.unsubscribe ?? null;
+
+  function buildUnsubscribeUrl(
+    recipientId: string,
+    notificationId: string,
+  ): string {
+    if (!unsubscribeConfig) return "";
+    const token = signUnsubscribeToken(
+      { recipientId, notificationId },
+      unsubscribeConfig.secret,
+    );
+    const base = unsubscribeConfig.baseUrl.replace(/\/+$/, "");
+    return `${base}/unsubscribe?token=${encodeURIComponent(token)}`;
+  }
 
   const byId = new Map<string, NotificationDefinition<string, PayloadSchema>>();
   for (const def of notifications) {
@@ -434,8 +461,15 @@ export function createNotifyKit<
           );
         }
 
-        const subject = renderTemplate(ch.subject, payload);
-        const body = renderTemplate(ch.body, payload);
+        const renderCtx: Record<string, unknown> = { ...payload };
+        if (unsubscribeConfig) {
+          renderCtx._unsubscribeUrl = buildUnsubscribeUrl(
+            recipient.id,
+            def.id,
+          );
+        }
+        const subject = renderTemplate(ch.subject, renderCtx);
+        const body = renderTemplate(ch.body, renderCtx);
 
         const delivery = await database.deliveries.create({
           notificationRecordId: notificationRecord.id,

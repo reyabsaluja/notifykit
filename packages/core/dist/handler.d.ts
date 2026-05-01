@@ -17,6 +17,12 @@ export type CreateHandlerOptions = {
      * Everything outside this prefix returns 404.
      */
     basePath?: string;
+    /**
+     * HMAC secret used to verify signed unsubscribe tokens. Required to expose
+     * the `/unsubscribe` route; must match `createNotifyKit({ unsubscribe.secret })`.
+     * When omitted, the route returns 404.
+     */
+    unsubscribeSecret?: string;
 };
 export type Handler = (request: Request) => Promise<Response>;
 export declare function createHandler<T extends readonly NotificationDefinition<string, PayloadSchema>[]>(notify: NotifyKit<T>, options: CreateHandlerOptions): Handler;

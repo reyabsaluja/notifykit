@@ -1,5 +1,6 @@
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
+import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, renderTemplate, validatePayload } from "./utils.js";
 export function createNotifyKit(config) {
     const { notifications, database, providers, on } = config;
@@ -8,6 +9,14 @@ export function createNotifyKit(config) {
         maxAttempts: config.retry?.maxAttempts ?? defaultRetryPolicy.maxAttempts,
         delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
     };
+    const unsubscribeConfig = config.unsubscribe ?? null;
+    function buildUnsubscribeUrl(recipientId, notificationId) {
+        if (!unsubscribeConfig)
+            return "";
+        const token = signUnsubscribeToken({ recipientId, notificationId }, unsubscribeConfig.secret);
+        const base = unsubscribeConfig.baseUrl.replace(/\/+$/, "");
+        return `${base}/unsubscribe?token=${encodeURIComponent(token)}`;
+    }
     const byId = new Map();
     for (const def of notifications) {
         if (byId.has(def.id)) {
@@ -265,8 +274,12 @@ export function createNotifyKit(config) {
                 if (!recipient.email) {
                     throw new NotifyKitError(`Recipient "${recipient.id}" has no email address; cannot send email notification "${def.id}".`);
                 }
-                const subject = renderTemplate(ch.subject, payload);
-                const body = renderTemplate(ch.body, payload);
+                const renderCtx = { ...payload };
+                if (unsubscribeConfig) {
+                    renderCtx._unsubscribeUrl = buildUnsubscribeUrl(recipient.id, def.id);
+                }
+                const subject = renderTemplate(ch.subject, renderCtx);
+                const body = renderTemplate(ch.body, renderCtx);
                 const delivery = await database.deliveries.create({
                     notificationRecordId: notificationRecord.id,
                     recipientId: recipient.id,

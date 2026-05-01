@@ -10,6 +10,11 @@ export {
   setTimeoutQueue,
 } from "./queues.js";
 export {
+  signUnsubscribeToken,
+  verifyUnsubscribeToken,
+  type UnsubscribeTokenClaims,
+} from "./unsubscribe.js";
+export {
   NotifyKitError,
   PayloadValidationError,
   renderTemplate,
