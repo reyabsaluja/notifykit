@@ -32,9 +32,10 @@ const commentMentioned = notification({
 });
 
 async function buildHarness(identifyAs: string | null = "user_1") {
+  const database = memoryAdapter();
   const notify = createNotifyKit({
     notifications: [commentMentioned] as const,
-    database: memoryAdapter(),
+    database,
     providers: { email: fakeEmailProvider() },
   });
 
@@ -53,7 +54,7 @@ async function buildHarness(identifyAs: string | null = "user_1") {
     name: "Bob",
   });
 
-  return { notify, handler };
+  return { notify, handler, database };
 }
 
 const BASE = "http://localhost/api/notifykit";
@@ -221,6 +222,152 @@ describe("createHandler", () => {
       notificationId: "comment_mentioned",
     });
     expect(pref?.channels).toEqual({ email: false, inbox: true });
+  });
+
+  test("POST /preferences ignores client-supplied recipient and tenant ids", async () => {
+    const handler = createHandler(ctx.notify, {
+      identify: () => ({
+        recipientId: "user_1",
+        tenantId: "tenant_a",
+      }),
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/preferences`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          recipientId: "user_2",
+          tenantId: "tenant_b",
+          notificationId: "comment_mentioned",
+          channels: { email: false },
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const alicePref = await ctx.notify.preferences.get({
+      recipientId: "user_1",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+    });
+    const bobPref = await ctx.notify.preferences.get({
+      recipientId: "user_2",
+      tenantId: "tenant_b",
+      notificationId: "comment_mentioned",
+    });
+    expect(alicePref?.channels).toEqual({ email: false });
+    expect(bobPref).toBeNull();
+  });
+
+  test("tenant-scoped inbox routes hide and refuse rows from other tenants", async () => {
+    const handler = createHandler(ctx.notify, {
+      identify: () => ({
+        recipientId: "user_1",
+        tenantId: "tenant_a",
+      }),
+    });
+
+    await ctx.database.inbox.create({
+      notificationRecordId: "ntf_tenant_a",
+      recipientId: "user_1",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      title: "Tenant A",
+    });
+    const tenantBItem = await ctx.database.inbox.create({
+      notificationRecordId: "ntf_tenant_b",
+      recipientId: "user_1",
+      tenantId: "tenant_b",
+      notificationId: "comment_mentioned",
+      title: "Tenant B",
+    });
+
+    const list = await handler(new Request(`${BASE}/inbox`));
+    expect(list.status).toBe(200);
+    const body = (await list.json()) as {
+      data: Array<{ title: string; tenantId?: string }>;
+    };
+    expect(body.data.map((item) => ({
+      title: item.title,
+      tenantId: item.tenantId,
+    }))).toEqual([{ title: "Tenant A", tenantId: "tenant_a" }]);
+
+    const markOtherTenant = await handler(
+      new Request(`${BASE}/inbox/${tenantBItem.id}/read`, { method: "POST" }),
+    );
+    expect(markOtherTenant.status).toBe(403);
+    const allTenantBItems = await ctx.notify.inbox.list("user_1", {
+      tenantId: "tenant_b",
+    });
+    expect(allTenantBItems[0]!.readAt).toBeNull();
+  });
+
+  test("GET /deliveries requires permission and filters by tenant scope", async () => {
+    await ctx.notify.upsertRecipient({
+      id: "user_1",
+      tenantId: "tenant_a",
+      email: "a@example.com",
+    });
+    await ctx.notify.upsertRecipient({
+      id: "user_2",
+      tenantId: "tenant_b",
+      email: "b@example.com",
+    });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: {
+        actorName: "Rey",
+        postTitle: "Tenant A",
+        postUrl: "/a",
+      },
+    });
+    await ctx.notify.send({
+      recipientId: "user_2",
+      notificationId: "comment_mentioned",
+      payload: {
+        actorName: "Rey",
+        postTitle: "Tenant B",
+        postUrl: "/b",
+      },
+    });
+
+    const denied = createHandler(ctx.notify, {
+      identify: () => ({ recipientId: "user_1", tenantId: "tenant_a" }),
+    });
+    expect((await denied(new Request(`${BASE}/deliveries`))).status).toBe(403);
+
+    const allowed = createHandler(ctx.notify, {
+      identify: () => ({
+        recipientId: "user_1",
+        tenantId: "tenant_a",
+        permissions: ["deliveries.list"],
+      }),
+    });
+    const res = await allowed(new Request(`${BASE}/deliveries`));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ recipientId: string; tenantId?: string }>;
+    };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]!.recipientId).toBe("user_1");
+    expect(body.data[0]!.tenantId).toBe("tenant_a");
+  });
+
+  test("GET /deliveries can be allowed through the authorize hook", async () => {
+    let sawPermission: string | null = null;
+    const handler = createHandler(ctx.notify, {
+      identify: () => ({ recipientId: "user_1" }),
+      authorize: (_ctx, permission) => {
+        sawPermission = permission;
+        return true;
+      },
+    });
+
+    const res = await handler(new Request(`${BASE}/deliveries`));
+    expect(res.status).toBe(200);
+    expect(sawPermission).toBe("deliveries.list");
   });
 
   test("POST /preferences rejects unknown notification id as 400", async () => {

@@ -5,7 +5,14 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * unsubscribe links must keep working indefinitely.
  */
 export function signUnsubscribeToken(claims, secret) {
-    const payload = `${encode(claims.recipientId)}:${encode(claims.notificationId)}`;
+    const payload = [
+        claims.recipientId,
+        claims.notificationId,
+        claims.tenantId ?? "",
+        claims.workspaceId ?? "",
+    ]
+        .map(encode)
+        .join(":");
     const signature = hmac(payload, secret);
     return `${toBase64Url(Buffer.from(payload))}.${signature}`;
 }
@@ -37,16 +44,21 @@ export function verifyUnsubscribeToken(token, secret) {
     if (!timingSafeEqual(a, b))
         return null;
     const segments = payload.split(":");
-    if (segments.length !== 2)
+    if (segments.length !== 2 && segments.length !== 4)
         return null;
-    const [encRecipient, encNotification] = segments;
+    const [encRecipient, encNotification, encTenant, encWorkspace] = segments;
     if (!encRecipient || !encNotification)
         return null;
     try {
-        return {
+        const claims = {
             recipientId: decode(encRecipient),
             notificationId: decode(encNotification),
         };
+        if (encTenant)
+            claims.tenantId = decode(encTenant);
+        if (encWorkspace)
+            claims.workspaceId = decode(encWorkspace);
+        return claims;
     }
     catch {
         return null;

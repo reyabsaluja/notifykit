@@ -11,6 +11,8 @@ import {
 
 export const recipients = pgTable("notifykit_recipients", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id"),
+  workspaceId: text("workspace_id"),
   email: text("email"),
   name: text("name"),
   quietHours: jsonb("quiet_hours").$type<{
@@ -31,6 +33,8 @@ export const notifications = pgTable(
   {
     id: text("id").primaryKey(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
@@ -48,6 +52,8 @@ export const inboxItems = pgTable(
     id: text("id").primaryKey(),
     notificationRecordId: text("notification_record_id").notNull(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     title: text("title").notNull(),
     body: text("body"),
@@ -66,6 +72,8 @@ export const deliveries = pgTable(
     id: text("id").primaryKey(),
     notificationRecordId: text("notification_record_id").notNull(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     channel: text("channel").notNull().$type<"email" | "webhook">(),
     provider: text("provider").notNull(),
@@ -92,12 +100,21 @@ export const preferences = pgTable(
   "notifykit_preferences",
   {
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id").notNull().default(""),
+    workspaceId: text("workspace_id").notNull().default(""),
     notificationId: text("notification_id").notNull(),
     channels: jsonb("channels").$type<Record<string, boolean>>().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.recipientId, table.notificationId] }),
+    pk: primaryKey({
+      columns: [
+        table.recipientId,
+        table.notificationId,
+        table.tenantId,
+        table.workspaceId,
+      ],
+    }),
   }),
 );
 
@@ -106,6 +123,8 @@ export const scheduledSends = pgTable(
   {
     id: text("id").primaryKey(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     scheduledFor: timestamp("scheduled_for", {
@@ -137,6 +156,8 @@ export const rateLimitEvents = pgTable(
     id: text("id").primaryKey(),
     key: text("key").notNull(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     occurredAt: timestamp("occurred_at", {
       withTimezone: true,
@@ -156,6 +177,8 @@ export const digestBuffers = pgTable(
   {
     key: text("key").primaryKey(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payloads: jsonb("payloads")
       .$type<Record<string, unknown>[]>()

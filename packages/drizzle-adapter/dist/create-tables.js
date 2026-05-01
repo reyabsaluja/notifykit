@@ -9,6 +9,8 @@ export async function createSqliteTables(db) {
     const statements = [
         `CREATE TABLE IF NOT EXISTS notifykit_recipients (
       id TEXT PRIMARY KEY,
+      tenant_id TEXT,
+      workspace_id TEXT,
       email TEXT,
       name TEXT,
       quiet_hours TEXT,
@@ -18,6 +20,8 @@ export async function createSqliteTables(db) {
         `CREATE TABLE IF NOT EXISTS notifykit_notifications (
       id TEXT PRIMARY KEY,
       recipient_id TEXT NOT NULL,
+      tenant_id TEXT,
+      workspace_id TEXT,
       notification_id TEXT NOT NULL,
       payload TEXT NOT NULL,
       created_at INTEGER NOT NULL
@@ -28,6 +32,8 @@ export async function createSqliteTables(db) {
       id TEXT PRIMARY KEY,
       notification_record_id TEXT NOT NULL,
       recipient_id TEXT NOT NULL,
+      tenant_id TEXT,
+      workspace_id TEXT,
       notification_id TEXT NOT NULL,
       title TEXT NOT NULL,
       body TEXT,
@@ -41,6 +47,8 @@ export async function createSqliteTables(db) {
       id TEXT PRIMARY KEY,
       notification_record_id TEXT NOT NULL,
       recipient_id TEXT NOT NULL,
+      tenant_id TEXT,
+      workspace_id TEXT,
       notification_id TEXT NOT NULL,
       channel TEXT NOT NULL,
       provider TEXT NOT NULL,
@@ -60,14 +68,18 @@ export async function createSqliteTables(db) {
       ON notifykit_deliveries (recipient_id)`,
         `CREATE TABLE IF NOT EXISTS notifykit_preferences (
       recipient_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT '',
+      workspace_id TEXT NOT NULL DEFAULT '',
       notification_id TEXT NOT NULL,
       channels TEXT NOT NULL,
       updated_at INTEGER NOT NULL,
-      PRIMARY KEY (recipient_id, notification_id)
+      PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id)
     )`,
         `CREATE TABLE IF NOT EXISTS notifykit_digest_buffers (
       key TEXT PRIMARY KEY,
       recipient_id TEXT NOT NULL,
+      tenant_id TEXT,
+      workspace_id TEXT,
       notification_id TEXT NOT NULL,
       payloads TEXT NOT NULL,
       flush_at INTEGER NOT NULL,
@@ -80,6 +92,8 @@ export async function createSqliteTables(db) {
       id TEXT PRIMARY KEY,
       key TEXT NOT NULL,
       recipient_id TEXT NOT NULL,
+      tenant_id TEXT,
+      workspace_id TEXT,
       notification_id TEXT NOT NULL,
       occurred_at INTEGER NOT NULL
     )`,
@@ -88,6 +102,8 @@ export async function createSqliteTables(db) {
         `CREATE TABLE IF NOT EXISTS notifykit_scheduled_sends (
       id TEXT PRIMARY KEY,
       recipient_id TEXT NOT NULL,
+      tenant_id TEXT,
+      workspace_id TEXT,
       notification_id TEXT NOT NULL,
       payload TEXT NOT NULL,
       scheduled_for INTEGER NOT NULL,

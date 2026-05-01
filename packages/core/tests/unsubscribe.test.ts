@@ -118,6 +118,42 @@ describe("email rendering", () => {
     });
   });
 
+  test("signed unsubscribe tokens preserve tenant scope", async () => {
+    const { notify, handler, provider } = buildKit({ secret: "shhh" });
+    await notify.upsertRecipient({
+      id: "user_1",
+      tenantId: "tenant_a",
+      email: "a@example.com",
+    });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: {
+        actorName: "Rey",
+        postTitle: "Tenant Plan",
+        postUrl: "/t",
+      },
+    });
+
+    const body = provider.sent[0]!.body;
+    const token = new URL(body.match(/https?:\/\/\S+/)![0]).searchParams.get(
+      "token",
+    )!;
+    const claims = verifyUnsubscribeToken(token, "shhh")!;
+    expect(claims.tenantId).toBe("tenant_a");
+
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`),
+    );
+    expect(res.status).toBe(200);
+    const scoped = await notify.preferences.get({
+      recipientId: "user_1",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+    });
+    expect(scoped?.channels.email).toBe(false);
+  });
+
   test("without unsubscribe config, the placeholder renders empty", async () => {
     const { notify, provider } = buildKit(); // no secret
     await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });

@@ -2,19 +2,33 @@ import type {
   ChannelPreferenceMap,
   NotificationDefinition,
   PayloadSchema,
+  SecurityScope,
 } from "./types.js";
 import type { NotifyKit } from "./create-notifykit.js";
 import { verifyUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, PayloadValidationError } from "./utils.js";
 
-export type HandlerContext = {
+export type HandlerPermission = "deliveries.list";
+
+export type HandlerIdentity = SecurityScope & {
   recipientId: string;
+  permissions?: readonly (HandlerPermission | "admin")[];
+};
+
+export type HandlerContext = SecurityScope & {
+  recipientId: string;
+  identity: HandlerIdentity;
   request: Request;
 };
 
 export type Identify = (
   request: Request,
-) => Promise<string | null> | string | null;
+) => Promise<string | HandlerIdentity | null> | string | HandlerIdentity | null;
+
+export type Authorize = (
+  context: HandlerContext,
+  permission: HandlerPermission,
+) => Promise<boolean> | boolean;
 
 export type CreateHandlerOptions = {
   /**
@@ -23,6 +37,11 @@ export type CreateHandlerOptions = {
    * specific user — NotifyKit never trusts a client-sent recipientId.
    */
   identify: Identify;
+  /**
+   * Permission hook for admin/support/studio routes. Client-safe routes never
+   * call this because they are already bound to `identify()`.
+   */
+  authorize?: Authorize;
   /**
    * Path prefix for handler routes. Defaults to "/api/notifykit".
    * Everything outside this prefix returns 404.
@@ -43,6 +62,7 @@ type Route =
   | { kind: "inbox.markRead"; id: string }
   | { kind: "preferences.list" }
   | { kind: "preferences.update" }
+  | { kind: "deliveries.list" }
   | { kind: "notifications.list" }
   | { kind: "unsubscribe.get" }
   | { kind: "unsubscribe.post" }
@@ -95,6 +115,8 @@ export function createHandler<
       try {
         await notify.preferences.update({
           recipientId: claims.recipientId,
+          tenantId: claims.tenantId,
+          workspaceId: claims.workspaceId,
           notificationId: claims.notificationId,
           channels: { email: false },
         } as Parameters<typeof notify.preferences.update>[0]);
@@ -119,21 +141,32 @@ export function createHandler<
       );
     }
 
-    const recipientId = await options.identify(request);
-    if (!recipientId) {
+    const identity = normalizeIdentity(await options.identify(request));
+    if (!identity) {
       return json({ error: "Unauthenticated" }, 401);
     }
+    const context: HandlerContext = {
+      recipientId: identity.recipientId,
+      tenantId: identity.tenantId,
+      workspaceId: identity.workspaceId,
+      identity,
+      request,
+    };
 
     try {
       switch (route.kind) {
         case "inbox.list": {
-          const items = await notify.inbox.list(recipientId);
+          const items = await notify.inbox.list(
+            context.recipientId,
+            context,
+          );
           return json({ data: items });
         }
         case "inbox.markRead": {
           const result = await notify.inbox.markReadForRecipient(
             route.id,
-            recipientId,
+            context.recipientId,
+            context,
           );
           if (result.status === "not_found") {
             return json({ error: "Inbox item not found" }, 404);
@@ -144,7 +177,10 @@ export function createHandler<
           return json({ data: result.item });
         }
         case "preferences.list": {
-          const prefs = await notify.preferences.list(recipientId);
+          const prefs = await notify.preferences.list(
+            context.recipientId,
+            context,
+          );
           return json({ data: prefs });
         }
         case "preferences.update": {
@@ -170,11 +206,26 @@ export function createHandler<
             );
           }
           const updated = await notify.preferences.update({
-            recipientId,
+            recipientId: context.recipientId,
+            tenantId: context.tenantId,
+            workspaceId: context.workspaceId,
             notificationId,
             channels: validChannels,
           } as Parameters<typeof notify.preferences.update>[0]);
           return json({ data: updated });
+        }
+        case "deliveries.list": {
+          const allowed = await isAuthorized(
+            options,
+            context,
+            "deliveries.list",
+          );
+          if (!allowed) {
+            return json({ error: "Forbidden" }, 403);
+          }
+          const recipientId = url.searchParams.get("recipientId") ?? undefined;
+          const deliveries = await notify.deliveries.list(recipientId, context);
+          return json({ data: deliveries });
         }
       }
     } catch (err) {
@@ -223,6 +274,10 @@ function matchRoute(method: string, sub: string): Route {
     if (method === "POST") return { kind: "preferences.update" };
     return { kind: "not_found" };
   }
+  if (trimmed === "/deliveries") {
+    if (method === "GET") return { kind: "deliveries.list" };
+    return { kind: "not_found" };
+  }
   if (trimmed === "/notifications") {
     if (method === "GET") return { kind: "notifications.list" };
     return { kind: "not_found" };
@@ -233,6 +288,29 @@ function matchRoute(method: string, sub: string): Route {
     return { kind: "not_found" };
   }
   return { kind: "not_found" };
+}
+
+function normalizeIdentity(
+  value: Awaited<ReturnType<Identify>>,
+): HandlerIdentity | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    return { recipientId: value };
+  }
+  if (!value.recipientId) return null;
+  return value;
+}
+
+async function isAuthorized(
+  options: CreateHandlerOptions,
+  context: HandlerContext,
+  permission: HandlerPermission,
+): Promise<boolean> {
+  if (options.authorize) {
+    return await options.authorize(context, permission);
+  }
+  const permissions = context.identity.permissions ?? [];
+  return permissions.includes("admin") || permissions.includes(permission);
 }
 
 function normalizeBasePath(input: string): string {

@@ -20,6 +20,7 @@ const NAV: Group[] = [
       { href: "/docs/defining", label: "Defining notifications" },
       { href: "/docs/sending", label: "Sending" },
       { href: "/docs/preferences", label: "Preferences & unsubscribe" },
+      { href: "/docs/security", label: "Security model" },
       { href: "/docs/providers", label: "Production providers" },
     ],
   },

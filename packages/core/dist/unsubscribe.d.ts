@@ -1,5 +1,7 @@
 export type UnsubscribeTokenClaims = {
     recipientId: string;
+    tenantId?: string;
+    workspaceId?: string;
     notificationId: string;
 };
 /**

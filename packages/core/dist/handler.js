@@ -34,6 +34,8 @@ export function createHandler(notify, options) {
             try {
                 await notify.preferences.update({
                     recipientId: claims.recipientId,
+                    tenantId: claims.tenantId,
+                    workspaceId: claims.workspaceId,
                     notificationId: claims.notificationId,
                     channels: { email: false },
                 });
@@ -52,18 +54,25 @@ export function createHandler(notify, options) {
             }
             return unsubscribeHtml(`You've been unsubscribed from "${escapeHtml(claims.notificationId)}" emails.`, 200);
         }
-        const recipientId = await options.identify(request);
-        if (!recipientId) {
+        const identity = normalizeIdentity(await options.identify(request));
+        if (!identity) {
             return json({ error: "Unauthenticated" }, 401);
         }
+        const context = {
+            recipientId: identity.recipientId,
+            tenantId: identity.tenantId,
+            workspaceId: identity.workspaceId,
+            identity,
+            request,
+        };
         try {
             switch (route.kind) {
                 case "inbox.list": {
-                    const items = await notify.inbox.list(recipientId);
+                    const items = await notify.inbox.list(context.recipientId, context);
                     return json({ data: items });
                 }
                 case "inbox.markRead": {
-                    const result = await notify.inbox.markReadForRecipient(route.id, recipientId);
+                    const result = await notify.inbox.markReadForRecipient(route.id, context.recipientId, context);
                     if (result.status === "not_found") {
                         return json({ error: "Inbox item not found" }, 404);
                     }
@@ -73,7 +82,7 @@ export function createHandler(notify, options) {
                     return json({ data: result.item });
                 }
                 case "preferences.list": {
-                    const prefs = await notify.preferences.list(recipientId);
+                    const prefs = await notify.preferences.list(context.recipientId, context);
                     return json({ data: prefs });
                 }
                 case "preferences.update": {
@@ -90,11 +99,22 @@ export function createHandler(notify, options) {
                         return json({ error: "'channels' must be an object of { channel: boolean }" }, 400);
                     }
                     const updated = await notify.preferences.update({
-                        recipientId,
+                        recipientId: context.recipientId,
+                        tenantId: context.tenantId,
+                        workspaceId: context.workspaceId,
                         notificationId,
                         channels: validChannels,
                     });
                     return json({ data: updated });
+                }
+                case "deliveries.list": {
+                    const allowed = await isAuthorized(options, context, "deliveries.list");
+                    if (!allowed) {
+                        return json({ error: "Forbidden" }, 403);
+                    }
+                    const recipientId = url.searchParams.get("recipientId") ?? undefined;
+                    const deliveries = await notify.deliveries.list(recipientId, context);
+                    return json({ data: deliveries });
                 }
             }
         }
@@ -138,6 +158,11 @@ function matchRoute(method, sub) {
             return { kind: "preferences.update" };
         return { kind: "not_found" };
     }
+    if (trimmed === "/deliveries") {
+        if (method === "GET")
+            return { kind: "deliveries.list" };
+        return { kind: "not_found" };
+    }
     if (trimmed === "/notifications") {
         if (method === "GET")
             return { kind: "notifications.list" };
@@ -151,6 +176,23 @@ function matchRoute(method, sub) {
         return { kind: "not_found" };
     }
     return { kind: "not_found" };
+}
+function normalizeIdentity(value) {
+    if (!value)
+        return null;
+    if (typeof value === "string") {
+        return { recipientId: value };
+    }
+    if (!value.recipientId)
+        return null;
+    return value;
+}
+async function isAuthorized(options, context, permission) {
+    if (options.authorize) {
+        return await options.authorize(context, permission);
+    }
+    const permissions = context.identity.permissions ?? [];
+    return permissions.includes("admin") || permissions.includes(permission);
 }
 function normalizeBasePath(input) {
     let p = input.startsWith("/") ? input : `/${input}`;

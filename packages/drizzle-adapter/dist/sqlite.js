@@ -5,6 +5,28 @@ function createId(prefix) {
     const time = Date.now().toString(36);
     return `${prefix}_${time}${rand}`;
 }
+function scopeValue(value) {
+    return value ?? "";
+}
+function emptyToUndefined(value) {
+    return value ? value : undefined;
+}
+function scopedConditions(table, scope) {
+    const conditions = [];
+    if (scope?.tenantId !== undefined) {
+        conditions.push(eq(table.tenantId, scope.tenantId));
+    }
+    if (scope?.workspaceId !== undefined) {
+        conditions.push(eq(table.workspaceId, scope.workspaceId));
+    }
+    return conditions;
+}
+function preferenceScopeConditions(scope) {
+    return [
+        eq(preferences.tenantId, scopeValue(scope?.tenantId)),
+        eq(preferences.workspaceId, scopeValue(scope?.workspaceId)),
+    ];
+}
 /**
  * Process-local serialization for the adapter's atomic operations.
  *
@@ -59,6 +81,10 @@ export function drizzleSqliteAdapter(db) {
                 const current = existing[0];
                 if (current) {
                     const next = {
+                        tenantId: input.tenantId !== undefined ? input.tenantId : current.tenantId,
+                        workspaceId: input.workspaceId !== undefined
+                            ? input.workspaceId
+                            : current.workspaceId,
                         email: input.email !== undefined ? input.email : current.email,
                         name: input.name !== undefined ? input.name : current.name,
                         quietHours: input.quietHours !== undefined
@@ -72,6 +98,8 @@ export function drizzleSqliteAdapter(db) {
                         .where(eq(recipients.id, input.id));
                     return {
                         id: current.id,
+                        tenantId: next.tenantId ?? undefined,
+                        workspaceId: next.workspaceId ?? undefined,
                         email: next.email ?? undefined,
                         name: next.name ?? undefined,
                         quietHours: next.quietHours ?? undefined,
@@ -81,6 +109,8 @@ export function drizzleSqliteAdapter(db) {
                 }
                 await db.insert(recipients).values({
                     id: input.id,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     email: input.email,
                     name: input.name,
                     quietHours: input.quietHours ?? null,
@@ -89,6 +119,8 @@ export function drizzleSqliteAdapter(db) {
                 });
                 return {
                     id: input.id,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     email: input.email,
                     name: input.name,
                     quietHours: input.quietHours ?? undefined,
@@ -107,6 +139,8 @@ export function drizzleSqliteAdapter(db) {
                     return null;
                 return {
                     id: row.id,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     email: row.email ?? undefined,
                     name: row.name ?? undefined,
                     quietHours: row.quietHours ?? undefined,
@@ -120,6 +154,8 @@ export function drizzleSqliteAdapter(db) {
                 const record = {
                     id: createId("ntf"),
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     payload: input.payload,
                     createdAt: new Date(),
@@ -134,6 +170,8 @@ export function drizzleSqliteAdapter(db) {
                     id: createId("inb"),
                     notificationRecordId: input.notificationRecordId,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     title: input.title,
                     body: input.body,
@@ -145,6 +183,8 @@ export function drizzleSqliteAdapter(db) {
                     id: item.id,
                     notificationRecordId: item.notificationRecordId,
                     recipientId: item.recipientId,
+                    tenantId: item.tenantId ?? null,
+                    workspaceId: item.workspaceId ?? null,
                     notificationId: item.notificationId,
                     title: item.title,
                     body: item.body ?? null,
@@ -154,16 +194,22 @@ export function drizzleSqliteAdapter(db) {
                 });
                 return item;
             },
-            async listByRecipient(recipientId) {
+            async listByRecipient(recipientId, scope) {
+                const conditions = [
+                    eq(inboxItems.recipientId, recipientId),
+                    ...scopedConditions(inboxItems, scope),
+                ];
                 const rows = await db
                     .select()
                     .from(inboxItems)
-                    .where(eq(inboxItems.recipientId, recipientId))
+                    .where(and(...conditions))
                     .orderBy(desc(inboxItems.createdAt));
                 return rows.map((r) => ({
                     id: r.id,
                     notificationRecordId: r.notificationRecordId,
                     recipientId: r.recipientId,
+                    tenantId: r.tenantId ?? undefined,
+                    workspaceId: r.workspaceId ?? undefined,
                     notificationId: r.notificationId,
                     title: r.title,
                     body: r.body ?? undefined,
@@ -186,6 +232,8 @@ export function drizzleSqliteAdapter(db) {
                     id: row.id,
                     notificationRecordId: row.notificationRecordId,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     title: row.title,
                     body: row.body ?? undefined,
@@ -194,12 +242,17 @@ export function drizzleSqliteAdapter(db) {
                     createdAt: row.createdAt,
                 };
             },
-            async markReadForRecipient(inboxItemId, recipientId) {
+            async markReadForRecipient(inboxItemId, recipientId, scope) {
                 const now = new Date();
+                const conditions = [
+                    eq(inboxItems.id, inboxItemId),
+                    eq(inboxItems.recipientId, recipientId),
+                    ...scopedConditions(inboxItems, scope),
+                ];
                 const updated = await db
                     .update(inboxItems)
                     .set({ readAt: now })
-                    .where(and(eq(inboxItems.id, inboxItemId), eq(inboxItems.recipientId, recipientId)))
+                    .where(and(...conditions))
                     .returning();
                 const row = updated[0];
                 if (row) {
@@ -209,6 +262,8 @@ export function drizzleSqliteAdapter(db) {
                             id: row.id,
                             notificationRecordId: row.notificationRecordId,
                             recipientId: row.recipientId,
+                            tenantId: row.tenantId ?? undefined,
+                            workspaceId: row.workspaceId ?? undefined,
                             notificationId: row.notificationId,
                             title: row.title,
                             body: row.body ?? undefined,
@@ -233,6 +288,8 @@ export function drizzleSqliteAdapter(db) {
                     id: createId("dlv"),
                     notificationRecordId: input.notificationRecordId,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     channel: input.channel,
                     provider: input.provider,
@@ -252,6 +309,8 @@ export function drizzleSqliteAdapter(db) {
                     id: record.id,
                     notificationRecordId: record.notificationRecordId,
                     recipientId: record.recipientId,
+                    tenantId: record.tenantId ?? null,
+                    workspaceId: record.workspaceId ?? null,
                     notificationId: record.notificationId,
                     channel: record.channel,
                     provider: record.provider,
@@ -290,40 +349,52 @@ export function drizzleSqliteAdapter(db) {
                     return null;
                 return rowToDelivery(row);
             },
-            async list(recipientId) {
+            async list(recipientId, scope) {
                 const query = db.select().from(deliveries);
+                const conditions = [
+                    ...(recipientId ? [eq(deliveries.recipientId, recipientId)] : []),
+                    ...scopedConditions(deliveries, scope),
+                ];
                 const rows = recipientId
-                    ? await query
-                        .where(eq(deliveries.recipientId, recipientId))
-                        .orderBy(desc(deliveries.createdAt))
-                    : await query.orderBy(desc(deliveries.createdAt));
+                    ? await query.where(and(...conditions)).orderBy(desc(deliveries.createdAt))
+                    : conditions.length > 0
+                        ? await query.where(and(...conditions)).orderBy(desc(deliveries.createdAt))
+                        : await query.orderBy(desc(deliveries.createdAt));
                 return rows.map(rowToDelivery);
             },
         },
         preferences: {
-            async get(recipientId, notificationId) {
+            async get(recipientId, notificationId, scope) {
                 const rows = await db
                     .select()
                     .from(preferences)
-                    .where(and(eq(preferences.recipientId, recipientId), eq(preferences.notificationId, notificationId)))
+                    .where(and(eq(preferences.recipientId, recipientId), eq(preferences.notificationId, notificationId), ...preferenceScopeConditions(scope)))
                     .limit(1);
                 const row = rows[0];
                 if (!row)
                     return null;
                 return {
                     recipientId: row.recipientId,
+                    tenantId: emptyToUndefined(row.tenantId),
+                    workspaceId: emptyToUndefined(row.workspaceId),
                     notificationId: row.notificationId,
                     channels: row.channels,
                     updatedAt: row.updatedAt,
                 };
             },
-            async list(recipientId) {
+            async list(recipientId, scope) {
+                const conditions = [
+                    eq(preferences.recipientId, recipientId),
+                    ...(scope ? preferenceScopeConditions(scope) : []),
+                ];
                 const rows = await db
                     .select()
                     .from(preferences)
-                    .where(eq(preferences.recipientId, recipientId));
+                    .where(and(...conditions));
                 return rows.map((r) => ({
                     recipientId: r.recipientId,
+                    tenantId: emptyToUndefined(r.tenantId),
+                    workspaceId: emptyToUndefined(r.workspaceId),
                     notificationId: r.notificationId,
                     channels: r.channels,
                     updatedAt: r.updatedAt,
@@ -334,7 +405,7 @@ export function drizzleSqliteAdapter(db) {
                 const existing = await db
                     .select()
                     .from(preferences)
-                    .where(and(eq(preferences.recipientId, input.recipientId), eq(preferences.notificationId, input.notificationId)))
+                    .where(and(eq(preferences.recipientId, input.recipientId), eq(preferences.notificationId, input.notificationId), ...preferenceScopeConditions(input)))
                     .limit(1);
                 if (existing[0]) {
                     const merged = {
@@ -347,9 +418,11 @@ export function drizzleSqliteAdapter(db) {
                         channels: merged,
                         updatedAt: now,
                     })
-                        .where(and(eq(preferences.recipientId, input.recipientId), eq(preferences.notificationId, input.notificationId)));
+                        .where(and(eq(preferences.recipientId, input.recipientId), eq(preferences.notificationId, input.notificationId), ...preferenceScopeConditions(input)));
                     return {
                         recipientId: input.recipientId,
+                        tenantId: input.tenantId,
+                        workspaceId: input.workspaceId,
                         notificationId: input.notificationId,
                         channels: merged,
                         updatedAt: now,
@@ -357,12 +430,16 @@ export function drizzleSqliteAdapter(db) {
                 }
                 await db.insert(preferences).values({
                     recipientId: input.recipientId,
+                    tenantId: scopeValue(input.tenantId),
+                    workspaceId: scopeValue(input.workspaceId),
                     notificationId: input.notificationId,
                     channels: input.channels,
                     updatedAt: now,
                 });
                 return {
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     channels: { ...input.channels },
                     updatedAt: now,
@@ -396,6 +473,8 @@ export function drizzleSqliteAdapter(db) {
                         return {
                             key: current.key,
                             recipientId: current.recipientId,
+                            tenantId: current.tenantId ?? undefined,
+                            workspaceId: current.workspaceId ?? undefined,
                             notificationId: current.notificationId,
                             payloads: merged,
                             flushAt: current.flushAt,
@@ -407,6 +486,8 @@ export function drizzleSqliteAdapter(db) {
                     await db.insert(digestBuffers).values({
                         key: input.key,
                         recipientId: input.recipientId,
+                        tenantId: input.tenantId ?? null,
+                        workspaceId: input.workspaceId ?? null,
                         notificationId: input.notificationId,
                         payloads: [input.payload],
                         flushAt,
@@ -416,6 +497,8 @@ export function drizzleSqliteAdapter(db) {
                     return {
                         key: input.key,
                         recipientId: input.recipientId,
+                        tenantId: input.tenantId,
+                        workspaceId: input.workspaceId,
                         notificationId: input.notificationId,
                         payloads: [input.payload],
                         flushAt,
@@ -435,6 +518,8 @@ export function drizzleSqliteAdapter(db) {
                 return {
                     key: row.key,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payloads: row.payloads,
                     flushAt: row.flushAt,
@@ -460,6 +545,8 @@ export function drizzleSqliteAdapter(db) {
                             .update(digestBuffers)
                             .set({
                             recipientId: entry.recipientId,
+                            tenantId: entry.tenantId ?? null,
+                            workspaceId: entry.workspaceId ?? null,
                             notificationId: entry.notificationId,
                             payloads,
                             flushAt: entry.flushAt,
@@ -470,6 +557,8 @@ export function drizzleSqliteAdapter(db) {
                         return {
                             key: entry.key,
                             recipientId: entry.recipientId,
+                            tenantId: entry.tenantId,
+                            workspaceId: entry.workspaceId,
                             notificationId: entry.notificationId,
                             payloads,
                             flushAt: entry.flushAt,
@@ -480,6 +569,8 @@ export function drizzleSqliteAdapter(db) {
                     await db.insert(digestBuffers).values({
                         key: entry.key,
                         recipientId: entry.recipientId,
+                        tenantId: entry.tenantId ?? null,
+                        workspaceId: entry.workspaceId ?? null,
                         notificationId: entry.notificationId,
                         payloads: entry.payloads,
                         flushAt: entry.flushAt,
@@ -494,6 +585,8 @@ export function drizzleSqliteAdapter(db) {
                 return rows.map((row) => ({
                     key: row.key,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payloads: row.payloads,
                     flushAt: row.flushAt,
@@ -524,6 +617,8 @@ export function drizzleSqliteAdapter(db) {
                         id: createId("rlm"),
                         key: input.key,
                         recipientId: input.recipientId,
+                        tenantId: input.tenantId ?? null,
+                        workspaceId: input.workspaceId ?? null,
                         notificationId: input.notificationId,
                         occurredAt: new Date(),
                     });
@@ -548,6 +643,8 @@ export function drizzleSqliteAdapter(db) {
                 const record = {
                     id: createId("sch"),
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     payload: input.payload,
                     scheduledFor: input.scheduledFor,
@@ -559,6 +656,8 @@ export function drizzleSqliteAdapter(db) {
                 await db.insert(scheduledSends).values({
                     id: record.id,
                     recipientId: record.recipientId,
+                    tenantId: record.tenantId ?? null,
+                    workspaceId: record.workspaceId ?? null,
                     notificationId: record.notificationId,
                     payload: record.payload,
                     scheduledFor: record.scheduledFor,
@@ -584,6 +683,8 @@ export function drizzleSqliteAdapter(db) {
                 return {
                     id: row.id,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payload: row.payload,
                     scheduledFor: row.scheduledFor,
@@ -610,6 +711,8 @@ export function drizzleSqliteAdapter(db) {
                 return rows.map((row) => ({
                     id: row.id,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payload: row.payload,
                     scheduledFor: row.scheduledFor,
@@ -624,6 +727,8 @@ export function drizzleSqliteAdapter(db) {
                 return rows.map((row) => ({
                     id: row.id,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payload: row.payload,
                     scheduledFor: row.scheduledFor,
@@ -641,6 +746,8 @@ function rowToDelivery(row) {
         id: row.id,
         notificationRecordId: row.notificationRecordId,
         recipientId: row.recipientId,
+        tenantId: row.tenantId ?? undefined,
+        workspaceId: row.workspaceId ?? undefined,
         notificationId: row.notificationId,
         channel: row.channel,
         provider: row.provider,

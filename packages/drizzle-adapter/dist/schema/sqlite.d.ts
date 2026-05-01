@@ -21,6 +21,44 @@ export declare const recipients: import("drizzle-orm/sqlite-core").SQLiteTableWi
         }, {}, {
             length: number | undefined;
         }>;
+        tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "tenant_id";
+            tableName: "notifykit_recipients";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "workspace_id";
+            tableName: "notifykit_recipients";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
         email: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "email";
             tableName: "notifykit_recipients";
@@ -165,6 +203,44 @@ export declare const notifications: import("drizzle-orm/sqlite-core").SQLiteTabl
         }, {}, {
             length: number | undefined;
         }>;
+        tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "tenant_id";
+            tableName: "notifykit_notifications";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "workspace_id";
+            tableName: "notifykit_notifications";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
         notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "notification_id";
             tableName: "notifykit_notifications";
@@ -273,6 +349,44 @@ export declare const inboxItems: import("drizzle-orm/sqlite-core").SQLiteTableWi
             data: string;
             driverParam: string;
             notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "tenant_id";
+            tableName: "notifykit_inbox_items";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "workspace_id";
+            tableName: "notifykit_inbox_items";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
             hasDefault: false;
             isPrimaryKey: false;
             isAutoincrement: false;
@@ -447,6 +561,44 @@ export declare const deliveries: import("drizzle-orm/sqlite-core").SQLiteTableWi
             data: string;
             driverParam: string;
             notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "tenant_id";
+            tableName: "notifykit_deliveries";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "workspace_id";
+            tableName: "notifykit_deliveries";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
             hasDefault: false;
             isPrimaryKey: false;
             isAutoincrement: false;
@@ -742,6 +894,44 @@ export declare const preferences: import("drizzle-orm/sqlite-core").SQLiteTableW
         }, {}, {
             length: number | undefined;
         }>;
+        tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "tenant_id";
+            tableName: "notifykit_preferences";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "workspace_id";
+            tableName: "notifykit_preferences";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
         notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "notification_id";
             tableName: "notifykit_preferences";
@@ -831,6 +1021,44 @@ export declare const scheduledSends: import("drizzle-orm/sqlite-core").SQLiteTab
             data: string;
             driverParam: string;
             notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "tenant_id";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "workspace_id";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
             hasDefault: false;
             isPrimaryKey: false;
             isAutoincrement: false;
@@ -1035,6 +1263,44 @@ export declare const rateLimitEvents: import("drizzle-orm/sqlite-core").SQLiteTa
         }, {}, {
             length: number | undefined;
         }>;
+        tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "tenant_id";
+            tableName: "notifykit_rate_limit_events";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "workspace_id";
+            tableName: "notifykit_rate_limit_events";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
         notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "notification_id";
             tableName: "notifykit_rate_limit_events";
@@ -1105,6 +1371,44 @@ export declare const digestBuffers: import("drizzle-orm/sqlite-core").SQLiteTabl
             data: string;
             driverParam: string;
             notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "tenant_id";
+            tableName: "notifykit_digest_buffers";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "workspace_id";
+            tableName: "notifykit_digest_buffers";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
             hasDefault: false;
             isPrimaryKey: false;
             isAutoincrement: false;
@@ -1223,6 +1527,44 @@ export declare const notifyKitSchema: {
                 notNull: true;
                 hasDefault: false;
                 isPrimaryKey: true;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "tenant_id";
+                tableName: "notifykit_recipients";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "workspace_id";
+                tableName: "notifykit_recipients";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
                 isAutoincrement: false;
                 hasRuntimeDefault: false;
                 enumValues: [string, ...string[]];
@@ -1376,6 +1718,44 @@ export declare const notifyKitSchema: {
             }, {}, {
                 length: number | undefined;
             }>;
+            tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "tenant_id";
+                tableName: "notifykit_notifications";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "workspace_id";
+                tableName: "notifykit_notifications";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
             notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "notification_id";
                 tableName: "notifykit_notifications";
@@ -1484,6 +1864,44 @@ export declare const notifyKitSchema: {
                 data: string;
                 driverParam: string;
                 notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "tenant_id";
+                tableName: "notifykit_inbox_items";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "workspace_id";
+                tableName: "notifykit_inbox_items";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
                 hasDefault: false;
                 isPrimaryKey: false;
                 isAutoincrement: false;
@@ -1658,6 +2076,44 @@ export declare const notifyKitSchema: {
                 data: string;
                 driverParam: string;
                 notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "tenant_id";
+                tableName: "notifykit_deliveries";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "workspace_id";
+                tableName: "notifykit_deliveries";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
                 hasDefault: false;
                 isPrimaryKey: false;
                 isAutoincrement: false;
@@ -1953,6 +2409,44 @@ export declare const notifyKitSchema: {
             }, {}, {
                 length: number | undefined;
             }>;
+            tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "tenant_id";
+                tableName: "notifykit_preferences";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: true;
+                hasDefault: true;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "workspace_id";
+                tableName: "notifykit_preferences";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: true;
+                hasDefault: true;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
             notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "notification_id";
                 tableName: "notifykit_preferences";
@@ -2042,6 +2536,44 @@ export declare const notifyKitSchema: {
                 data: string;
                 driverParam: string;
                 notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "tenant_id";
+                tableName: "notifykit_digest_buffers";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "workspace_id";
+                tableName: "notifykit_digest_buffers";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
                 hasDefault: false;
                 isPrimaryKey: false;
                 isAutoincrement: false;
@@ -2206,6 +2738,44 @@ export declare const notifyKitSchema: {
             }, {}, {
                 length: number | undefined;
             }>;
+            tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "tenant_id";
+                tableName: "notifykit_rate_limit_events";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "workspace_id";
+                tableName: "notifykit_rate_limit_events";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
             notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "notification_id";
                 tableName: "notifykit_rate_limit_events";
@@ -2276,6 +2846,44 @@ export declare const notifyKitSchema: {
                 data: string;
                 driverParam: string;
                 notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            tenantId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "tenant_id";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            workspaceId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "workspace_id";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: false;
                 hasDefault: false;
                 isPrimaryKey: false;
                 isAutoincrement: false;

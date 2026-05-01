@@ -16,6 +16,7 @@ import type {
   RecipientPreference,
   RetryPolicy,
   SendInput,
+  SecurityScope,
   UpdatePreferenceInput,
   UpsertRecipientInput,
   WebhookProvider,
@@ -87,19 +88,20 @@ export type NotifyKit<
   upsertRecipient(input: UpsertRecipientInput): Promise<Recipient>;
   send(input: SendInput<T>): Promise<SendResult>;
   inbox: {
-    list(recipientId: string): Promise<InboxItem[]>;
+    list(recipientId: string, scope?: SecurityScope): Promise<InboxItem[]>;
     markRead(inboxItemId: string): Promise<InboxItem | null>;
     markReadForRecipient(
       inboxItemId: string,
       recipientId: string,
+      scope?: SecurityScope,
     ): Promise<MarkReadForRecipientResult>;
   };
   deliveries: {
-    list(recipientId?: string): Promise<DeliveryRecord[]>;
+    list(recipientId?: string, scope?: SecurityScope): Promise<DeliveryRecord[]>;
   };
   preferences: {
     get(input: GetPreferenceInput<T>): Promise<RecipientPreference | null>;
-    list(recipientId: string): Promise<RecipientPreference[]>;
+    list(recipientId: string, scope?: SecurityScope): Promise<RecipientPreference[]>;
     update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
   };
   /**
@@ -149,12 +151,18 @@ export function createNotifyKit<
   const unsubscribeConfig = config.unsubscribe ?? null;
 
   function buildUnsubscribeUrl(
-    recipientId: string,
+    recipient: Recipient,
     notificationId: string,
+    scope: SecurityScope,
   ): string {
     if (!unsubscribeConfig) return "";
     const token = signUnsubscribeToken(
-      { recipientId, notificationId },
+      {
+        recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        notificationId,
+      },
       unsubscribeConfig.secret,
     );
     const base = unsubscribeConfig.baseUrl.replace(/\/+$/, "");
@@ -201,9 +209,43 @@ export function createNotifyKit<
   };
   const scheduledSendTimers = new Map<string, ScheduledSendTimer>();
 
+  function resolveScope(input: SecurityScope, recipient: Recipient): SecurityScope {
+    const tenantId = input.tenantId ?? recipient.tenantId;
+    const workspaceId = input.workspaceId ?? recipient.workspaceId;
+    if (input.tenantId && recipient.tenantId && input.tenantId !== recipient.tenantId) {
+      throw new NotifyKitError(
+        `Recipient "${recipient.id}" belongs to tenant "${recipient.tenantId}", not "${input.tenantId}".`,
+      );
+    }
+    if (
+      input.workspaceId &&
+      recipient.workspaceId &&
+      input.workspaceId !== recipient.workspaceId
+    ) {
+      throw new NotifyKitError(
+        `Recipient "${recipient.id}" belongs to workspace "${recipient.workspaceId}", not "${input.workspaceId}".`,
+      );
+    }
+    return compactScope({ tenantId, workspaceId });
+  }
+
+  function compactScope(scope: SecurityScope): SecurityScope {
+    const out: SecurityScope = {};
+    if (scope.tenantId) out.tenantId = scope.tenantId;
+    if (scope.workspaceId) out.workspaceId = scope.workspaceId;
+    return out;
+  }
+
+  function scopeKey(scope: SecurityScope): string {
+    if (!scope.tenantId && !scope.workspaceId) return "";
+    return `${scope.tenantId ?? ""}:${scope.workspaceId ?? ""}:`;
+  }
+
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as {
       recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
       notificationId: string;
       payload: unknown;
     };
@@ -222,14 +264,15 @@ export function createNotifyKit<
     }
 
     const payload = validatePayload(def.payload, input.payload, def.id);
+    const scope = resolveScope(input, recipient);
 
     if (def.rateLimit) {
       const limit = def.rateLimit;
-      const scope = limit.scope ?? "recipient";
+      const rateLimitScope = limit.scope ?? "recipient";
       const key =
-        scope === "global"
-          ? def.id
-          : `${recipient.id}:${def.id}`;
+        rateLimitScope === "global"
+          ? `${scopeKey(scope)}${def.id}`
+          : `${scopeKey(scope)}${recipient.id}:${def.id}`;
       // Atomic admission: count + insert happen in one adapter call so two
       // concurrent sends cannot both read N < max and both insert.
       const result = await database.rateLimits.reserve({
@@ -237,6 +280,8 @@ export function createNotifyKit<
         max: limit.max,
         windowMs: limit.windowMs,
         recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
         notificationId: def.id,
       });
       if (!result.allowed) {
@@ -264,11 +309,13 @@ export function createNotifyKit<
           recipientId: recipient.id,
           notificationId: def.id,
           payload: payload as never,
-        }) ?? `${recipient.id}:${def.id}`;
+        }) ?? `${scopeKey(scope)}${recipient.id}:${def.id}`;
 
       const entry = await database.digests.append({
         key,
         recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
         notificationId: def.id,
         payload,
         windowMs: digest.windowMs,
@@ -324,16 +371,18 @@ export function createNotifyKit<
       const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
       const record = await database.scheduledSends.create({
         recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
         notificationId: def.id,
         payload,
         scheduledFor,
         reason: "quiet_hours",
       });
       scheduleDeferredFlush(record.id, scheduledFor);
-      return deliver(recipient, def, payload, { deferChannels });
+      return deliver(recipient, def, payload, { deferChannels, scope });
     }
 
-    return deliver(recipient, def, payload);
+    return deliver(recipient, def, payload, { scope });
   }
 
   function scheduleDeferredFlush(id: string, scheduledFor: Date): void {
@@ -377,6 +426,7 @@ export function createNotifyKit<
         await database.scheduledSends.complete(id);
         return;
       }
+      const scope = resolveScope(record, recipient);
       // The payload was validated at send() time; still validate here so a
       // buggy store path surfaces loudly rather than feeding junk downstream.
       const payload = validatePayload(def.payload, record.payload, def.id);
@@ -386,6 +436,7 @@ export function createNotifyKit<
       // behavior where digest flushes also create a fresh record.
       await deliver(recipient, def, payload, {
         onlyChannels: ["email", "webhook"],
+        scope,
       });
       // Only delete after delivery has been enqueued/completed successfully.
       await database.scheduledSends.complete(id);
@@ -416,6 +467,7 @@ export function createNotifyKit<
           `Unknown recipient: "${entry.recipientId}". Cannot flush digest "${key}".`,
         );
       }
+      const scope = resolveScope(entry, recipient);
 
       const combined = def.digest.render({
         recipientId: entry.recipientId,
@@ -426,7 +478,7 @@ export function createNotifyKit<
 
       // Re-validate the combined payload so a buggy render() surfaces loudly.
       const validated = validatePayload(def.payload, combined, def.id);
-      await deliver(recipient, def, validated);
+      await deliver(recipient, def, validated, { scope });
     } catch (err) {
       await database.digests.restore(entry);
       throw err;
@@ -434,6 +486,7 @@ export function createNotifyKit<
   }
 
   type DeliverOptions = {
+    scope?: SecurityScope;
     /**
      * Channels to defer (not execute). Reported as `deferredChannels` on the
      * returned SendResult. Used by quiet-hours to run the inbox write now
@@ -456,7 +509,8 @@ export function createNotifyKit<
     payload: Record<string, unknown>,
     options: DeliverOptions = {},
   ): Promise<SendResult> {
-    const preference = await database.preferences.get(recipient.id, def.id);
+    const scope = options.scope ?? resolveScope({}, recipient);
+    const preference = await database.preferences.get(recipient.id, def.id, scope);
     const isChannelAllowed = (type: ChannelType): boolean => {
       if (!preference) return true;
       const value = preference.channels[type];
@@ -472,6 +526,8 @@ export function createNotifyKit<
       options.existingNotification ??
       (await database.notifications.create({
         recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
         notificationId: def.id,
         payload,
       }));
@@ -500,6 +556,8 @@ export function createNotifyKit<
         const item = await database.inbox.create({
           notificationRecordId: notificationRecord.id,
           recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
           notificationId: def.id,
           title: renderTemplate(ch.title, payload),
           body: ch.body !== undefined ? renderTemplate(ch.body, payload) : undefined,
@@ -526,8 +584,9 @@ export function createNotifyKit<
         const renderCtx: Record<string, unknown> = { ...payload };
         if (unsubscribeConfig) {
           renderCtx._unsubscribeUrl = buildUnsubscribeUrl(
-            recipient.id,
+            recipient,
             def.id,
+            scope,
           );
         }
         const subject = renderTemplate(ch.subject, renderCtx);
@@ -536,6 +595,8 @@ export function createNotifyKit<
         const delivery = await database.deliveries.create({
           notificationRecordId: notificationRecord.id,
           recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
           notificationId: def.id,
           channel: "email",
           provider: provider.id,
@@ -550,6 +611,8 @@ export function createNotifyKit<
           deliveryId: delivery.id,
           notificationRecordId: notificationRecord.id,
           recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
           notificationId: def.id,
           channel: "email",
           provider: provider.id,
@@ -584,6 +647,8 @@ export function createNotifyKit<
         const delivery = await database.deliveries.create({
           notificationRecordId: notificationRecord.id,
           recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
           notificationId: def.id,
           channel: "webhook",
           provider: provider.id,
@@ -597,6 +662,8 @@ export function createNotifyKit<
           deliveryId: delivery.id,
           notificationRecordId: notificationRecord.id,
           recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
           notificationId: def.id,
           channel: "webhook",
           provider: provider.id,
@@ -653,6 +720,8 @@ export function createNotifyKit<
             payload: {
               notificationId: job.notificationId,
               recipientId: job.recipientId,
+              tenantId: job.tenantId,
+              workspaceId: job.workspaceId,
               payload: job.payload,
               sentAt: new Date().toISOString(),
             },
@@ -697,6 +766,7 @@ export function createNotifyKit<
       const preference = await database.preferences.get(
         job.recipientId,
         def.id,
+        { tenantId: job.tenantId, workspaceId: job.workspaceId },
       );
       const inboxAllowed = !preference || preference.channels.inbox !== false;
       if (inboxAllowed) {
@@ -704,6 +774,8 @@ export function createNotifyKit<
         const item = await database.inbox.create({
           notificationRecordId: job.notificationRecordId,
           recipientId: job.recipientId,
+          tenantId: job.tenantId,
+          workspaceId: job.workspaceId,
           notificationId: job.notificationId,
           title: renderTemplate(fallback.title, job.payload),
           body:
@@ -737,8 +809,11 @@ export function createNotifyKit<
         `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
       );
     }
+    const scope = resolveScope(input, recipient);
     return database.preferences.upsert({
       recipientId: input.recipientId,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
       notificationId: input.notificationId,
       channels: input.channels,
     });
@@ -750,7 +825,10 @@ export function createNotifyKit<
     const input = rawInput as GetPreferenceInput<
       readonly NotificationDefinition<string, PayloadSchema>[]
     >;
-    return database.preferences.get(input.recipientId, input.notificationId);
+    const recipient = await database.recipients.findById(input.recipientId);
+    if (!recipient) return null;
+    const scope = resolveScope(input, recipient);
+    return database.preferences.get(input.recipientId, input.notificationId, scope);
   }
 
   async function runFlushScheduledSends(options?: {
@@ -791,25 +869,29 @@ export function createNotifyKit<
     },
     send,
     inbox: {
-      list(recipientId) {
-        return database.inbox.listByRecipient(recipientId);
+      list(recipientId, scope) {
+        return database.inbox.listByRecipient(recipientId, scope);
       },
       markRead(inboxItemId) {
         return database.inbox.markRead(inboxItemId);
       },
-      markReadForRecipient(inboxItemId, recipientId) {
-        return database.inbox.markReadForRecipient(inboxItemId, recipientId);
+      markReadForRecipient(inboxItemId, recipientId, scope) {
+        return database.inbox.markReadForRecipient(
+          inboxItemId,
+          recipientId,
+          scope,
+        );
       },
     },
     deliveries: {
-      list(recipientId) {
-        return database.deliveries.list(recipientId);
+      list(recipientId, scope) {
+        return database.deliveries.list(recipientId, scope);
       },
     },
     preferences: {
       get: getPreference,
-      list(recipientId) {
-        return database.preferences.list(recipientId);
+      list(recipientId, scope) {
+        return database.preferences.list(recipientId, scope);
       },
       update: updatePreference,
     },

@@ -1,4 +1,4 @@
-import type { ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
+import type { ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, SecurityScope, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
 export type CreateNotifyKitInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     notifications: T;
     database: DatabaseAdapter;
@@ -55,16 +55,16 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
     upsertRecipient(input: UpsertRecipientInput): Promise<Recipient>;
     send(input: SendInput<T>): Promise<SendResult>;
     inbox: {
-        list(recipientId: string): Promise<InboxItem[]>;
+        list(recipientId: string, scope?: SecurityScope): Promise<InboxItem[]>;
         markRead(inboxItemId: string): Promise<InboxItem | null>;
-        markReadForRecipient(inboxItemId: string, recipientId: string): Promise<MarkReadForRecipientResult>;
+        markReadForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<MarkReadForRecipientResult>;
     };
     deliveries: {
-        list(recipientId?: string): Promise<DeliveryRecord[]>;
+        list(recipientId?: string, scope?: SecurityScope): Promise<DeliveryRecord[]>;
     };
     preferences: {
         get(input: GetPreferenceInput<T>): Promise<RecipientPreference | null>;
-        list(recipientId: string): Promise<RecipientPreference[]>;
+        list(recipientId: string, scope?: SecurityScope): Promise<RecipientPreference[]>;
         update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
     };
     /**

@@ -10,10 +10,15 @@ export function createNotifyKit(config) {
         delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
     };
     const unsubscribeConfig = config.unsubscribe ?? null;
-    function buildUnsubscribeUrl(recipientId, notificationId) {
+    function buildUnsubscribeUrl(recipient, notificationId, scope) {
         if (!unsubscribeConfig)
             return "";
-        const token = signUnsubscribeToken({ recipientId, notificationId }, unsubscribeConfig.secret);
+        const token = signUnsubscribeToken({
+            recipientId: recipient.id,
+            tenantId: scope.tenantId,
+            workspaceId: scope.workspaceId,
+            notificationId,
+        }, unsubscribeConfig.secret);
         const base = unsubscribeConfig.baseUrl.replace(/\/+$/, "");
         return `${base}/unsubscribe?token=${encodeURIComponent(token)}`;
     }
@@ -42,6 +47,32 @@ export function createNotifyKit(config) {
     const pendingFlushes = new Set();
     const scheduledFlushes = new Map();
     const scheduledSendTimers = new Map();
+    function resolveScope(input, recipient) {
+        const tenantId = input.tenantId ?? recipient.tenantId;
+        const workspaceId = input.workspaceId ?? recipient.workspaceId;
+        if (input.tenantId && recipient.tenantId && input.tenantId !== recipient.tenantId) {
+            throw new NotifyKitError(`Recipient "${recipient.id}" belongs to tenant "${recipient.tenantId}", not "${input.tenantId}".`);
+        }
+        if (input.workspaceId &&
+            recipient.workspaceId &&
+            input.workspaceId !== recipient.workspaceId) {
+            throw new NotifyKitError(`Recipient "${recipient.id}" belongs to workspace "${recipient.workspaceId}", not "${input.workspaceId}".`);
+        }
+        return compactScope({ tenantId, workspaceId });
+    }
+    function compactScope(scope) {
+        const out = {};
+        if (scope.tenantId)
+            out.tenantId = scope.tenantId;
+        if (scope.workspaceId)
+            out.workspaceId = scope.workspaceId;
+        return out;
+    }
+    function scopeKey(scope) {
+        if (!scope.tenantId && !scope.workspaceId)
+            return "";
+        return `${scope.tenantId ?? ""}:${scope.workspaceId ?? ""}:`;
+    }
     async function send(rawInput) {
         const input = rawInput;
         const def = byId.get(input.notificationId);
@@ -53,12 +84,13 @@ export function createNotifyKit(config) {
             throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
         }
         const payload = validatePayload(def.payload, input.payload, def.id);
+        const scope = resolveScope(input, recipient);
         if (def.rateLimit) {
             const limit = def.rateLimit;
-            const scope = limit.scope ?? "recipient";
-            const key = scope === "global"
-                ? def.id
-                : `${recipient.id}:${def.id}`;
+            const rateLimitScope = limit.scope ?? "recipient";
+            const key = rateLimitScope === "global"
+                ? `${scopeKey(scope)}${def.id}`
+                : `${scopeKey(scope)}${recipient.id}:${def.id}`;
             // Atomic admission: count + insert happen in one adapter call so two
             // concurrent sends cannot both read N < max and both insert.
             const result = await database.rateLimits.reserve({
@@ -66,6 +98,8 @@ export function createNotifyKit(config) {
                 max: limit.max,
                 windowMs: limit.windowMs,
                 recipientId: recipient.id,
+                tenantId: scope.tenantId,
+                workspaceId: scope.workspaceId,
                 notificationId: def.id,
             });
             if (!result.allowed) {
@@ -91,10 +125,12 @@ export function createNotifyKit(config) {
                 recipientId: recipient.id,
                 notificationId: def.id,
                 payload: payload,
-            }) ?? `${recipient.id}:${def.id}`;
+            }) ?? `${scopeKey(scope)}${recipient.id}:${def.id}`;
             const entry = await database.digests.append({
                 key,
                 recipientId: recipient.id,
+                tenantId: scope.tenantId,
+                workspaceId: scope.workspaceId,
                 notificationId: def.id,
                 payload,
                 windowMs: digest.windowMs,
@@ -147,15 +183,17 @@ export function createNotifyKit(config) {
             const scheduledFor = nextQuietHoursEnd(recipient.quietHours);
             const record = await database.scheduledSends.create({
                 recipientId: recipient.id,
+                tenantId: scope.tenantId,
+                workspaceId: scope.workspaceId,
                 notificationId: def.id,
                 payload,
                 scheduledFor,
                 reason: "quiet_hours",
             });
             scheduleDeferredFlush(record.id, scheduledFor);
-            return deliver(recipient, def, payload, { deferChannels });
+            return deliver(recipient, def, payload, { deferChannels, scope });
         }
-        return deliver(recipient, def, payload);
+        return deliver(recipient, def, payload, { scope });
     }
     function scheduleDeferredFlush(id, scheduledFor) {
         if (scheduledSendTimers.has(id))
@@ -200,6 +238,7 @@ export function createNotifyKit(config) {
                 await database.scheduledSends.complete(id);
                 return;
             }
+            const scope = resolveScope(record, recipient);
             // The payload was validated at send() time; still validate here so a
             // buggy store path surfaces loudly rather than feeding junk downstream.
             const payload = validatePayload(def.payload, record.payload, def.id);
@@ -209,6 +248,7 @@ export function createNotifyKit(config) {
             // behavior where digest flushes also create a fresh record.
             await deliver(recipient, def, payload, {
                 onlyChannels: ["email", "webhook"],
+                scope,
             });
             // Only delete after delivery has been enqueued/completed successfully.
             await database.scheduledSends.complete(id);
@@ -232,6 +272,7 @@ export function createNotifyKit(config) {
             if (!recipient) {
                 throw new NotifyKitError(`Unknown recipient: "${entry.recipientId}". Cannot flush digest "${key}".`);
             }
+            const scope = resolveScope(entry, recipient);
             const combined = def.digest.render({
                 recipientId: entry.recipientId,
                 notificationId: entry.notificationId,
@@ -240,7 +281,7 @@ export function createNotifyKit(config) {
             });
             // Re-validate the combined payload so a buggy render() surfaces loudly.
             const validated = validatePayload(def.payload, combined, def.id);
-            await deliver(recipient, def, validated);
+            await deliver(recipient, def, validated, { scope });
         }
         catch (err) {
             await database.digests.restore(entry);
@@ -248,7 +289,8 @@ export function createNotifyKit(config) {
         }
     }
     async function deliver(recipient, def, payload, options = {}) {
-        const preference = await database.preferences.get(recipient.id, def.id);
+        const scope = options.scope ?? resolveScope({}, recipient);
+        const preference = await database.preferences.get(recipient.id, def.id, scope);
         const isChannelAllowed = (type) => {
             if (!preference)
                 return true;
@@ -262,6 +304,8 @@ export function createNotifyKit(config) {
         const notificationRecord = options.existingNotification ??
             (await database.notifications.create({
                 recipientId: recipient.id,
+                tenantId: scope.tenantId,
+                workspaceId: scope.workspaceId,
                 notificationId: def.id,
                 payload,
             }));
@@ -289,6 +333,8 @@ export function createNotifyKit(config) {
                 const item = await database.inbox.create({
                     notificationRecordId: notificationRecord.id,
                     recipientId: recipient.id,
+                    tenantId: scope.tenantId,
+                    workspaceId: scope.workspaceId,
                     notificationId: def.id,
                     title: renderTemplate(ch.title, payload),
                     body: ch.body !== undefined ? renderTemplate(ch.body, payload) : undefined,
@@ -309,13 +355,15 @@ export function createNotifyKit(config) {
                 }
                 const renderCtx = { ...payload };
                 if (unsubscribeConfig) {
-                    renderCtx._unsubscribeUrl = buildUnsubscribeUrl(recipient.id, def.id);
+                    renderCtx._unsubscribeUrl = buildUnsubscribeUrl(recipient, def.id, scope);
                 }
                 const subject = renderTemplate(ch.subject, renderCtx);
                 const body = renderTemplate(ch.body, renderCtx);
                 const delivery = await database.deliveries.create({
                     notificationRecordId: notificationRecord.id,
                     recipientId: recipient.id,
+                    tenantId: scope.tenantId,
+                    workspaceId: scope.workspaceId,
                     notificationId: def.id,
                     channel: "email",
                     provider: provider.id,
@@ -329,6 +377,8 @@ export function createNotifyKit(config) {
                     deliveryId: delivery.id,
                     notificationRecordId: notificationRecord.id,
                     recipientId: recipient.id,
+                    tenantId: scope.tenantId,
+                    workspaceId: scope.workspaceId,
                     notificationId: def.id,
                     channel: "email",
                     provider: provider.id,
@@ -358,6 +408,8 @@ export function createNotifyKit(config) {
                 const delivery = await database.deliveries.create({
                     notificationRecordId: notificationRecord.id,
                     recipientId: recipient.id,
+                    tenantId: scope.tenantId,
+                    workspaceId: scope.workspaceId,
                     notificationId: def.id,
                     channel: "webhook",
                     provider: provider.id,
@@ -370,6 +422,8 @@ export function createNotifyKit(config) {
                     deliveryId: delivery.id,
                     notificationRecordId: notificationRecord.id,
                     recipientId: recipient.id,
+                    tenantId: scope.tenantId,
+                    workspaceId: scope.workspaceId,
                     notificationId: def.id,
                     channel: "webhook",
                     provider: provider.id,
@@ -423,6 +477,8 @@ export function createNotifyKit(config) {
                         payload: {
                             notificationId: job.notificationId,
                             recipientId: job.recipientId,
+                            tenantId: job.tenantId,
+                            workspaceId: job.workspaceId,
                             payload: job.payload,
                             sentAt: new Date().toISOString(),
                         },
@@ -463,13 +519,15 @@ export function createNotifyKit(config) {
         // inbox item so the user still sees the message. Respects preferences.
         const def = byId.get(job.notificationId);
         if (def?.fallback) {
-            const preference = await database.preferences.get(job.recipientId, def.id);
+            const preference = await database.preferences.get(job.recipientId, def.id, { tenantId: job.tenantId, workspaceId: job.workspaceId });
             const inboxAllowed = !preference || preference.channels.inbox !== false;
             if (inboxAllowed) {
                 const fallback = def.fallback;
                 const item = await database.inbox.create({
                     notificationRecordId: job.notificationRecordId,
                     recipientId: job.recipientId,
+                    tenantId: job.tenantId,
+                    workspaceId: job.workspaceId,
                     notificationId: job.notificationId,
                     title: renderTemplate(fallback.title, job.payload),
                     body: fallback.body !== undefined
@@ -492,15 +550,22 @@ export function createNotifyKit(config) {
         if (!recipient) {
             throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
         }
+        const scope = resolveScope(input, recipient);
         return database.preferences.upsert({
             recipientId: input.recipientId,
+            tenantId: scope.tenantId,
+            workspaceId: scope.workspaceId,
             notificationId: input.notificationId,
             channels: input.channels,
         });
     }
     async function getPreference(rawInput) {
         const input = rawInput;
-        return database.preferences.get(input.recipientId, input.notificationId);
+        const recipient = await database.recipients.findById(input.recipientId);
+        if (!recipient)
+            return null;
+        const scope = resolveScope(input, recipient);
+        return database.preferences.get(input.recipientId, input.notificationId, scope);
     }
     async function runFlushScheduledSends(options) {
         const force = options?.force ?? true;
@@ -538,25 +603,25 @@ export function createNotifyKit(config) {
         },
         send,
         inbox: {
-            list(recipientId) {
-                return database.inbox.listByRecipient(recipientId);
+            list(recipientId, scope) {
+                return database.inbox.listByRecipient(recipientId, scope);
             },
             markRead(inboxItemId) {
                 return database.inbox.markRead(inboxItemId);
             },
-            markReadForRecipient(inboxItemId, recipientId) {
-                return database.inbox.markReadForRecipient(inboxItemId, recipientId);
+            markReadForRecipient(inboxItemId, recipientId, scope) {
+                return database.inbox.markReadForRecipient(inboxItemId, recipientId, scope);
             },
         },
         deliveries: {
-            list(recipientId) {
-                return database.deliveries.list(recipientId);
+            list(recipientId, scope) {
+                return database.deliveries.list(recipientId, scope);
             },
         },
         preferences: {
             get: getPreference,
-            list(recipientId) {
-                return database.preferences.list(recipientId);
+            list(recipientId, scope) {
+                return database.preferences.list(recipientId, scope);
             },
             update: updatePreference,
         },

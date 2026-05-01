@@ -1,10 +1,17 @@
-import type { NotificationDefinition, PayloadSchema } from "./types.js";
+import type { NotificationDefinition, PayloadSchema, SecurityScope } from "./types.js";
 import type { NotifyKit } from "./create-notifykit.js";
-export type HandlerContext = {
+export type HandlerPermission = "deliveries.list";
+export type HandlerIdentity = SecurityScope & {
     recipientId: string;
+    permissions?: readonly (HandlerPermission | "admin")[];
+};
+export type HandlerContext = SecurityScope & {
+    recipientId: string;
+    identity: HandlerIdentity;
     request: Request;
 };
-export type Identify = (request: Request) => Promise<string | null> | string | null;
+export type Identify = (request: Request) => Promise<string | HandlerIdentity | null> | string | HandlerIdentity | null;
+export type Authorize = (context: HandlerContext, permission: HandlerPermission) => Promise<boolean> | boolean;
 export type CreateHandlerOptions = {
     /**
      * Resolves the recipient for an incoming request. Return `null` to reject as
@@ -12,6 +19,11 @@ export type CreateHandlerOptions = {
      * specific user — NotifyKit never trusts a client-sent recipientId.
      */
     identify: Identify;
+    /**
+     * Permission hook for admin/support/studio routes. Client-safe routes never
+     * call this because they are already bound to `identify()`.
+     */
+    authorize?: Authorize;
     /**
      * Path prefix for handler routes. Defaults to "/api/notifykit".
      * Everything outside this prefix returns 404.

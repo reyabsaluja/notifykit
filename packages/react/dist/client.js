@@ -45,6 +45,8 @@ export function createNotifyKitClient(options = {}) {
             id: String(r.id),
             notificationRecordId: String(r.notificationRecordId),
             recipientId: String(r.recipientId),
+            tenantId: typeof r.tenantId === "string" ? r.tenantId : undefined,
+            workspaceId: typeof r.workspaceId === "string" ? r.workspaceId : undefined,
             notificationId: String(r.notificationId),
             title: String(r.title),
             body: typeof r.body === "string" ? r.body : undefined,
@@ -66,6 +68,8 @@ export function createNotifyKitClient(options = {}) {
         const r = raw;
         return {
             recipientId: String(r.recipientId),
+            tenantId: typeof r.tenantId === "string" ? r.tenantId : undefined,
+            workspaceId: typeof r.workspaceId === "string" ? r.workspaceId : undefined,
             notificationId: String(r.notificationId),
             channels: (r.channels ?? {}),
             updatedAt: new Date(String(r.updatedAt)),

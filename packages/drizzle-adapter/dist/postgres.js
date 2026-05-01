@@ -5,6 +5,28 @@ function createId(prefix) {
     const time = Date.now().toString(36);
     return `${prefix}_${time}${rand}`;
 }
+function scopeValue(value) {
+    return value ?? "";
+}
+function emptyToUndefined(value) {
+    return value ? value : undefined;
+}
+function scopedConditions(table, scope) {
+    const conditions = [];
+    if (scope?.tenantId !== undefined) {
+        conditions.push(eq(table.tenantId, scope.tenantId));
+    }
+    if (scope?.workspaceId !== undefined) {
+        conditions.push(eq(table.workspaceId, scope.workspaceId));
+    }
+    return conditions;
+}
+function preferenceScopeConditions(scope) {
+    return [
+        eq(preferences.tenantId, scopeValue(scope?.tenantId)),
+        eq(preferences.workspaceId, scopeValue(scope?.workspaceId)),
+    ];
+}
 export function drizzlePostgresAdapter(db) {
     return {
         _schema: {
@@ -30,6 +52,8 @@ export function drizzlePostgresAdapter(db) {
                     .insert(recipients)
                     .values({
                     id: input.id,
+                    tenantId: input.tenantId ?? null,
+                    workspaceId: input.workspaceId ?? null,
                     email: input.email ?? null,
                     name: input.name ?? null,
                     quietHours: input.quietHours ?? null,
@@ -39,6 +63,12 @@ export function drizzlePostgresAdapter(db) {
                     .onConflictDoUpdate({
                     target: recipients.id,
                     set: {
+                        tenantId: input.tenantId !== undefined
+                            ? input.tenantId ?? null
+                            : sql `${recipients.tenantId}`,
+                        workspaceId: input.workspaceId !== undefined
+                            ? input.workspaceId ?? null
+                            : sql `${recipients.workspaceId}`,
                         email: input.email !== undefined
                             ? input.email ?? null
                             : sql `${recipients.email}`,
@@ -55,6 +85,8 @@ export function drizzlePostgresAdapter(db) {
                 const row = rows[0];
                 return {
                     id: row.id,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     email: row.email ?? undefined,
                     name: row.name ?? undefined,
                     quietHours: row.quietHours ?? undefined,
@@ -73,6 +105,8 @@ export function drizzlePostgresAdapter(db) {
                     return null;
                 return {
                     id: row.id,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     email: row.email ?? undefined,
                     name: row.name ?? undefined,
                     quietHours: row.quietHours ?? undefined,
@@ -86,6 +120,8 @@ export function drizzlePostgresAdapter(db) {
                 const record = {
                     id: createId("ntf"),
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     payload: input.payload,
                     createdAt: new Date(),
@@ -100,6 +136,8 @@ export function drizzlePostgresAdapter(db) {
                     id: createId("inb"),
                     notificationRecordId: input.notificationRecordId,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     title: input.title,
                     body: input.body,
@@ -111,6 +149,8 @@ export function drizzlePostgresAdapter(db) {
                     id: item.id,
                     notificationRecordId: item.notificationRecordId,
                     recipientId: item.recipientId,
+                    tenantId: item.tenantId ?? null,
+                    workspaceId: item.workspaceId ?? null,
                     notificationId: item.notificationId,
                     title: item.title,
                     body: item.body ?? null,
@@ -120,16 +160,22 @@ export function drizzlePostgresAdapter(db) {
                 });
                 return item;
             },
-            async listByRecipient(recipientId) {
+            async listByRecipient(recipientId, scope) {
+                const conditions = [
+                    eq(inboxItems.recipientId, recipientId),
+                    ...scopedConditions(inboxItems, scope),
+                ];
                 const rows = await db
                     .select()
                     .from(inboxItems)
-                    .where(eq(inboxItems.recipientId, recipientId))
+                    .where(and(...conditions))
                     .orderBy(desc(inboxItems.createdAt));
                 return rows.map((r) => ({
                     id: r.id,
                     notificationRecordId: r.notificationRecordId,
                     recipientId: r.recipientId,
+                    tenantId: r.tenantId ?? undefined,
+                    workspaceId: r.workspaceId ?? undefined,
                     notificationId: r.notificationId,
                     title: r.title,
                     body: r.body ?? undefined,
@@ -152,6 +198,8 @@ export function drizzlePostgresAdapter(db) {
                     id: row.id,
                     notificationRecordId: row.notificationRecordId,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     title: row.title,
                     body: row.body ?? undefined,
@@ -160,12 +208,17 @@ export function drizzlePostgresAdapter(db) {
                     createdAt: row.createdAt,
                 };
             },
-            async markReadForRecipient(inboxItemId, recipientId) {
+            async markReadForRecipient(inboxItemId, recipientId, scope) {
                 const now = new Date();
+                const conditions = [
+                    eq(inboxItems.id, inboxItemId),
+                    eq(inboxItems.recipientId, recipientId),
+                    ...scopedConditions(inboxItems, scope),
+                ];
                 const updated = await db
                     .update(inboxItems)
                     .set({ readAt: now })
-                    .where(and(eq(inboxItems.id, inboxItemId), eq(inboxItems.recipientId, recipientId)))
+                    .where(and(...conditions))
                     .returning();
                 const row = updated[0];
                 if (row) {
@@ -175,6 +228,8 @@ export function drizzlePostgresAdapter(db) {
                             id: row.id,
                             notificationRecordId: row.notificationRecordId,
                             recipientId: row.recipientId,
+                            tenantId: row.tenantId ?? undefined,
+                            workspaceId: row.workspaceId ?? undefined,
                             notificationId: row.notificationId,
                             title: row.title,
                             body: row.body ?? undefined,
@@ -199,6 +254,8 @@ export function drizzlePostgresAdapter(db) {
                     id: createId("dlv"),
                     notificationRecordId: input.notificationRecordId,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     channel: input.channel,
                     provider: input.provider,
@@ -218,6 +275,8 @@ export function drizzlePostgresAdapter(db) {
                     id: record.id,
                     notificationRecordId: record.notificationRecordId,
                     recipientId: record.recipientId,
+                    tenantId: record.tenantId ?? null,
+                    workspaceId: record.workspaceId ?? null,
                     notificationId: record.notificationId,
                     channel: record.channel,
                     provider: record.provider,
@@ -256,40 +315,52 @@ export function drizzlePostgresAdapter(db) {
                     return null;
                 return rowToDelivery(row);
             },
-            async list(recipientId) {
+            async list(recipientId, scope) {
                 const query = db.select().from(deliveries);
+                const conditions = [
+                    ...(recipientId ? [eq(deliveries.recipientId, recipientId)] : []),
+                    ...scopedConditions(deliveries, scope),
+                ];
                 const rows = recipientId
-                    ? await query
-                        .where(eq(deliveries.recipientId, recipientId))
-                        .orderBy(desc(deliveries.createdAt))
-                    : await query.orderBy(desc(deliveries.createdAt));
+                    ? await query.where(and(...conditions)).orderBy(desc(deliveries.createdAt))
+                    : conditions.length > 0
+                        ? await query.where(and(...conditions)).orderBy(desc(deliveries.createdAt))
+                        : await query.orderBy(desc(deliveries.createdAt));
                 return rows.map(rowToDelivery);
             },
         },
         preferences: {
-            async get(recipientId, notificationId) {
+            async get(recipientId, notificationId, scope) {
                 const rows = await db
                     .select()
                     .from(preferences)
-                    .where(and(eq(preferences.recipientId, recipientId), eq(preferences.notificationId, notificationId)))
+                    .where(and(eq(preferences.recipientId, recipientId), eq(preferences.notificationId, notificationId), ...preferenceScopeConditions(scope)))
                     .limit(1);
                 const row = rows[0];
                 if (!row)
                     return null;
                 return {
                     recipientId: row.recipientId,
+                    tenantId: emptyToUndefined(row.tenantId),
+                    workspaceId: emptyToUndefined(row.workspaceId),
                     notificationId: row.notificationId,
                     channels: row.channels,
                     updatedAt: row.updatedAt,
                 };
             },
-            async list(recipientId) {
+            async list(recipientId, scope) {
+                const conditions = [
+                    eq(preferences.recipientId, recipientId),
+                    ...(scope ? preferenceScopeConditions(scope) : []),
+                ];
                 const rows = await db
                     .select()
                     .from(preferences)
-                    .where(eq(preferences.recipientId, recipientId));
+                    .where(and(...conditions));
                 return rows.map((r) => ({
                     recipientId: r.recipientId,
+                    tenantId: emptyToUndefined(r.tenantId),
+                    workspaceId: emptyToUndefined(r.workspaceId),
                     notificationId: r.notificationId,
                     channels: r.channels,
                     updatedAt: r.updatedAt,
@@ -305,12 +376,19 @@ export function drizzlePostgresAdapter(db) {
                     .insert(preferences)
                     .values({
                     recipientId: input.recipientId,
+                    tenantId: scopeValue(input.tenantId),
+                    workspaceId: scopeValue(input.workspaceId),
                     notificationId: input.notificationId,
                     channels: input.channels,
                     updatedAt: now,
                 })
                     .onConflictDoUpdate({
-                    target: [preferences.recipientId, preferences.notificationId],
+                    target: [
+                        preferences.recipientId,
+                        preferences.notificationId,
+                        preferences.tenantId,
+                        preferences.workspaceId,
+                    ],
                     set: {
                         channels: sql `${preferences.channels} || EXCLUDED.channels`,
                         updatedAt: now,
@@ -320,6 +398,8 @@ export function drizzlePostgresAdapter(db) {
                 const row = rows[0];
                 return {
                     recipientId: row.recipientId,
+                    tenantId: emptyToUndefined(row.tenantId),
+                    workspaceId: emptyToUndefined(row.workspaceId),
                     notificationId: row.notificationId,
                     channels: row.channels,
                     updatedAt: row.updatedAt,
@@ -340,6 +420,8 @@ export function drizzlePostgresAdapter(db) {
                     .values({
                     key: input.key,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId ?? null,
+                    workspaceId: input.workspaceId ?? null,
                     notificationId: input.notificationId,
                     payloads: [input.payload],
                     flushAt,
@@ -358,6 +440,8 @@ export function drizzlePostgresAdapter(db) {
                 return {
                     key: row.key,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payloads: row.payloads,
                     flushAt: row.flushAt,
@@ -376,6 +460,8 @@ export function drizzlePostgresAdapter(db) {
                 return {
                     key: row.key,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payloads: row.payloads,
                     flushAt: row.flushAt,
@@ -396,6 +482,8 @@ export function drizzlePostgresAdapter(db) {
                     .values({
                     key: entry.key,
                     recipientId: entry.recipientId,
+                    tenantId: entry.tenantId ?? null,
+                    workspaceId: entry.workspaceId ?? null,
                     notificationId: entry.notificationId,
                     payloads: entry.payloads,
                     flushAt: entry.flushAt,
@@ -414,6 +502,8 @@ export function drizzlePostgresAdapter(db) {
                 return {
                     key: row.key,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payloads: row.payloads,
                     flushAt: row.flushAt,
@@ -426,6 +516,8 @@ export function drizzlePostgresAdapter(db) {
                 return rows.map((row) => ({
                     key: row.key,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payloads: row.payloads,
                     flushAt: row.flushAt,
@@ -457,6 +549,8 @@ export function drizzlePostgresAdapter(db) {
                         id: createId("rlm"),
                         key: input.key,
                         recipientId: input.recipientId,
+                        tenantId: input.tenantId ?? null,
+                        workspaceId: input.workspaceId ?? null,
                         notificationId: input.notificationId,
                         occurredAt: new Date(),
                     });
@@ -481,6 +575,8 @@ export function drizzlePostgresAdapter(db) {
                 const record = {
                     id: createId("sch"),
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     payload: input.payload,
                     scheduledFor: input.scheduledFor,
@@ -492,6 +588,8 @@ export function drizzlePostgresAdapter(db) {
                 await db.insert(scheduledSends).values({
                     id: record.id,
                     recipientId: record.recipientId,
+                    tenantId: record.tenantId ?? null,
+                    workspaceId: record.workspaceId ?? null,
                     notificationId: record.notificationId,
                     payload: record.payload,
                     scheduledFor: record.scheduledFor,
@@ -517,6 +615,8 @@ export function drizzlePostgresAdapter(db) {
                 return {
                     id: row.id,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payload: row.payload,
                     scheduledFor: row.scheduledFor,
@@ -543,6 +643,8 @@ export function drizzlePostgresAdapter(db) {
                 return rows.map((row) => ({
                     id: row.id,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payload: row.payload,
                     scheduledFor: row.scheduledFor,
@@ -557,6 +659,8 @@ export function drizzlePostgresAdapter(db) {
                 return rows.map((row) => ({
                     id: row.id,
                     recipientId: row.recipientId,
+                    tenantId: row.tenantId ?? undefined,
+                    workspaceId: row.workspaceId ?? undefined,
                     notificationId: row.notificationId,
                     payload: row.payload,
                     scheduledFor: row.scheduledFor,
@@ -574,6 +678,8 @@ function rowToDelivery(row) {
         id: row.id,
         notificationRecordId: row.notificationRecordId,
         recipientId: row.recipientId,
+        tenantId: row.tenantId ?? undefined,
+        workspaceId: row.workspaceId ?? undefined,
         notificationId: row.notificationId,
         channel: row.channel,
         provider: row.provider,

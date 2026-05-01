@@ -2,6 +2,8 @@ import { sql } from "drizzle-orm";
 import { index, integer, jsonb, pgTable, primaryKey, text, timestamp, } from "drizzle-orm/pg-core";
 export const recipients = pgTable("notifykit_recipients", {
     id: text("id").primaryKey(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     email: text("email"),
     name: text("name"),
     quietHours: jsonb("quiet_hours").$type(),
@@ -15,6 +17,8 @@ export const recipients = pgTable("notifykit_recipients", {
 export const notifications = pgTable("notifykit_notifications", {
     id: text("id").primaryKey(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payload: jsonb("payload").$type().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
@@ -25,6 +29,8 @@ export const inboxItems = pgTable("notifykit_inbox_items", {
     id: text("id").primaryKey(),
     notificationRecordId: text("notification_record_id").notNull(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     title: text("title").notNull(),
     body: text("body"),
@@ -38,6 +44,8 @@ export const deliveries = pgTable("notifykit_deliveries", {
     id: text("id").primaryKey(),
     notificationRecordId: text("notification_record_id").notNull(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     channel: text("channel").notNull().$type(),
     provider: text("provider").notNull(),
@@ -57,15 +65,26 @@ export const deliveries = pgTable("notifykit_deliveries", {
 }));
 export const preferences = pgTable("notifykit_preferences", {
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id").notNull().default(""),
+    workspaceId: text("workspace_id").notNull().default(""),
     notificationId: text("notification_id").notNull(),
     channels: jsonb("channels").$type().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
 }, (table) => ({
-    pk: primaryKey({ columns: [table.recipientId, table.notificationId] }),
+    pk: primaryKey({
+        columns: [
+            table.recipientId,
+            table.notificationId,
+            table.tenantId,
+            table.workspaceId,
+        ],
+    }),
 }));
 export const scheduledSends = pgTable("notifykit_scheduled_sends", {
     id: text("id").primaryKey(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payload: jsonb("payload").$type().notNull(),
     scheduledFor: timestamp("scheduled_for", {
@@ -87,6 +106,8 @@ export const rateLimitEvents = pgTable("notifykit_rate_limit_events", {
     id: text("id").primaryKey(),
     key: text("key").notNull(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     occurredAt: timestamp("occurred_at", {
         withTimezone: true,
@@ -98,6 +119,8 @@ export const rateLimitEvents = pgTable("notifykit_rate_limit_events", {
 export const digestBuffers = pgTable("notifykit_digest_buffers", {
     key: text("key").primaryKey(),
     recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payloads: jsonb("payloads")
         .$type()

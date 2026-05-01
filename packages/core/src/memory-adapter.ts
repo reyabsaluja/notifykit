@@ -8,6 +8,7 @@ import type {
   Recipient,
   RecipientPreference,
   ScheduledSend,
+  SecurityScope,
   UpsertRecipientInput,
 } from "./types.js";
 import { createId } from "./utils.js";
@@ -37,6 +38,30 @@ export function memoryAdapter(): MemoryAdapter {
     scheduledSends: [] as ScheduledSend[],
   };
 
+  function matchesScope(record: SecurityScope, scope?: SecurityScope): boolean {
+    if (!scope) return true;
+    if (scope.tenantId !== undefined && record.tenantId !== scope.tenantId) {
+      return false;
+    }
+    if (
+      scope.workspaceId !== undefined &&
+      record.workspaceId !== scope.workspaceId
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  function samePreferenceScope(
+    record: SecurityScope,
+    scope?: SecurityScope,
+  ): boolean {
+    return (
+      (record.tenantId ?? null) === (scope?.tenantId ?? null) &&
+      (record.workspaceId ?? null) === (scope?.workspaceId ?? null)
+    );
+  }
+
   const adapter: MemoryAdapter = {
     _state: state,
     recipients: {
@@ -44,6 +69,10 @@ export function memoryAdapter(): MemoryAdapter {
         const now = new Date();
         const existing = state.recipients.find((r) => r.id === input.id);
         if (existing) {
+          if (input.tenantId !== undefined) existing.tenantId = input.tenantId;
+          if (input.workspaceId !== undefined) {
+            existing.workspaceId = input.workspaceId;
+          }
           if (input.email !== undefined) existing.email = input.email;
           if (input.name !== undefined) existing.name = input.name;
           if (input.quietHours !== undefined) {
@@ -54,6 +83,8 @@ export function memoryAdapter(): MemoryAdapter {
         }
         const recipient: Recipient = {
           id: input.id,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           email: input.email,
           name: input.name,
           quietHours: input.quietHours ?? undefined,
@@ -72,6 +103,8 @@ export function memoryAdapter(): MemoryAdapter {
         const record: NotificationRecord = {
           id: createId("ntf"),
           recipientId: input.recipientId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           notificationId: input.notificationId,
           payload: input.payload,
           createdAt: new Date(),
@@ -86,6 +119,8 @@ export function memoryAdapter(): MemoryAdapter {
           id: createId("inb"),
           notificationRecordId: input.notificationRecordId,
           recipientId: input.recipientId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           notificationId: input.notificationId,
           title: input.title,
           body: input.body,
@@ -96,9 +131,14 @@ export function memoryAdapter(): MemoryAdapter {
         state.inboxItems.push(item);
         return item;
       },
-      async listByRecipient(recipientId: string): Promise<InboxItem[]> {
+      async listByRecipient(
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<InboxItem[]> {
         return state.inboxItems
-          .filter((i) => i.recipientId === recipientId)
+          .filter(
+            (i) => i.recipientId === recipientId && matchesScope(i, scope),
+          )
           .slice()
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       },
@@ -108,10 +148,16 @@ export function memoryAdapter(): MemoryAdapter {
         item.readAt = new Date();
         return item;
       },
-      async markReadForRecipient(inboxItemId: string, recipientId: string) {
+      async markReadForRecipient(
+        inboxItemId: string,
+        recipientId: string,
+        scope?: SecurityScope,
+      ) {
         const item = state.inboxItems.find((i) => i.id === inboxItemId);
         if (!item) return { status: "not_found" };
-        if (item.recipientId !== recipientId) return { status: "forbidden" };
+        if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
+          return { status: "forbidden" };
+        }
         item.readAt = new Date();
         return { status: "marked", item };
       },
@@ -123,6 +169,8 @@ export function memoryAdapter(): MemoryAdapter {
           id: createId("dlv"),
           notificationRecordId: input.notificationRecordId,
           recipientId: input.recipientId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           notificationId: input.notificationId,
           channel: input.channel,
           provider: input.provider,
@@ -151,38 +199,49 @@ export function memoryAdapter(): MemoryAdapter {
         existing.updatedAt = new Date();
         return existing;
       },
-      async list(recipientId?: string): Promise<DeliveryRecord[]> {
+      async list(
+        recipientId?: string,
+        scope?: SecurityScope,
+      ): Promise<DeliveryRecord[]> {
         if (recipientId === undefined) {
           return state.deliveries
+            .filter((d) => matchesScope(d, scope))
             .slice()
             .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         }
         return state.deliveries
-          .filter((d) => d.recipientId === recipientId)
+          .filter(
+            (d) => d.recipientId === recipientId && matchesScope(d, scope),
+          )
           .slice()
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       },
     },
     preferences: {
-      async get(recipientId, notificationId) {
+      async get(recipientId, notificationId, scope) {
         return (
           state.preferences.find(
             (p) =>
               p.recipientId === recipientId &&
-              p.notificationId === notificationId,
+              p.notificationId === notificationId &&
+              samePreferenceScope(p, scope),
           ) ?? null
         );
       },
-      async list(recipientId) {
+      async list(recipientId, scope) {
         return state.preferences
-          .filter((p) => p.recipientId === recipientId)
+          .filter(
+            (p) =>
+              p.recipientId === recipientId && matchesScope(p, scope),
+          )
           .slice();
       },
       async upsert(input) {
         const existing = state.preferences.find(
           (p) =>
             p.recipientId === input.recipientId &&
-            p.notificationId === input.notificationId,
+            p.notificationId === input.notificationId &&
+            samePreferenceScope(p, input),
         );
         const now = new Date();
         if (existing) {
@@ -192,6 +251,8 @@ export function memoryAdapter(): MemoryAdapter {
         }
         const record: RecipientPreference = {
           recipientId: input.recipientId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           notificationId: input.notificationId,
           channels: { ...input.channels },
           updatedAt: now,
@@ -212,6 +273,8 @@ export function memoryAdapter(): MemoryAdapter {
         const entry: DigestBufferEntry = {
           key: input.key,
           recipientId: input.recipientId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           notificationId: input.notificationId,
           payloads: [input.payload],
           flushAt: new Date(now.getTime() + input.windowMs),
@@ -232,6 +295,8 @@ export function memoryAdapter(): MemoryAdapter {
         if (existing) {
           existing.payloads = [...entry.payloads, ...existing.payloads];
           existing.recipientId = entry.recipientId;
+          existing.tenantId = entry.tenantId;
+          existing.workspaceId = entry.workspaceId;
           existing.notificationId = entry.notificationId;
           existing.flushAt = entry.flushAt;
           existing.createdAt = entry.createdAt;
@@ -265,6 +330,8 @@ export function memoryAdapter(): MemoryAdapter {
         const event: RateLimitEvent = {
           key: input.key,
           recipientId: input.recipientId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           notificationId: input.notificationId,
           occurredAt: new Date(),
         };
@@ -288,6 +355,8 @@ export function memoryAdapter(): MemoryAdapter {
         const record: ScheduledSend = {
           id: createId("sch"),
           recipientId: input.recipientId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           notificationId: input.notificationId,
           payload: input.payload,
           scheduledFor: input.scheduledFor,

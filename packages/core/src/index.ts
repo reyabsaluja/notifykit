@@ -28,6 +28,8 @@ export type {
   CreateHandlerOptions,
   Handler,
   HandlerContext,
+  HandlerIdentity,
+  HandlerPermission,
   Identify,
 } from "./handler.js";
 
@@ -91,6 +93,7 @@ export type {
   RetryPolicy,
   ScheduledSend,
   ScheduledSendStatus,
+  SecurityScope,
   SendInput,
   UpdatePreferenceInput,
   UpsertRecipientInput,

@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type UnsubscribeTokenClaims = {
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: string;
 };
 
@@ -14,7 +16,14 @@ export function signUnsubscribeToken(
   claims: UnsubscribeTokenClaims,
   secret: string,
 ): string {
-  const payload = `${encode(claims.recipientId)}:${encode(claims.notificationId)}`;
+  const payload = [
+    claims.recipientId,
+    claims.notificationId,
+    claims.tenantId ?? "",
+    claims.workspaceId ?? "",
+  ]
+    .map(encode)
+    .join(":");
   const signature = hmac(payload, secret);
   return `${toBase64Url(Buffer.from(payload))}.${signature}`;
 }
@@ -47,15 +56,18 @@ export function verifyUnsubscribeToken(
   if (!timingSafeEqual(a, b)) return null;
 
   const segments = payload.split(":");
-  if (segments.length !== 2) return null;
-  const [encRecipient, encNotification] = segments;
+  if (segments.length !== 2 && segments.length !== 4) return null;
+  const [encRecipient, encNotification, encTenant, encWorkspace] = segments;
   if (!encRecipient || !encNotification) return null;
 
   try {
-    return {
+    const claims: UnsubscribeTokenClaims = {
       recipientId: decode(encRecipient),
       notificationId: decode(encNotification),
     };
+    if (encTenant) claims.tenantId = decode(encTenant);
+    if (encWorkspace) claims.workspaceId = decode(encWorkspace);
+    return claims;
   } catch {
     return null;
   }

@@ -2,6 +2,11 @@ export type PrimitiveSchema = "string" | "number" | "boolean";
 
 export type PayloadSchema = Record<string, PrimitiveSchema>;
 
+export type SecurityScope = {
+  tenantId?: string;
+  workspaceId?: string;
+};
+
 export type InferSchema<S extends PayloadSchema> = {
   [K in keyof S]: S[K] extends "string"
     ? string
@@ -129,6 +134,8 @@ export type QuietHours = {
 
 export type Recipient = {
   id: string;
+  tenantId?: string;
+  workspaceId?: string;
   email?: string;
   name?: string;
   quietHours?: QuietHours | null;
@@ -136,7 +143,7 @@ export type Recipient = {
   updatedAt: Date;
 };
 
-export type UpsertRecipientInput = {
+export type UpsertRecipientInput = SecurityScope & {
   id: string;
   email?: string;
   name?: string;
@@ -147,6 +154,8 @@ export type UpsertRecipientInput = {
 export type NotificationRecord = {
   id: string;
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: string;
   payload: Record<string, unknown>;
   createdAt: Date;
@@ -156,6 +165,8 @@ export type InboxItem = {
   id: string;
   notificationRecordId: string;
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: string;
   title: string;
   body?: string;
@@ -175,6 +186,8 @@ export type ChannelPreferenceMap = Partial<Record<ChannelType, boolean>>;
 
 export type RecipientPreference = {
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: string;
   channels: ChannelPreferenceMap;
   updatedAt: Date;
@@ -185,6 +198,8 @@ export type ScheduledSendStatus = "pending" | "claimed";
 export type ScheduledSend = {
   id: string;
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: string;
   payload: Record<string, unknown>;
   /** Wall-clock moment when the send should fire. */
@@ -208,6 +223,8 @@ export type RateLimitEvent = {
   key: string;
   notificationId: string;
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   occurredAt: Date;
 };
 
@@ -215,6 +232,8 @@ export type DigestBufferEntry = {
   /** Composite "key" used to group payloads within a window. */
   key: string;
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: string;
   /** Serialized payloads, oldest first. */
   payloads: Record<string, unknown>[];
@@ -232,6 +251,8 @@ export type DeliveryRecord = {
   id: string;
   notificationRecordId: string;
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: string;
   channel: DeliveryChannel;
   provider: string;
@@ -268,6 +289,8 @@ export type WebhookProvider = {
     payload: {
       notificationId: string;
       recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
       payload: Record<string, unknown>;
       sentAt: string;
     };
@@ -279,6 +302,8 @@ export type DeliveryJob =
       deliveryId: string;
       notificationRecordId: string;
       recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
       notificationId: string;
       channel: "email";
       provider: string;
@@ -291,6 +316,8 @@ export type DeliveryJob =
       deliveryId: string;
       notificationRecordId: string;
       recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
       notificationId: string;
       channel: "webhook";
       provider: string;
@@ -330,11 +357,15 @@ export type DatabaseAdapter = {
     create(
       input: Omit<InboxItem, "id" | "createdAt" | "readAt">,
     ): Promise<InboxItem>;
-    listByRecipient(recipientId: string): Promise<InboxItem[]>;
+    listByRecipient(
+      recipientId: string,
+      scope?: SecurityScope,
+    ): Promise<InboxItem[]>;
     markRead(inboxItemId: string): Promise<InboxItem | null>;
     markReadForRecipient(
       inboxItemId: string,
       recipientId: string,
+      scope?: SecurityScope,
     ): Promise<MarkReadForRecipientResult>;
   };
   deliveries: {
@@ -348,15 +379,22 @@ export type DatabaseAdapter = {
       id: string,
       patch: Partial<Omit<DeliveryRecord, "id" | "createdAt">>,
     ): Promise<DeliveryRecord | null>;
-    list(recipientId?: string): Promise<DeliveryRecord[]>;
+    list(
+      recipientId?: string,
+      scope?: SecurityScope,
+    ): Promise<DeliveryRecord[]>;
   };
   preferences: {
     get(
       recipientId: string,
       notificationId: string,
+      scope?: SecurityScope,
     ): Promise<RecipientPreference | null>;
-    list(recipientId: string): Promise<RecipientPreference[]>;
-    upsert(input: {
+    list(
+      recipientId: string,
+      scope?: SecurityScope,
+    ): Promise<RecipientPreference[]>;
+    upsert(input: SecurityScope & {
       recipientId: string;
       notificationId: string;
       channels: ChannelPreferenceMap;
@@ -371,6 +409,8 @@ export type DatabaseAdapter = {
     append(input: {
       key: string;
       recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
       notificationId: string;
       payload: Record<string, unknown>;
       windowMs: number;
@@ -400,6 +440,8 @@ export type DatabaseAdapter = {
       max: number;
       windowMs: number;
       recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
       notificationId: string;
     }): Promise<{ allowed: boolean }>;
     /**
@@ -465,6 +507,8 @@ export type SendInput<
 > = {
   [K in T[number] as K["id"]]: {
     recipientId: string;
+    tenantId?: string;
+    workspaceId?: string;
     notificationId: K["id"];
     payload: InferSchema<K["payload"]>;
   };
@@ -478,6 +522,8 @@ export type UpdatePreferenceInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 > = {
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: NotificationIds<T>;
   channels: ChannelPreferenceMap;
 };
@@ -486,5 +532,7 @@ export type GetPreferenceInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 > = {
   recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
   notificationId: NotificationIds<T>;
 };

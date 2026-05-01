@@ -10,6 +10,22 @@ export function memoryAdapter() {
         rateLimits: [],
         scheduledSends: [],
     };
+    function matchesScope(record, scope) {
+        if (!scope)
+            return true;
+        if (scope.tenantId !== undefined && record.tenantId !== scope.tenantId) {
+            return false;
+        }
+        if (scope.workspaceId !== undefined &&
+            record.workspaceId !== scope.workspaceId) {
+            return false;
+        }
+        return true;
+    }
+    function samePreferenceScope(record, scope) {
+        return ((record.tenantId ?? null) === (scope?.tenantId ?? null) &&
+            (record.workspaceId ?? null) === (scope?.workspaceId ?? null));
+    }
     const adapter = {
         _state: state,
         recipients: {
@@ -17,6 +33,11 @@ export function memoryAdapter() {
                 const now = new Date();
                 const existing = state.recipients.find((r) => r.id === input.id);
                 if (existing) {
+                    if (input.tenantId !== undefined)
+                        existing.tenantId = input.tenantId;
+                    if (input.workspaceId !== undefined) {
+                        existing.workspaceId = input.workspaceId;
+                    }
                     if (input.email !== undefined)
                         existing.email = input.email;
                     if (input.name !== undefined)
@@ -29,6 +50,8 @@ export function memoryAdapter() {
                 }
                 const recipient = {
                     id: input.id,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     email: input.email,
                     name: input.name,
                     quietHours: input.quietHours ?? undefined,
@@ -47,6 +70,8 @@ export function memoryAdapter() {
                 const record = {
                     id: createId("ntf"),
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     payload: input.payload,
                     createdAt: new Date(),
@@ -61,6 +86,8 @@ export function memoryAdapter() {
                     id: createId("inb"),
                     notificationRecordId: input.notificationRecordId,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     title: input.title,
                     body: input.body,
@@ -71,9 +98,9 @@ export function memoryAdapter() {
                 state.inboxItems.push(item);
                 return item;
             },
-            async listByRecipient(recipientId) {
+            async listByRecipient(recipientId, scope) {
                 return state.inboxItems
-                    .filter((i) => i.recipientId === recipientId)
+                    .filter((i) => i.recipientId === recipientId && matchesScope(i, scope))
                     .slice()
                     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
             },
@@ -84,12 +111,13 @@ export function memoryAdapter() {
                 item.readAt = new Date();
                 return item;
             },
-            async markReadForRecipient(inboxItemId, recipientId) {
+            async markReadForRecipient(inboxItemId, recipientId, scope) {
                 const item = state.inboxItems.find((i) => i.id === inboxItemId);
                 if (!item)
                     return { status: "not_found" };
-                if (item.recipientId !== recipientId)
+                if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
                     return { status: "forbidden" };
+                }
                 item.readAt = new Date();
                 return { status: "marked", item };
             },
@@ -101,6 +129,8 @@ export function memoryAdapter() {
                     id: createId("dlv"),
                     notificationRecordId: input.notificationRecordId,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     channel: input.channel,
                     provider: input.provider,
@@ -130,31 +160,34 @@ export function memoryAdapter() {
                 existing.updatedAt = new Date();
                 return existing;
             },
-            async list(recipientId) {
+            async list(recipientId, scope) {
                 if (recipientId === undefined) {
                     return state.deliveries
+                        .filter((d) => matchesScope(d, scope))
                         .slice()
                         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
                 }
                 return state.deliveries
-                    .filter((d) => d.recipientId === recipientId)
+                    .filter((d) => d.recipientId === recipientId && matchesScope(d, scope))
                     .slice()
                     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
             },
         },
         preferences: {
-            async get(recipientId, notificationId) {
+            async get(recipientId, notificationId, scope) {
                 return (state.preferences.find((p) => p.recipientId === recipientId &&
-                    p.notificationId === notificationId) ?? null);
+                    p.notificationId === notificationId &&
+                    samePreferenceScope(p, scope)) ?? null);
             },
-            async list(recipientId) {
+            async list(recipientId, scope) {
                 return state.preferences
-                    .filter((p) => p.recipientId === recipientId)
+                    .filter((p) => p.recipientId === recipientId && matchesScope(p, scope))
                     .slice();
             },
             async upsert(input) {
                 const existing = state.preferences.find((p) => p.recipientId === input.recipientId &&
-                    p.notificationId === input.notificationId);
+                    p.notificationId === input.notificationId &&
+                    samePreferenceScope(p, input));
                 const now = new Date();
                 if (existing) {
                     existing.channels = { ...existing.channels, ...input.channels };
@@ -163,6 +196,8 @@ export function memoryAdapter() {
                 }
                 const record = {
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     channels: { ...input.channels },
                     updatedAt: now,
@@ -183,6 +218,8 @@ export function memoryAdapter() {
                 const entry = {
                     key: input.key,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     payloads: [input.payload],
                     flushAt: new Date(now.getTime() + input.windowMs),
@@ -204,6 +241,8 @@ export function memoryAdapter() {
                 if (existing) {
                     existing.payloads = [...entry.payloads, ...existing.payloads];
                     existing.recipientId = entry.recipientId;
+                    existing.tenantId = entry.tenantId;
+                    existing.workspaceId = entry.workspaceId;
                     existing.notificationId = entry.notificationId;
                     existing.flushAt = entry.flushAt;
                     existing.createdAt = entry.createdAt;
@@ -237,6 +276,8 @@ export function memoryAdapter() {
                 const event = {
                     key: input.key,
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     occurredAt: new Date(),
                 };
@@ -259,6 +300,8 @@ export function memoryAdapter() {
                 const record = {
                     id: createId("sch"),
                     recipientId: input.recipientId,
+                    tenantId: input.tenantId,
+                    workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     payload: input.payload,
                     scheduledFor: input.scheduledFor,
