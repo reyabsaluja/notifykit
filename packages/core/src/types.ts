@@ -27,6 +27,19 @@ export type EmailChannelConfig = {
 
 export type ChannelConfig = InboxChannelConfig | EmailChannelConfig;
 
+export type RateLimitConfig = {
+  /** Maximum sends allowed within `windowMs`. */
+  max: number;
+  /** Sliding window length in milliseconds. */
+  windowMs: number;
+  /**
+   * Scope of the limit. "recipient" counts sends to the same recipient for
+   * this notification; "global" counts across all recipients. Defaults to
+   * "recipient".
+   */
+  scope?: "recipient" | "global";
+};
+
 export type DigestConfig<S extends PayloadSchema = PayloadSchema> = {
   /** Rolling window to accumulate items before flushing. */
   windowMs: number;
@@ -59,6 +72,7 @@ export type NotificationDefinition<
   payload: S;
   channels: ChannelConfig[];
   digest?: DigestConfig<S>;
+  rateLimit?: RateLimitConfig;
 };
 
 export type Recipient = {
@@ -104,6 +118,14 @@ export type RecipientPreference = {
   notificationId: string;
   channels: ChannelPreferenceMap;
   updatedAt: Date;
+};
+
+export type RateLimitEvent = {
+  /** "<notificationId>" for global scope, "<recipientId>:<notificationId>" otherwise. */
+  key: string;
+  notificationId: string;
+  recipientId: string;
+  occurredAt: Date;
 };
 
 export type DigestBufferEntry = {
@@ -239,11 +261,30 @@ export type DatabaseAdapter = {
     /** For inspection / test utilities only. */
     list(): Promise<DigestBufferEntry[]>;
   };
+  rateLimits: {
+    /** Append a rate-limit event for `key` at the current instant. */
+    record(input: {
+      key: string;
+      recipientId: string;
+      notificationId: string;
+    }): Promise<RateLimitEvent>;
+    /**
+     * Number of events for `key` within the last `windowMs` milliseconds.
+     * Implementations may prune older events opportunistically during this
+     * call; stale rows never contribute to the count.
+     */
+    count(input: { key: string; windowMs: number }): Promise<number>;
+  };
 };
 
 export type Hooks = {
   "notification.created"?: (ctx: {
     notification: NotificationRecord;
+  }) => void | Promise<void>;
+  "notification.rate_limited"?: (ctx: {
+    notificationId: string;
+    recipientId: string;
+    limit: RateLimitConfig;
   }) => void | Promise<void>;
   "inbox.created"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
   "delivery.sent"?: (ctx: { delivery: DeliveryRecord }) => void | Promise<void>;

@@ -10,6 +10,7 @@ export {
   notifications,
   notifyKitSchema,
   preferences,
+  rateLimitEvents,
   recipients,
   type NotifyKitSqliteSchema,
 } from "./schema/sqlite.js";

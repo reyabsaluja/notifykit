@@ -51,6 +51,12 @@ export type SendResult = {
    * are empty; the eventual delivery fires from a later flush.
    */
   digested: boolean;
+  /**
+   * True if the send was dropped because the recipient has hit the
+   * notification's rate limit. No records are written and no hooks fire
+   * except `notification.rate_limited`.
+   */
+  rateLimited: boolean;
 };
 
 export type NotifyKit<
@@ -152,6 +158,39 @@ export function createNotifyKit<
 
     const payload = validatePayload(def.payload, input.payload, def.id);
 
+    if (def.rateLimit) {
+      const limit = def.rateLimit;
+      const scope = limit.scope ?? "recipient";
+      const key =
+        scope === "global"
+          ? def.id
+          : `${recipient.id}:${def.id}`;
+      const count = await database.rateLimits.count({
+        key,
+        windowMs: limit.windowMs,
+      });
+      if (count >= limit.max) {
+        await runHook("notification.rate_limited", {
+          notificationId: def.id,
+          recipientId: recipient.id,
+          limit,
+        });
+        return {
+          notification: null,
+          inboxItems: [],
+          deliveries: [],
+          skippedChannels: [],
+          digested: false,
+          rateLimited: true,
+        };
+      }
+      await database.rateLimits.record({
+        key,
+        recipientId: recipient.id,
+        notificationId: def.id,
+      });
+    }
+
     if (def.digest) {
       const digest = def.digest;
       const key =
@@ -197,6 +236,7 @@ export function createNotifyKit<
         deliveries: [],
         skippedChannels: [],
         digested: true,
+        rateLimited: false,
       };
     }
 
@@ -324,6 +364,7 @@ export function createNotifyKit<
       deliveries,
       skippedChannels,
       digested: false,
+      rateLimited: false,
     };
   }
 

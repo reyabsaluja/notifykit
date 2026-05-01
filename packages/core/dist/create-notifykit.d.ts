@@ -26,6 +26,12 @@ export type SendResult = {
      * are empty; the eventual delivery fires from a later flush.
      */
     digested: boolean;
+    /**
+     * True if the send was dropped because the recipient has hit the
+     * notification's rate limit. No records are written and no hooks fire
+     * except `notification.rate_limited`.
+     */
+    rateLimited: boolean;
 };
 export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     upsertRecipient(input: UpsertRecipientInput): Promise<Recipient>;

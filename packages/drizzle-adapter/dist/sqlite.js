@@ -1,5 +1,5 @@
-import { and, desc, eq } from "drizzle-orm";
-import { deliveries, digestBuffers, inboxItems, notifications, preferences, recipients, } from "./schema/sqlite.js";
+import { and, desc, eq, gte, lt } from "drizzle-orm";
+import { deliveries, digestBuffers, inboxItems, notifications, preferences, rateLimitEvents, recipients, } from "./schema/sqlite.js";
 function createId(prefix) {
     const rand = Math.random().toString(36).slice(2, 10);
     const time = Date.now().toString(36);
@@ -14,6 +14,7 @@ export function drizzleSqliteAdapter(db) {
             deliveries,
             preferences,
             digestBuffers,
+            rateLimitEvents,
         },
         recipients: {
             async upsert(input) {
@@ -378,6 +379,37 @@ export function drizzleSqliteAdapter(db) {
                     createdAt: row.createdAt,
                     updatedAt: row.updatedAt,
                 }));
+            },
+        },
+        rateLimits: {
+            async record(input) {
+                const event = {
+                    key: input.key,
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                    occurredAt: new Date(),
+                };
+                await db.insert(rateLimitEvents).values({
+                    id: createId("rlm"),
+                    key: event.key,
+                    recipientId: event.recipientId,
+                    notificationId: event.notificationId,
+                    occurredAt: event.occurredAt,
+                });
+                return event;
+            },
+            async count(input) {
+                const cutoff = new Date(Date.now() - input.windowMs);
+                // Opportunistic pruning: drop anything older than the window across
+                // all keys. Keeps the table from growing unbounded without a cron.
+                await db
+                    .delete(rateLimitEvents)
+                    .where(lt(rateLimitEvents.occurredAt, cutoff));
+                const rows = await db
+                    .select()
+                    .from(rateLimitEvents)
+                    .where(and(eq(rateLimitEvents.key, input.key), gte(rateLimitEvents.occurredAt, cutoff)));
+                return rows.length;
             },
         },
     };

@@ -4,6 +4,7 @@ import type {
   DigestBufferEntry,
   InboxItem,
   NotificationRecord,
+  RateLimitEvent,
   Recipient,
   RecipientPreference,
   UpsertRecipientInput,
@@ -18,6 +19,7 @@ export type MemoryAdapter = DatabaseAdapter & {
     deliveries: DeliveryRecord[];
     preferences: RecipientPreference[];
     digests: DigestBufferEntry[];
+    rateLimits: RateLimitEvent[];
   };
 };
 
@@ -29,6 +31,7 @@ export function memoryAdapter(): MemoryAdapter {
     deliveries: [] as DeliveryRecord[],
     preferences: [] as RecipientPreference[],
     digests: [] as DigestBufferEntry[],
+    rateLimits: [] as RateLimitEvent[],
   };
 
   const adapter: MemoryAdapter = {
@@ -212,6 +215,30 @@ export function memoryAdapter(): MemoryAdapter {
       },
       async list(): Promise<DigestBufferEntry[]> {
         return state.digests.slice();
+      },
+    },
+    rateLimits: {
+      async record(input): Promise<RateLimitEvent> {
+        const event: RateLimitEvent = {
+          key: input.key,
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          occurredAt: new Date(),
+        };
+        state.rateLimits.push(event);
+        return event;
+      },
+      async count(input): Promise<number> {
+        const cutoff = Date.now() - input.windowMs;
+        // Prune in place so the array stays small.
+        state.rateLimits = state.rateLimits.filter(
+          (e) => e.occurredAt.getTime() >= cutoff,
+        );
+        let n = 0;
+        for (const e of state.rateLimits) {
+          if (e.key === input.key) n++;
+        }
+        return n;
       },
     },
   };

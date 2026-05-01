@@ -66,6 +66,8 @@ export type {
   PayloadSchema,
   PrimitiveSchema,
   Queue,
+  RateLimitConfig,
+  RateLimitEvent,
   Recipient,
   RecipientPreference,
   RetryPolicy,

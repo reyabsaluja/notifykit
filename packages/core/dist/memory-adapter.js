@@ -7,6 +7,7 @@ export function memoryAdapter() {
         deliveries: [],
         preferences: [],
         digests: [],
+        rateLimits: [],
     };
     const adapter = {
         _state: state,
@@ -186,6 +187,29 @@ export function memoryAdapter() {
             },
             async list() {
                 return state.digests.slice();
+            },
+        },
+        rateLimits: {
+            async record(input) {
+                const event = {
+                    key: input.key,
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                    occurredAt: new Date(),
+                };
+                state.rateLimits.push(event);
+                return event;
+            },
+            async count(input) {
+                const cutoff = Date.now() - input.windowMs;
+                // Prune in place so the array stays small.
+                state.rateLimits = state.rateLimits.filter((e) => e.occurredAt.getTime() >= cutoff);
+                let n = 0;
+                for (const e of state.rateLimits) {
+                    if (e.key === input.key)
+                        n++;
+                }
+                return n;
             },
         },
     };

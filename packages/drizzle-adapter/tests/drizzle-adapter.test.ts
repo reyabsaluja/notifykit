@@ -240,6 +240,61 @@ describe("drizzleSqliteAdapter", () => {
     expect(all).toHaveLength(2);
   });
 
+  test("rate limit drops sends over max, persists events, prunes stale rows", async () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    await createSqliteTables(db);
+
+    const inboxCh = channel.inbox();
+    const def = notification({
+      id: "limited",
+      payload: { msg: "string" },
+      channels: [inboxCh({ title: "{{msg}}" })],
+      rateLimit: { max: 2, windowMs: 30 },
+    });
+
+    const events: string[] = [];
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: drizzleSqliteAdapter(db),
+      providers: { email: fakeEmailProvider() },
+      on: {
+        "notification.rate_limited": ({ recipientId }) =>
+          void events.push(recipientId),
+      },
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    for (const msg of ["a", "b", "c", "d"]) {
+      await notify.send({
+        recipientId: "u1",
+        notificationId: "limited",
+        payload: { msg },
+      });
+    }
+
+    const items = await notify.inbox.list("u1");
+    expect(items).toHaveLength(2);
+    expect(events).toEqual(["u1", "u1"]);
+
+    const rateLimitsCount = sqlite
+      .query("SELECT COUNT(*) as n FROM notifykit_rate_limit_events")
+      .get() as { n: number };
+    expect(rateLimitsCount.n).toBe(2);
+
+    // Wait past the window, send one more: aged rows get pruned during count().
+    await new Promise((r) => setTimeout(r, 40));
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "limited",
+      payload: { msg: "e" },
+    });
+    const afterPrune = sqlite
+      .query("SELECT COUNT(*) as n FROM notifykit_rate_limit_events")
+      .get() as { n: number };
+    expect(afterPrune.n).toBe(1);
+  });
+
   test("digest buffer persists and flushes merged payload", async () => {
     const sqlite = new Database(":memory:");
     const db = drizzle(sqlite);

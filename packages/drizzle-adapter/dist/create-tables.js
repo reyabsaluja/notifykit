@@ -75,6 +75,15 @@ export async function createSqliteTables(db) {
     )`,
         `CREATE INDEX IF NOT EXISTS idx_notifykit_digests_flush_at
       ON notifykit_digest_buffers (flush_at)`,
+        `CREATE TABLE IF NOT EXISTS notifykit_rate_limit_events (
+      id TEXT PRIMARY KEY,
+      key TEXT NOT NULL,
+      recipient_id TEXT NOT NULL,
+      notification_id TEXT NOT NULL,
+      occurred_at INTEGER NOT NULL
+    )`,
+        `CREATE INDEX IF NOT EXISTS idx_notifykit_rate_limits_key_time
+      ON notifykit_rate_limit_events (key, occurred_at)`,
     ];
     for (const stmt of statements) {
         await db.run(sql.raw(stmt));

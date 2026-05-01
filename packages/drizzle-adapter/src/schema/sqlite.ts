@@ -77,6 +77,14 @@ export const preferences = sqliteTable(
   }),
 );
 
+export const rateLimitEvents = sqliteTable("notifykit_rate_limit_events", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull(),
+  recipientId: text("recipient_id").notNull(),
+  notificationId: text("notification_id").notNull(),
+  occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const digestBuffers = sqliteTable("notifykit_digest_buffers", {
   key: text("key").primaryKey(),
   recipientId: text("recipient_id").notNull(),
@@ -96,6 +104,7 @@ export const notifyKitSchema = {
   deliveries,
   preferences,
   digestBuffers,
+  rateLimitEvents,
 };
 
 export type NotifyKitSqliteSchema = typeof notifyKitSchema;
