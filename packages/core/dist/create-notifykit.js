@@ -131,14 +131,16 @@ export function createNotifyKit(config) {
                 rateLimited: false,
             };
         }
-        // Quiet hours: inbox still delivers immediately, email defers until the
-        // window ends. We schedule one row per (recipient, notification, payload);
-        // the flusher calls deliver() again with `onlyChannels` when it fires.
+        // Quiet hours: inbox still delivers immediately, email + webhook defer
+        // until the window ends. Schedule one row per (recipient, notification,
+        // payload); the flusher calls deliver() again with `onlyChannels` when
+        // it fires.
         const deferChannels = [];
         if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
             for (const ch of def.channels) {
-                if (ch.type === "email")
+                if (ch.type === "email" || ch.type === "webhook") {
                     deferChannels.push(ch.type);
+                }
             }
         }
         if (deferChannels.length > 0) {
@@ -193,7 +195,9 @@ export function createNotifyKit(config) {
         // deferred channels now. We create a fresh notification record for the
         // deferred delivery so the delivery row has a parent — matches the
         // behavior where digest flushes also create a fresh record.
-        await deliver(recipient, def, payload, { onlyChannels: ["email"] });
+        await deliver(recipient, def, payload, {
+            onlyChannels: ["email", "webhook"],
+        });
     }
     async function flushDigestKey(key, def) {
         const entry = await database.digests.take(key);
@@ -304,9 +308,47 @@ export function createNotifyKit(config) {
                     body,
                     payload,
                 };
-                await queue.enqueue(job, (j) => processDeliveryJob(j, provider));
+                await queue.enqueue(job, (j) => processDeliveryJob(j));
                 // Re-read after enqueue so inline queues return final state; async
                 // queues return "pending" here (callers use drain() + deliveries.list).
+                const latest = await database.deliveries.findById(delivery.id);
+                deliveries.push(latest ?? delivery);
+            }
+            else if (ch.type === "webhook") {
+                const provider = providers?.webhook;
+                if (!provider) {
+                    throw new NotifyKitError(`Notification "${def.id}" has a webhook channel but no webhook provider is configured.`);
+                }
+                const url = renderTemplate(ch.url, payload);
+                const headers = {};
+                if (ch.headers) {
+                    for (const [k, v] of Object.entries(ch.headers)) {
+                        headers[k] = renderTemplate(v, payload);
+                    }
+                }
+                const delivery = await database.deliveries.create({
+                    notificationRecordId: notificationRecord.id,
+                    recipientId: recipient.id,
+                    notificationId: def.id,
+                    channel: "webhook",
+                    provider: provider.id,
+                    status: "pending",
+                    to: url,
+                    body: JSON.stringify(payload),
+                    attempts: 0,
+                });
+                const job = {
+                    deliveryId: delivery.id,
+                    notificationRecordId: notificationRecord.id,
+                    recipientId: recipient.id,
+                    notificationId: def.id,
+                    channel: "webhook",
+                    provider: provider.id,
+                    url,
+                    headers,
+                    payload,
+                };
+                await queue.enqueue(job, (j) => processDeliveryJob(j));
                 const latest = await database.deliveries.findById(delivery.id);
                 deliveries.push(latest ?? delivery);
             }
@@ -321,7 +363,7 @@ export function createNotifyKit(config) {
             rateLimited: false,
         };
     }
-    async function processDeliveryJob(job, provider) {
+    async function processDeliveryJob(job) {
         let lastError = null;
         for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
             const wait = retry.delayMs(attempt);
@@ -329,11 +371,34 @@ export function createNotifyKit(config) {
                 await new Promise((r) => setTimeout(r, wait));
             }
             try {
-                const result = await provider.send({
-                    to: job.to,
-                    subject: job.subject,
-                    body: job.body,
-                });
+                let result;
+                if (job.channel === "email") {
+                    const provider = providers?.email;
+                    if (!provider) {
+                        throw new Error("No email provider configured");
+                    }
+                    result = await provider.send({
+                        to: job.to,
+                        subject: job.subject,
+                        body: job.body,
+                    });
+                }
+                else {
+                    const provider = providers?.webhook;
+                    if (!provider) {
+                        throw new Error("No webhook provider configured");
+                    }
+                    result = await provider.send({
+                        url: job.url,
+                        headers: job.headers,
+                        payload: {
+                            notificationId: job.notificationId,
+                            recipientId: job.recipientId,
+                            payload: job.payload,
+                            sentAt: new Date().toISOString(),
+                        },
+                    });
+                }
                 const updated = await database.deliveries.update(job.deliveryId, {
                     status: "sent",
                     providerMessageId: result.providerMessageId,

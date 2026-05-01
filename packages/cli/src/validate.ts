@@ -30,7 +30,10 @@ export function validateNotifications(
     }
     seenIds.add(def.id);
 
-    const payloadKeys = new Set(Object.keys(def.payload));
+    // `_unsubscribeUrl` is injected by the engine at render time for email
+    // templates. It's valid to reference it even though it's not declared in
+    // the payload schema.
+    const payloadKeys = new Set([...Object.keys(def.payload), "_unsubscribeUrl"]);
 
     for (const [i, ch] of def.channels.entries()) {
       const label = `${ch.type}[${i}]`;
@@ -52,6 +55,20 @@ export function validateNotifications(
       } else if (ch.type === "email") {
         collectIssues(def, label, "subject", ch.subject, payloadKeys, issues);
         collectIssues(def, label, "body", ch.body, payloadKeys, issues);
+      } else if (ch.type === "webhook") {
+        collectIssues(def, label, "url", ch.url, payloadKeys, issues);
+        if (ch.headers) {
+          for (const [hk, hv] of Object.entries(ch.headers)) {
+            collectIssues(
+              def,
+              label,
+              `headers.${hk}`,
+              hv,
+              payloadKeys,
+              issues,
+            );
+          }
+        }
       }
     }
   }

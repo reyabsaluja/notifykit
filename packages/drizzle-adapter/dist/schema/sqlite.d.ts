@@ -482,7 +482,7 @@ export declare const deliveries: import("drizzle-orm/sqlite-core").SQLiteTableWi
             tableName: "notifykit_deliveries";
             dataType: "string";
             columnType: "SQLiteText";
-            data: "email";
+            data: "email" | "webhook";
             driverParam: string;
             notNull: true;
             hasDefault: false;
@@ -495,7 +495,7 @@ export declare const deliveries: import("drizzle-orm/sqlite-core").SQLiteTableWi
             generated: undefined;
         }, {}, {
             length: number | undefined;
-            $type: "email";
+            $type: "email" | "webhook";
         }>;
         provider: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "provider";
@@ -1656,7 +1656,7 @@ export declare const notifyKitSchema: {
                 tableName: "notifykit_deliveries";
                 dataType: "string";
                 columnType: "SQLiteText";
-                data: "email";
+                data: "email" | "webhook";
                 driverParam: string;
                 notNull: true;
                 hasDefault: false;
@@ -1669,7 +1669,7 @@ export declare const notifyKitSchema: {
                 generated: undefined;
             }, {}, {
                 length: number | undefined;
-                $type: "email";
+                $type: "email" | "webhook";
             }>;
             provider: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "provider";

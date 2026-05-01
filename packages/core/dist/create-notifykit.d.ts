@@ -1,9 +1,10 @@
-import type { ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, NotificationDefinition, NotificationRecord, PayloadSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, UpdatePreferenceInput, UpsertRecipientInput } from "./types.js";
+import type { ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, NotificationDefinition, NotificationRecord, PayloadSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
 export type CreateNotifyKitInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     notifications: T;
     database: DatabaseAdapter;
     providers?: {
         email?: EmailProvider;
+        webhook?: WebhookProvider;
     };
     on?: Hooks;
     /**

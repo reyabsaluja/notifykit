@@ -1,6 +1,7 @@
 import type {
   EmailChannelConfig,
   InboxChannelConfig,
+  WebhookChannelConfig,
 } from "./types.js";
 
 export type InboxChannelInput = {
@@ -14,8 +15,14 @@ export type EmailChannelInput = {
   body: string;
 };
 
+export type WebhookChannelInput = {
+  url: string;
+  headers?: Record<string, string>;
+};
+
 export type InboxChannelFactory = (input: InboxChannelInput) => InboxChannelConfig;
 export type EmailChannelFactory = (input: EmailChannelInput) => EmailChannelConfig;
+export type WebhookChannelFactory = (input: WebhookChannelInput) => WebhookChannelConfig;
 
 function inboxFactory(): InboxChannelFactory {
   return (input) => ({
@@ -34,7 +41,16 @@ function emailFactory(): EmailChannelFactory {
   });
 }
 
+function webhookFactory(): WebhookChannelFactory {
+  return (input) => ({
+    type: "webhook",
+    url: input.url,
+    headers: input.headers,
+  });
+}
+
 export const channel = {
   inbox: inboxFactory,
   email: emailFactory,
+  webhook: webhookFactory,
 };

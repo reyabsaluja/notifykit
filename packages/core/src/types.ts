@@ -25,7 +25,16 @@ export type EmailChannelConfig = {
   body: string;
 };
 
-export type ChannelConfig = InboxChannelConfig | EmailChannelConfig;
+export type WebhookChannelConfig = {
+  type: "webhook";
+  url: string;
+  headers?: Record<string, string>;
+};
+
+export type ChannelConfig =
+  | InboxChannelConfig
+  | EmailChannelConfig
+  | WebhookChannelConfig;
 
 export type RateLimitConfig = {
   /** Maximum sends allowed within `windowMs`. */
@@ -179,16 +188,21 @@ export type DigestBufferEntry = {
 
 export type DeliveryStatus = "pending" | "sent" | "failed";
 
+export type DeliveryChannel = "email" | "webhook";
+
 export type DeliveryRecord = {
   id: string;
   notificationRecordId: string;
   recipientId: string;
   notificationId: string;
-  channel: "email";
+  channel: DeliveryChannel;
   provider: string;
   status: DeliveryStatus;
+  /** Email destination OR webhook URL, depending on channel. */
   to?: string;
+  /** Email subject; empty for webhook. */
   subject?: string;
+  /** Email body; serialized JSON payload for webhook. */
   body?: string;
   providerMessageId?: string;
   error?: string;
@@ -208,19 +222,44 @@ export type EmailProvider = {
   }): Promise<{ providerMessageId?: string }>;
 };
 
-export type DeliveryJob = {
-  deliveryId: string;
-  notificationRecordId: string;
-  recipientId: string;
-  notificationId: string;
-  channel: "email";
-  provider: string;
-  to: string;
-  subject: string;
-  body: string;
-  /** The validated payload. Used by fallback rendering. */
-  payload: Record<string, unknown>;
+export type WebhookProvider = {
+  id: string;
+  send(input: {
+    url: string;
+    headers: Record<string, string>;
+    payload: {
+      notificationId: string;
+      recipientId: string;
+      payload: Record<string, unknown>;
+      sentAt: string;
+    };
+  }): Promise<{ providerMessageId?: string }>;
 };
+
+export type DeliveryJob =
+  | {
+      deliveryId: string;
+      notificationRecordId: string;
+      recipientId: string;
+      notificationId: string;
+      channel: "email";
+      provider: string;
+      to: string;
+      subject: string;
+      body: string;
+      payload: Record<string, unknown>;
+    }
+  | {
+      deliveryId: string;
+      notificationRecordId: string;
+      recipientId: string;
+      notificationId: string;
+      channel: "webhook";
+      provider: string;
+      url: string;
+      headers: Record<string, string>;
+      payload: Record<string, unknown>;
+    };
 
 export type Queue = {
   enqueue(

@@ -50,7 +50,7 @@ export const deliveries = sqliteTable("notifykit_deliveries", {
   notificationRecordId: text("notification_record_id").notNull(),
   recipientId: text("recipient_id").notNull(),
   notificationId: text("notification_id").notNull(),
-  channel: text("channel").notNull().$type<"email">(),
+  channel: text("channel").notNull().$type<"email" | "webhook">(),
   provider: text("provider").notNull(),
   status: text("status")
     .notNull()

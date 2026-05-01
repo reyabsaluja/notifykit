@@ -164,7 +164,7 @@ function toChannelPreferenceMap(input) {
     for (const [key, value] of Object.entries(input)) {
         if (typeof value !== "boolean")
             return null;
-        if (key !== "inbox" && key !== "email")
+        if (key !== "inbox" && key !== "email" && key !== "webhook")
             return null;
         out[key] = value;
     }

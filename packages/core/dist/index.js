@@ -3,7 +3,7 @@ export { notification } from "./notification.js";
 export { createNotifyKit } from "./create-notifykit.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
-export { fakeEmailProvider } from "./providers.js";
+export { fakeEmailProvider, fakeWebhookProvider, webhookProvider, } from "./providers.js";
 export { defaultRetryPolicy, inlineQueue, setTimeoutQueue, } from "./queues.js";
 export { signUnsubscribeToken, verifyUnsubscribeToken, } from "./unsubscribe.js";
 export { NotifyKitError, PayloadValidationError, renderTemplate, } from "./utils.js";

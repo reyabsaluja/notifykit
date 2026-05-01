@@ -13,8 +13,16 @@ function emailFactory() {
         body: input.body,
     });
 }
+function webhookFactory() {
+    return (input) => ({
+        type: "webhook",
+        url: input.url,
+        headers: input.headers,
+    });
+}
 export const channel = {
     inbox: inboxFactory,
     email: emailFactory,
+    webhook: webhookFactory,
 };
 //# sourceMappingURL=channel.js.map

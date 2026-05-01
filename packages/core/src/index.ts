@@ -3,7 +3,11 @@ export { notification } from "./notification.js";
 export { createNotifyKit } from "./create-notifykit.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
-export { fakeEmailProvider } from "./providers.js";
+export {
+  fakeEmailProvider,
+  fakeWebhookProvider,
+  webhookProvider,
+} from "./providers.js";
 export {
   defaultRetryPolicy,
   inlineQueue,
@@ -38,6 +42,8 @@ export type {
   EmailChannelInput,
   InboxChannelFactory,
   InboxChannelInput,
+  WebhookChannelFactory,
+  WebhookChannelInput,
 } from "./channel.js";
 
 export type { MemoryAdapter } from "./memory-adapter.js";
@@ -45,7 +51,11 @@ export type { MemoryAdapter } from "./memory-adapter.js";
 export type {
   FakeEmailProvider,
   FakeEmailProviderOptions,
+  FakeWebhookProvider,
+  FakeWebhookProviderOptions,
   SentEmail,
+  SentWebhook,
+  WebhookProviderOptions,
 } from "./providers.js";
 
 export type {
@@ -53,6 +63,7 @@ export type {
   ChannelPreferenceMap,
   ChannelType,
   DatabaseAdapter,
+  DeliveryChannel,
   DeliveryJob,
   DeliveryRecord,
   DeliveryStatus,
@@ -81,4 +92,6 @@ export type {
   SendInput,
   UpdatePreferenceInput,
   UpsertRecipientInput,
+  WebhookChannelConfig,
+  WebhookProvider,
 } from "./types.js";
