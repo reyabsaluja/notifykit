@@ -59,6 +59,33 @@ export declare const recipients: import("drizzle-orm/sqlite-core").SQLiteTableWi
         }, {}, {
             length: number | undefined;
         }>;
+        quietHours: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "quiet_hours";
+            tableName: "notifykit_recipients";
+            dataType: "json";
+            columnType: "SQLiteTextJson";
+            data: {
+                start: string;
+                end: string;
+                timezone?: string;
+            } | null;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            $type: {
+                start: string;
+                end: string;
+                timezone?: string;
+            } | null;
+        }>;
         createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "created_at";
             tableName: "notifykit_recipients";
@@ -773,6 +800,143 @@ export declare const preferences: import("drizzle-orm/sqlite-core").SQLiteTableW
     };
     dialect: "sqlite";
 }>;
+export declare const scheduledSends: import("drizzle-orm/sqlite-core").SQLiteTableWithColumns<{
+    name: "notifykit_scheduled_sends";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "id";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        recipientId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "recipient_id";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "notification_id";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        payload: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "payload";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "json";
+            columnType: "SQLiteTextJson";
+            data: Record<string, unknown>;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            $type: Record<string, unknown>;
+        }>;
+        scheduledFor: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "scheduled_for";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "date";
+            columnType: "SQLiteTimestamp";
+            data: Date;
+            driverParam: number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        reason: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "reason";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: "quiet_hours";
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+            $type: "quiet_hours";
+        }>;
+        createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "created_at";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "date";
+            columnType: "SQLiteTimestamp";
+            data: Date;
+            driverParam: number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: "sqlite";
+}>;
 export declare const rateLimitEvents: import("drizzle-orm/sqlite-core").SQLiteTableWithColumns<{
     name: "notifykit_rate_limit_events";
     schema: undefined;
@@ -1068,6 +1232,33 @@ export declare const notifyKitSchema: {
                 generated: undefined;
             }, {}, {
                 length: number | undefined;
+            }>;
+            quietHours: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "quiet_hours";
+                tableName: "notifykit_recipients";
+                dataType: "json";
+                columnType: "SQLiteTextJson";
+                data: {
+                    start: string;
+                    end: string;
+                    timezone?: string;
+                } | null;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                $type: {
+                    start: string;
+                    end: string;
+                    timezone?: string;
+                } | null;
             }>;
             createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "created_at";
@@ -2000,6 +2191,143 @@ export declare const notifyKitSchema: {
             occurredAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "occurred_at";
                 tableName: "notifykit_rate_limit_events";
+                dataType: "date";
+                columnType: "SQLiteTimestamp";
+                data: Date;
+                driverParam: number;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
+        };
+        dialect: "sqlite";
+    }>;
+    scheduledSends: import("drizzle-orm/sqlite-core").SQLiteTableWithColumns<{
+        name: "notifykit_scheduled_sends";
+        schema: undefined;
+        columns: {
+            id: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "id";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: true;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            recipientId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "recipient_id";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "notification_id";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            payload: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "payload";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "json";
+                columnType: "SQLiteTextJson";
+                data: Record<string, unknown>;
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                $type: Record<string, unknown>;
+            }>;
+            scheduledFor: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "scheduled_for";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "date";
+                columnType: "SQLiteTimestamp";
+                data: Date;
+                driverParam: number;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
+            reason: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "reason";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: "quiet_hours";
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+                $type: "quiet_hours";
+            }>;
+            createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "created_at";
+                tableName: "notifykit_scheduled_sends";
                 dataType: "date";
                 columnType: "SQLiteTimestamp";
                 data: Date;

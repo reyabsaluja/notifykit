@@ -12,5 +12,6 @@ export {
   preferences,
   rateLimitEvents,
   recipients,
+  scheduledSends,
   type NotifyKitSqliteSchema,
 } from "./schema/sqlite.js";

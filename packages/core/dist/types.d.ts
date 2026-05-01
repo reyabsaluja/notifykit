@@ -56,11 +56,32 @@ export type NotificationDefinition<Id extends string = string, S extends Payload
     channels: ChannelConfig[];
     digest?: DigestConfig<S>;
     rateLimit?: RateLimitConfig;
+    /**
+     * Channel used when every primary delivery has terminally failed. Only
+     * inbox is supported today — it runs after retries are exhausted so users
+     * always see the message even if their email bounces.
+     */
+    fallback?: InboxChannelConfig;
+};
+/**
+ * Quiet hours define a daily window during which non-urgent channels defer.
+ * Times are "HH:MM" in 24h format in the recipient's own timezone. Inbox
+ * channels still deliver immediately — quiet hours only suppress push/email.
+ * Omitting a field disables the feature.
+ */
+export type QuietHours = {
+    /** "HH:MM" in 24h format. e.g. "22:00". */
+    start: string;
+    /** "HH:MM" in 24h format. e.g. "08:00". Can cross midnight (e.g. 22:00 → 08:00). */
+    end: string;
+    /** IANA timezone. Defaults to "UTC". */
+    timezone?: string;
 };
 export type Recipient = {
     id: string;
     email?: string;
     name?: string;
+    quietHours?: QuietHours | null;
     createdAt: Date;
     updatedAt: Date;
 };
@@ -68,6 +89,8 @@ export type UpsertRecipientInput = {
     id: string;
     email?: string;
     name?: string;
+    /** Pass `null` to clear. Pass `undefined` (omit) to leave as-is. */
+    quietHours?: QuietHours | null;
 };
 export type NotificationRecord = {
     id: string;
@@ -94,6 +117,17 @@ export type RecipientPreference = {
     notificationId: string;
     channels: ChannelPreferenceMap;
     updatedAt: Date;
+};
+export type ScheduledSend = {
+    id: string;
+    recipientId: string;
+    notificationId: string;
+    payload: Record<string, unknown>;
+    /** Wall-clock moment when the send should fire. */
+    scheduledFor: Date;
+    /** Why the send was deferred. Informational. */
+    reason: "quiet_hours";
+    createdAt: Date;
 };
 export type RateLimitEvent = {
     /** "<notificationId>" for global scope, "<recipientId>:<notificationId>" otherwise. */
@@ -154,6 +188,8 @@ export type DeliveryJob = {
     to: string;
     subject: string;
     body: string;
+    /** The validated payload. Used by fallback rendering. */
+    payload: Record<string, unknown>;
 };
 export type Queue = {
     enqueue(job: DeliveryJob, run: (job: DeliveryJob) => Promise<void>): void | Promise<void>;
@@ -233,6 +269,13 @@ export type DatabaseAdapter = {
             key: string;
             windowMs: number;
         }): Promise<number>;
+    };
+    scheduledSends: {
+        create(input: Omit<ScheduledSend, "id" | "createdAt">): Promise<ScheduledSend>;
+        /** Atomic take-by-id; null if already consumed. */
+        take(id: string): Promise<ScheduledSend | null>;
+        /** For inspection / recovery after restart. */
+        list(): Promise<ScheduledSend[]>;
     };
 };
 export type Hooks = {

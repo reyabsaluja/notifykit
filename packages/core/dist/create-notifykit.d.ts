@@ -21,6 +21,11 @@ export type SendResult = {
     deliveries: DeliveryRecord[];
     skippedChannels: ChannelType[];
     /**
+     * Channel types that were deferred to fire after quiet hours end. The inbox
+     * channel still delivers immediately because it's user-pulled viewing.
+     */
+    deferredChannels: ChannelType[];
+    /**
      * True if the send was buffered into a digest window instead of delivered
      * immediately. In that case `notification` is null and the other arrays
      * are empty; the eventual delivery fires from a later flush.
@@ -59,6 +64,11 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
      * triggered flush (and its follow-up deliveries) has completed.
      */
     flushDigests(): Promise<void>;
+    /**
+     * Forces pending quiet-hours deferrals to fire now. Resolves once every
+     * triggered send has completed.
+     */
+    flushScheduledSends(): Promise<void>;
     /** Registered notification definitions. Read-only, for introspection. */
     readonly definitions: T;
 };

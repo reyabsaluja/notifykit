@@ -4,6 +4,7 @@ export const recipients = sqliteTable("notifykit_recipients", {
     id: text("id").primaryKey(),
     email: text("email"),
     name: text("name"),
+    quietHours: text("quiet_hours", { mode: "json" }).$type(),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
         .notNull()
         .default(sql `(unixepoch() * 1000)`),
@@ -62,6 +63,17 @@ export const preferences = sqliteTable("notifykit_preferences", {
 }, (table) => ({
     pk: primaryKey({ columns: [table.recipientId, table.notificationId] }),
 }));
+export const scheduledSends = sqliteTable("notifykit_scheduled_sends", {
+    id: text("id").primaryKey(),
+    recipientId: text("recipient_id").notNull(),
+    notificationId: text("notification_id").notNull(),
+    payload: text("payload", { mode: "json" })
+        .$type()
+        .notNull(),
+    scheduledFor: integer("scheduled_for", { mode: "timestamp_ms" }).notNull(),
+    reason: text("reason").notNull().$type(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
 export const rateLimitEvents = sqliteTable("notifykit_rate_limit_events", {
     id: text("id").primaryKey(),
     key: text("key").notNull(),
@@ -88,5 +100,6 @@ export const notifyKitSchema = {
     preferences,
     digestBuffers,
     rateLimitEvents,
+    scheduledSends,
 };
 //# sourceMappingURL=sqlite.js.map

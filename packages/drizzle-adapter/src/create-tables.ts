@@ -15,6 +15,7 @@ export async function createSqliteTables(
       id TEXT PRIMARY KEY,
       email TEXT,
       name TEXT,
+      quiet_hours TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`,
@@ -88,6 +89,17 @@ export async function createSqliteTables(
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_rate_limits_key_time
       ON notifykit_rate_limit_events (key, occurred_at)`,
+    `CREATE TABLE IF NOT EXISTS notifykit_scheduled_sends (
+      id TEXT PRIMARY KEY,
+      recipient_id TEXT NOT NULL,
+      notification_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      scheduled_for INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_scheduled_sends_scheduled_for
+      ON notifykit_scheduled_sends (scheduled_for)`,
   ];
 
   for (const stmt of statements) {

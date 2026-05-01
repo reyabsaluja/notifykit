@@ -8,6 +8,7 @@ export function memoryAdapter() {
         preferences: [],
         digests: [],
         rateLimits: [],
+        scheduledSends: [],
     };
     const adapter = {
         _state: state,
@@ -20,6 +21,9 @@ export function memoryAdapter() {
                         existing.email = input.email;
                     if (input.name !== undefined)
                         existing.name = input.name;
+                    if (input.quietHours !== undefined) {
+                        existing.quietHours = input.quietHours;
+                    }
                     existing.updatedAt = now;
                     return existing;
                 }
@@ -27,6 +31,7 @@ export function memoryAdapter() {
                     id: input.id,
                     email: input.email,
                     name: input.name,
+                    quietHours: input.quietHours ?? undefined,
                     createdAt: now,
                     updatedAt: now,
                 };
@@ -210,6 +215,31 @@ export function memoryAdapter() {
                         n++;
                 }
                 return n;
+            },
+        },
+        scheduledSends: {
+            async create(input) {
+                const record = {
+                    id: createId("sch"),
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                    payload: input.payload,
+                    scheduledFor: input.scheduledFor,
+                    reason: input.reason,
+                    createdAt: new Date(),
+                };
+                state.scheduledSends.push(record);
+                return record;
+            },
+            async take(id) {
+                const idx = state.scheduledSends.findIndex((s) => s.id === id);
+                if (idx < 0)
+                    return null;
+                const [record] = state.scheduledSends.splice(idx, 1);
+                return record ?? null;
+            },
+            async list() {
+                return state.scheduledSends.slice();
             },
         },
     };

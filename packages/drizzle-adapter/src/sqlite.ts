@@ -5,9 +5,11 @@ import type {
   DigestBufferEntry,
   InboxItem,
   NotificationRecord,
+  QuietHours,
   RateLimitEvent,
   Recipient,
   RecipientPreference,
+  ScheduledSend,
   UpsertRecipientInput,
 } from "notifykit";
 import { and, desc, eq, gte, lt } from "drizzle-orm";
@@ -21,6 +23,7 @@ import {
   preferences,
   rateLimitEvents,
   recipients,
+  scheduledSends,
 } from "./schema/sqlite.js";
 
 function createId(prefix: string): string {
@@ -40,6 +43,7 @@ export type DrizzleSqliteAdapter = DatabaseAdapter & {
     preferences: typeof preferences;
     digestBuffers: typeof digestBuffers;
     rateLimitEvents: typeof rateLimitEvents;
+    scheduledSends: typeof scheduledSends;
   };
 };
 
@@ -53,6 +57,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       preferences,
       digestBuffers,
       rateLimitEvents,
+      scheduledSends,
     },
 
     recipients: {
@@ -69,6 +74,10 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           const next = {
             email: input.email !== undefined ? input.email : current.email,
             name: input.name !== undefined ? input.name : current.name,
+            quietHours:
+              input.quietHours !== undefined
+                ? input.quietHours
+                : current.quietHours,
             updatedAt: now,
           };
           await db
@@ -79,6 +88,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
             id: current.id,
             email: next.email ?? undefined,
             name: next.name ?? undefined,
+            quietHours: (next.quietHours as QuietHours | null | undefined) ?? undefined,
             createdAt: current.createdAt,
             updatedAt: now,
           };
@@ -88,6 +98,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           id: input.id,
           email: input.email,
           name: input.name,
+          quietHours: input.quietHours ?? null,
           createdAt: now,
           updatedAt: now,
         });
@@ -95,6 +106,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           id: input.id,
           email: input.email,
           name: input.name,
+          quietHours: input.quietHours ?? undefined,
           createdAt: now,
           updatedAt: now,
         };
@@ -112,6 +124,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           id: row.id,
           email: row.email ?? undefined,
           name: row.name ?? undefined,
+          quietHours: (row.quietHours as QuietHours | null | undefined) ?? undefined,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         };
@@ -486,6 +499,59 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
             ),
           );
         return rows.length;
+      },
+    },
+
+    scheduledSends: {
+      async create(input): Promise<ScheduledSend> {
+        const record: ScheduledSend = {
+          id: createId("sch"),
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          payload: input.payload,
+          scheduledFor: input.scheduledFor,
+          reason: input.reason,
+          createdAt: new Date(),
+        };
+        await db.insert(scheduledSends).values({
+          id: record.id,
+          recipientId: record.recipientId,
+          notificationId: record.notificationId,
+          payload: record.payload,
+          scheduledFor: record.scheduledFor,
+          reason: record.reason,
+          createdAt: record.createdAt,
+        });
+        return record;
+      },
+      async take(id: string): Promise<ScheduledSend | null> {
+        const rows = await db
+          .delete(scheduledSends)
+          .where(eq(scheduledSends.id, id))
+          .returning();
+        const row = rows[0];
+        if (!row) return null;
+        return {
+          id: row.id,
+          recipientId: row.recipientId,
+          notificationId: row.notificationId,
+          payload: row.payload as Record<string, unknown>,
+          scheduledFor: row.scheduledFor,
+          reason: row.reason,
+          createdAt: row.createdAt,
+        };
+      },
+      async list(): Promise<ScheduledSend[]> {
+        const rows = await db.select().from(scheduledSends);
+        return rows.map((row) => ({
+          id: row.id,
+          recipientId: row.recipientId,
+          notificationId: row.notificationId,
+          payload: row.payload as Record<string, unknown>,
+          scheduledFor: row.scheduledFor,
+          reason: row.reason,
+          createdAt: row.createdAt,
+        }));
       },
     },
   };

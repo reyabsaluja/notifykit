@@ -7,6 +7,7 @@ import type {
   RateLimitEvent,
   Recipient,
   RecipientPreference,
+  ScheduledSend,
   UpsertRecipientInput,
 } from "./types.js";
 import { createId } from "./utils.js";
@@ -20,6 +21,7 @@ export type MemoryAdapter = DatabaseAdapter & {
     preferences: RecipientPreference[];
     digests: DigestBufferEntry[];
     rateLimits: RateLimitEvent[];
+    scheduledSends: ScheduledSend[];
   };
 };
 
@@ -32,6 +34,7 @@ export function memoryAdapter(): MemoryAdapter {
     preferences: [] as RecipientPreference[],
     digests: [] as DigestBufferEntry[],
     rateLimits: [] as RateLimitEvent[],
+    scheduledSends: [] as ScheduledSend[],
   };
 
   const adapter: MemoryAdapter = {
@@ -43,6 +46,9 @@ export function memoryAdapter(): MemoryAdapter {
         if (existing) {
           if (input.email !== undefined) existing.email = input.email;
           if (input.name !== undefined) existing.name = input.name;
+          if (input.quietHours !== undefined) {
+            existing.quietHours = input.quietHours;
+          }
           existing.updatedAt = now;
           return existing;
         }
@@ -50,6 +56,7 @@ export function memoryAdapter(): MemoryAdapter {
           id: input.id,
           email: input.email,
           name: input.name,
+          quietHours: input.quietHours ?? undefined,
           createdAt: now,
           updatedAt: now,
         };
@@ -239,6 +246,30 @@ export function memoryAdapter(): MemoryAdapter {
           if (e.key === input.key) n++;
         }
         return n;
+      },
+    },
+    scheduledSends: {
+      async create(input): Promise<ScheduledSend> {
+        const record: ScheduledSend = {
+          id: createId("sch"),
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          payload: input.payload,
+          scheduledFor: input.scheduledFor,
+          reason: input.reason,
+          createdAt: new Date(),
+        };
+        state.scheduledSends.push(record);
+        return record;
+      },
+      async take(id: string): Promise<ScheduledSend | null> {
+        const idx = state.scheduledSends.findIndex((s) => s.id === id);
+        if (idx < 0) return null;
+        const [record] = state.scheduledSends.splice(idx, 1);
+        return record ?? null;
+      },
+      async list(): Promise<ScheduledSend[]> {
+        return state.scheduledSends.slice();
       },
     },
   };

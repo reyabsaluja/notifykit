@@ -240,6 +240,134 @@ describe("drizzleSqliteAdapter", () => {
     expect(all).toHaveLength(2);
   });
 
+  test("quietHours persists on the recipient row", async () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    await createSqliteTables(db);
+    const inboxCh = channel.inbox();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inboxCh({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: drizzleSqliteAdapter(db),
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: { start: "22:00", end: "08:00", timezone: "UTC" },
+    });
+
+    const raw = sqlite
+      .query("SELECT quiet_hours FROM notifykit_recipients WHERE id = ?")
+      .get("u1") as { quiet_hours: string };
+    expect(JSON.parse(raw.quiet_hours)).toEqual({
+      start: "22:00",
+      end: "08:00",
+      timezone: "UTC",
+    });
+
+    await notify.upsertRecipient({ id: "u1", quietHours: null });
+    const raw2 = sqlite
+      .query("SELECT quiet_hours FROM notifykit_recipients WHERE id = ?")
+      .get("u1") as { quiet_hours: null | string };
+    expect(raw2.quiet_hours).toBeNull();
+  });
+
+  test("scheduled send is persisted and flushed via flushScheduledSends", async () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    await createSqliteTables(db);
+    const emailCh = channel.email();
+    const inboxCh = channel.inbox();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [
+        inboxCh({ title: "{{msg}}" }),
+        emailCh({ subject: "{{msg}}", body: "{{msg}}" }),
+      ],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: drizzleSqliteAdapter(db),
+      providers: { email: provider },
+    });
+
+    // Quiet hours that contain "now" (in UTC).
+    const now = new Date();
+    const hours = now.getUTCHours();
+    const minutes = now.getUTCMinutes();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const start = `${pad((hours + 23) % 24)}:${pad(minutes)}`;
+    const end = `${pad((hours + 1) % 24)}:${pad(minutes)}`;
+
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: { start, end, timezone: "UTC" },
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+
+    const pending = sqlite
+      .query("SELECT COUNT(*) as n FROM notifykit_scheduled_sends")
+      .get() as { n: number };
+    expect(pending.n).toBe(1);
+    expect(provider.sent).toEqual([]);
+
+    await notify.flushScheduledSends();
+
+    const after = sqlite
+      .query("SELECT COUNT(*) as n FROM notifykit_scheduled_sends")
+      .get() as { n: number };
+    expect(after.n).toBe(0);
+    expect(provider.sent).toHaveLength(1);
+  });
+
+  test("fallback inbox fires when email terminally fails", async () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    await createSqliteTables(db);
+    const emailCh = channel.email();
+    const inboxCh = channel.inbox();
+    const def = notification({
+      id: "reset",
+      payload: { link: "string" },
+      channels: [emailCh({ subject: "Reset", body: "{{link}}" })],
+      fallback: inboxCh({ title: "Fallback: {{link}}" }),
+    });
+    const alwaysFail = {
+      id: "alwaysFail",
+      async send() {
+        throw new Error("nope");
+      },
+    };
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: drizzleSqliteAdapter(db),
+      providers: { email: alwaysFail },
+      retry: { maxAttempts: 1, delayMs: () => 0 },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "reset",
+      payload: { link: "/r/1" },
+    });
+    const items = await notify.inbox.list("u1");
+    expect(items).toHaveLength(1);
+    expect(items[0]!.title).toBe("Fallback: /r/1");
+  });
+
   test("rate limit drops sends over max, persists events, prunes stale rows", async () => {
     const sqlite = new Database(":memory:");
     const db = drizzle(sqlite);

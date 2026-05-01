@@ -1,4 +1,5 @@
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
+import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
 import { NotifyKitError, renderTemplate, validatePayload } from "./utils.js";
 export function createNotifyKit(config) {
     const { notifications, database, providers, on } = config;
@@ -31,6 +32,7 @@ export function createNotifyKit(config) {
     }
     const pendingFlushes = new Set();
     const scheduledFlushes = new Map();
+    const scheduledSendTimers = new Map();
     async function send(rawInput) {
         const input = rawInput;
         const def = byId.get(input.notificationId);
@@ -63,6 +65,7 @@ export function createNotifyKit(config) {
                     inboxItems: [],
                     deliveries: [],
                     skippedChannels: [],
+                    deferredChannels: [],
                     digested: false,
                     rateLimited: true,
                 };
@@ -114,11 +117,74 @@ export function createNotifyKit(config) {
                 inboxItems: [],
                 deliveries: [],
                 skippedChannels: [],
+                deferredChannels: [],
                 digested: true,
                 rateLimited: false,
             };
         }
+        // Quiet hours: inbox still delivers immediately, email defers until the
+        // window ends. We schedule one row per (recipient, notification, payload);
+        // the flusher calls deliver() again with `onlyChannels` when it fires.
+        const deferChannels = [];
+        if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
+            for (const ch of def.channels) {
+                if (ch.type === "email")
+                    deferChannels.push(ch.type);
+            }
+        }
+        if (deferChannels.length > 0) {
+            const scheduledFor = nextQuietHoursEnd(recipient.quietHours);
+            const record = await database.scheduledSends.create({
+                recipientId: recipient.id,
+                notificationId: def.id,
+                payload,
+                scheduledFor,
+                reason: "quiet_hours",
+            });
+            scheduleDeferredFlush(record.id, scheduledFor);
+            return deliver(recipient, def, payload, { deferChannels });
+        }
         return deliver(recipient, def, payload);
+    }
+    function scheduleDeferredFlush(id, scheduledFor) {
+        if (scheduledSendTimers.has(id))
+            return;
+        const delay = Math.max(0, scheduledFor.getTime() - Date.now());
+        let resolveTask;
+        const task = new Promise((resolve) => {
+            resolveTask = resolve;
+        });
+        const timer = setTimeout(() => {
+            const entry = scheduledSendTimers.get(id);
+            if (!entry)
+                return;
+            scheduledSendTimers.delete(id);
+            flushScheduledSend(id)
+                .catch(() => { })
+                .finally(() => entry.resolve());
+        }, delay);
+        scheduledSendTimers.set(id, { timer, resolve: resolveTask });
+        pendingFlushes.add(task);
+        task.finally(() => pendingFlushes.delete(task));
+    }
+    async function flushScheduledSend(id) {
+        const record = await database.scheduledSends.take(id);
+        if (!record)
+            return;
+        const def = byId.get(record.notificationId);
+        if (!def)
+            return;
+        const recipient = await database.recipients.findById(record.recipientId);
+        if (!recipient)
+            return;
+        // The payload was validated at send() time; still validate here so a
+        // buggy store path surfaces loudly rather than feeding junk downstream.
+        const payload = validatePayload(def.payload, record.payload, def.id);
+        // The inbox item was written at send() time. Only fire the previously
+        // deferred channels now. We create a fresh notification record for the
+        // deferred delivery so the delivery row has a parent — matches the
+        // behavior where digest flushes also create a fresh record.
+        await deliver(recipient, def, payload, { onlyChannels: ["email"] });
     }
     async function flushDigestKey(key, def) {
         const entry = await database.digests.take(key);
@@ -139,7 +205,7 @@ export function createNotifyKit(config) {
         const validated = validatePayload(def.payload, combined, def.id);
         await deliver(recipient, def, validated);
     }
-    async function deliver(recipient, def, payload) {
+    async function deliver(recipient, def, payload, options = {}) {
         const preference = await database.preferences.get(recipient.id, def.id);
         const isChannelAllowed = (type) => {
             if (!preference)
@@ -147,16 +213,32 @@ export function createNotifyKit(config) {
             const value = preference.channels[type];
             return value !== false;
         };
-        const notificationRecord = await database.notifications.create({
-            recipientId: recipient.id,
-            notificationId: def.id,
-            payload,
-        });
-        await runHook("notification.created", { notification: notificationRecord });
+        const deferSet = new Set(options.deferChannels ?? []);
+        const onlySet = options.onlyChannels
+            ? new Set(options.onlyChannels)
+            : null;
+        const notificationRecord = options.existingNotification ??
+            (await database.notifications.create({
+                recipientId: recipient.id,
+                notificationId: def.id,
+                payload,
+            }));
+        if (!options.existingNotification) {
+            await runHook("notification.created", {
+                notification: notificationRecord,
+            });
+        }
         const inboxItems = [];
         const deliveries = [];
         const skippedChannels = [];
+        const deferredChannels = [];
         for (const ch of def.channels) {
+            if (onlySet && !onlySet.has(ch.type))
+                continue;
+            if (deferSet.has(ch.type)) {
+                deferredChannels.push(ch.type);
+                continue;
+            }
             if (!isChannelAllowed(ch.type)) {
                 skippedChannels.push(ch.type);
                 continue;
@@ -207,6 +289,7 @@ export function createNotifyKit(config) {
                     to: recipient.email,
                     subject,
                     body,
+                    payload,
                 };
                 await queue.enqueue(job, (j) => processDeliveryJob(j, provider));
                 // Re-read after enqueue so inline queues return final state; async
@@ -220,6 +303,7 @@ export function createNotifyKit(config) {
             inboxItems,
             deliveries,
             skippedChannels,
+            deferredChannels,
             digested: false,
             rateLimited: false,
         };
@@ -267,6 +351,29 @@ export function createNotifyKit(config) {
                 delivery: failed,
                 error: lastError ?? new Error("Delivery failed"),
             });
+        }
+        // Fallback channel: when a primary delivery terminally fails, drop an
+        // inbox item so the user still sees the message. Respects preferences.
+        const def = byId.get(job.notificationId);
+        if (def?.fallback) {
+            const preference = await database.preferences.get(job.recipientId, def.id);
+            const inboxAllowed = !preference || preference.channels.inbox !== false;
+            if (inboxAllowed) {
+                const fallback = def.fallback;
+                const item = await database.inbox.create({
+                    notificationRecordId: job.notificationRecordId,
+                    recipientId: job.recipientId,
+                    notificationId: job.notificationId,
+                    title: renderTemplate(fallback.title, job.payload),
+                    body: fallback.body !== undefined
+                        ? renderTemplate(fallback.body, job.payload)
+                        : undefined,
+                    actionUrl: fallback.actionUrl !== undefined
+                        ? renderTemplate(fallback.actionUrl, job.payload)
+                        : undefined,
+                });
+                await runHook("inbox.created", { inboxItem: item });
+            }
         }
     }
     async function updatePreference(rawInput) {
@@ -335,6 +442,25 @@ export function createNotifyKit(config) {
                 if (!def)
                     continue;
                 await flushDigestKey(bucket.key, def).catch(() => { });
+            }
+            while (pendingFlushes.size > 0) {
+                await Promise.all(Array.from(pendingFlushes));
+            }
+            await queue.drain();
+        },
+        async flushScheduledSends() {
+            // Cancel timers, then flush by id. Resolves each outer task.
+            const scheduled = Array.from(scheduledSendTimers.entries());
+            for (const [id, entry] of scheduled) {
+                clearTimeout(entry.timer);
+                scheduledSendTimers.delete(id);
+                await flushScheduledSend(id).catch(() => { });
+                entry.resolve();
+            }
+            // Sweep any stored rows with no in-memory timer (post-restart case).
+            const leftover = await database.scheduledSends.list();
+            for (const row of leftover) {
+                await flushScheduledSend(row.id).catch(() => { });
             }
             while (pendingFlushes.size > 0) {
                 await Promise.all(Array.from(pendingFlushes));

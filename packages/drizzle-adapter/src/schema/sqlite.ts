@@ -10,6 +10,11 @@ export const recipients = sqliteTable("notifykit_recipients", {
   id: text("id").primaryKey(),
   email: text("email"),
   name: text("name"),
+  quietHours: text("quiet_hours", { mode: "json" }).$type<{
+    start: string;
+    end: string;
+    timezone?: string;
+  } | null>(),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch() * 1000)`),
@@ -77,6 +82,18 @@ export const preferences = sqliteTable(
   }),
 );
 
+export const scheduledSends = sqliteTable("notifykit_scheduled_sends", {
+  id: text("id").primaryKey(),
+  recipientId: text("recipient_id").notNull(),
+  notificationId: text("notification_id").notNull(),
+  payload: text("payload", { mode: "json" })
+    .$type<Record<string, unknown>>()
+    .notNull(),
+  scheduledFor: integer("scheduled_for", { mode: "timestamp_ms" }).notNull(),
+  reason: text("reason").notNull().$type<"quiet_hours">(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const rateLimitEvents = sqliteTable("notifykit_rate_limit_events", {
   id: text("id").primaryKey(),
   key: text("key").notNull(),
@@ -105,6 +122,7 @@ export const notifyKitSchema = {
   preferences,
   digestBuffers,
   rateLimitEvents,
+  scheduledSends,
 };
 
 export type NotifyKitSqliteSchema = typeof notifyKitSchema;
