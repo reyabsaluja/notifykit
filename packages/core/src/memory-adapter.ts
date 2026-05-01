@@ -1,6 +1,7 @@
 import type {
   DatabaseAdapter,
   DeliveryRecord,
+  DigestBufferEntry,
   InboxItem,
   NotificationRecord,
   Recipient,
@@ -16,6 +17,7 @@ export type MemoryAdapter = DatabaseAdapter & {
     inboxItems: InboxItem[];
     deliveries: DeliveryRecord[];
     preferences: RecipientPreference[];
+    digests: DigestBufferEntry[];
   };
 };
 
@@ -26,6 +28,7 @@ export function memoryAdapter(): MemoryAdapter {
     inboxItems: [] as InboxItem[],
     deliveries: [] as DeliveryRecord[],
     preferences: [] as RecipientPreference[],
+    digests: [] as DigestBufferEntry[],
   };
 
   const adapter: MemoryAdapter = {
@@ -178,6 +181,37 @@ export function memoryAdapter(): MemoryAdapter {
         };
         state.preferences.push(record);
         return record;
+      },
+    },
+    digests: {
+      async append(input): Promise<DigestBufferEntry> {
+        const now = new Date();
+        const existing = state.digests.find((d) => d.key === input.key);
+        if (existing) {
+          existing.payloads.push(input.payload);
+          existing.updatedAt = now;
+          return existing;
+        }
+        const entry: DigestBufferEntry = {
+          key: input.key,
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          payloads: [input.payload],
+          flushAt: new Date(now.getTime() + input.windowMs),
+          createdAt: now,
+          updatedAt: now,
+        };
+        state.digests.push(entry);
+        return entry;
+      },
+      async take(key: string): Promise<DigestBufferEntry | null> {
+        const idx = state.digests.findIndex((d) => d.key === key);
+        if (idx < 0) return null;
+        const [entry] = state.digests.splice(idx, 1);
+        return entry ?? null;
+      },
+      async list(): Promise<DigestBufferEntry[]> {
+        return state.digests.slice();
       },
     },
   };

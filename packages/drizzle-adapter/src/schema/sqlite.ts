@@ -77,12 +77,25 @@ export const preferences = sqliteTable(
   }),
 );
 
+export const digestBuffers = sqliteTable("notifykit_digest_buffers", {
+  key: text("key").primaryKey(),
+  recipientId: text("recipient_id").notNull(),
+  notificationId: text("notification_id").notNull(),
+  payloads: text("payloads", { mode: "json" })
+    .$type<Record<string, unknown>[]>()
+    .notNull(),
+  flushAt: integer("flush_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const notifyKitSchema = {
   recipients,
   notifications,
   inboxItems,
   deliveries,
   preferences,
+  digestBuffers,
 };
 
 export type NotifyKitSqliteSchema = typeof notifyKitSchema;

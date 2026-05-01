@@ -11,5 +11,5 @@ export type { CreateNotifyKitInput, NotifyKit, SendResult, } from "./create-noti
 export type { EmailChannelFactory, EmailChannelInput, InboxChannelFactory, InboxChannelInput, } from "./channel.js";
 export type { MemoryAdapter } from "./memory-adapter.js";
 export type { FakeEmailProvider, FakeEmailProviderOptions, SentEmail, } from "./providers.js";
-export type { ChannelConfig, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryJob, DeliveryRecord, DeliveryStatus, EmailChannelConfig, EmailProvider, GetPreferenceInput, Hooks, InboxChannelConfig, InboxItem, InferSchema, NotificationDefinition, NotificationIds, NotificationRecord, PayloadSchema, PrimitiveSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, UpdatePreferenceInput, UpsertRecipientInput, } from "./types.js";
+export type { ChannelConfig, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryJob, DeliveryRecord, DeliveryStatus, DigestBufferEntry, DigestConfig, EmailChannelConfig, EmailProvider, GetPreferenceInput, Hooks, InboxChannelConfig, InboxItem, InferSchema, NotificationDefinition, NotificationIds, NotificationRecord, PayloadSchema, PrimitiveSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, UpdatePreferenceInput, UpsertRecipientInput, } from "./types.js";
 //# sourceMappingURL=index.d.ts.map

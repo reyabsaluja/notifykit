@@ -773,6 +773,140 @@ export declare const preferences: import("drizzle-orm/sqlite-core").SQLiteTableW
     };
     dialect: "sqlite";
 }>;
+export declare const digestBuffers: import("drizzle-orm/sqlite-core").SQLiteTableWithColumns<{
+    name: "notifykit_digest_buffers";
+    schema: undefined;
+    columns: {
+        key: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "key";
+            tableName: "notifykit_digest_buffers";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        recipientId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "recipient_id";
+            tableName: "notifykit_digest_buffers";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "notification_id";
+            tableName: "notifykit_digest_buffers";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        payloads: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "payloads";
+            tableName: "notifykit_digest_buffers";
+            dataType: "json";
+            columnType: "SQLiteTextJson";
+            data: Record<string, unknown>[];
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            $type: Record<string, unknown>[];
+        }>;
+        flushAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "flush_at";
+            tableName: "notifykit_digest_buffers";
+            dataType: "date";
+            columnType: "SQLiteTimestamp";
+            data: Date;
+            driverParam: number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "created_at";
+            tableName: "notifykit_digest_buffers";
+            dataType: "date";
+            columnType: "SQLiteTimestamp";
+            data: Date;
+            driverParam: number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        updatedAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "updated_at";
+            tableName: "notifykit_digest_buffers";
+            dataType: "date";
+            columnType: "SQLiteTimestamp";
+            data: Date;
+            driverParam: number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: "sqlite";
+}>;
 export declare const notifyKitSchema: {
     recipients: import("drizzle-orm/sqlite-core").SQLiteTableWithColumns<{
         name: "notifykit_recipients";
@@ -1532,6 +1666,140 @@ export declare const notifyKitSchema: {
             updatedAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "updated_at";
                 tableName: "notifykit_preferences";
+                dataType: "date";
+                columnType: "SQLiteTimestamp";
+                data: Date;
+                driverParam: number;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
+        };
+        dialect: "sqlite";
+    }>;
+    digestBuffers: import("drizzle-orm/sqlite-core").SQLiteTableWithColumns<{
+        name: "notifykit_digest_buffers";
+        schema: undefined;
+        columns: {
+            key: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "key";
+                tableName: "notifykit_digest_buffers";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: true;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            recipientId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "recipient_id";
+                tableName: "notifykit_digest_buffers";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            notificationId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "notification_id";
+                tableName: "notifykit_digest_buffers";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: string;
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+            }>;
+            payloads: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "payloads";
+                tableName: "notifykit_digest_buffers";
+                dataType: "json";
+                columnType: "SQLiteTextJson";
+                data: Record<string, unknown>[];
+                driverParam: string;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                $type: Record<string, unknown>[];
+            }>;
+            flushAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "flush_at";
+                tableName: "notifykit_digest_buffers";
+                dataType: "date";
+                columnType: "SQLiteTimestamp";
+                data: Date;
+                driverParam: number;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
+            createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "created_at";
+                tableName: "notifykit_digest_buffers";
+                dataType: "date";
+                columnType: "SQLiteTimestamp";
+                data: Date;
+                driverParam: number;
+                notNull: true;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
+            updatedAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "updated_at";
+                tableName: "notifykit_digest_buffers";
                 dataType: "date";
                 columnType: "SQLiteTimestamp";
                 data: Date;

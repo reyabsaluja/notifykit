@@ -6,6 +6,7 @@ export function memoryAdapter() {
         inboxItems: [],
         deliveries: [],
         preferences: [],
+        digests: [],
     };
     const adapter = {
         _state: state,
@@ -153,6 +154,38 @@ export function memoryAdapter() {
                 };
                 state.preferences.push(record);
                 return record;
+            },
+        },
+        digests: {
+            async append(input) {
+                const now = new Date();
+                const existing = state.digests.find((d) => d.key === input.key);
+                if (existing) {
+                    existing.payloads.push(input.payload);
+                    existing.updatedAt = now;
+                    return existing;
+                }
+                const entry = {
+                    key: input.key,
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                    payloads: [input.payload],
+                    flushAt: new Date(now.getTime() + input.windowMs),
+                    createdAt: now,
+                    updatedAt: now,
+                };
+                state.digests.push(entry);
+                return entry;
+            },
+            async take(key) {
+                const idx = state.digests.findIndex((d) => d.key === key);
+                if (idx < 0)
+                    return null;
+                const [entry] = state.digests.splice(idx, 1);
+                return entry ?? null;
+            },
+            async list() {
+                return state.digests.slice();
             },
         },
     };

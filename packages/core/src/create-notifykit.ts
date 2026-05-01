@@ -41,10 +41,16 @@ export type CreateNotifyKitInput<
 };
 
 export type SendResult = {
-  notification: NotificationRecord;
+  notification: NotificationRecord | null;
   inboxItems: InboxItem[];
   deliveries: DeliveryRecord[];
   skippedChannels: ChannelType[];
+  /**
+   * True if the send was buffered into a digest window instead of delivered
+   * immediately. In that case `notification` is null and the other arrays
+   * are empty; the eventual delivery fires from a later flush.
+   */
+  digested: boolean;
 };
 
 export type NotifyKit<
@@ -64,8 +70,17 @@ export type NotifyKit<
     list(recipientId: string): Promise<RecipientPreference[]>;
     update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
   };
-  /** Resolves when the queue has finished all outstanding and retried jobs. */
+  /**
+   * Resolves when outstanding digest flushes and all enqueued delivery jobs
+   * (and their retries) have settled.
+   */
   drain(): Promise<void>;
+  /**
+   * Forces pending digest buckets to flush now instead of waiting for their
+   * window. Useful in tests and "send now" buttons. Resolves once every
+   * triggered flush (and its follow-up deliveries) has completed.
+   */
+  flushDigests(): Promise<void>;
   /** Registered notification definitions. Read-only, for introspection. */
   readonly definitions: T;
 };
@@ -107,6 +122,14 @@ export function createNotifyKit<
     }
   }
 
+  const pendingFlushes = new Set<Promise<void>>();
+  type ScheduledFlush = {
+    timer: ReturnType<typeof setTimeout>;
+    resolve: () => void;
+    def: NotificationDefinition<string, PayloadSchema>;
+  };
+  const scheduledFlushes = new Map<string, ScheduledFlush>();
+
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as {
       recipientId: string;
@@ -129,6 +152,85 @@ export function createNotifyKit<
 
     const payload = validatePayload(def.payload, input.payload, def.id);
 
+    if (def.digest) {
+      const digest = def.digest;
+      const key =
+        digest.key?.({
+          recipientId: recipient.id,
+          notificationId: def.id,
+          payload: payload as never,
+        }) ?? `${recipient.id}:${def.id}`;
+
+      const entry = await database.digests.append({
+        key,
+        recipientId: recipient.id,
+        notificationId: def.id,
+        payload,
+        windowMs: digest.windowMs,
+      });
+
+      // Schedule a flush if there isn't already one for this key. We always
+      // aim at the bucket's original `flushAt` — appends don't extend the
+      // window (tumbling behavior, not sliding).
+      if (!scheduledFlushes.has(key)) {
+        const delay = Math.max(0, entry.flushAt.getTime() - Date.now());
+        let resolveTask!: () => void;
+        const task = new Promise<void>((resolve) => {
+          resolveTask = resolve;
+        });
+        const timer = setTimeout(() => {
+          const scheduled = scheduledFlushes.get(key);
+          if (!scheduled) return;
+          scheduledFlushes.delete(key);
+          flushDigestKey(key, def)
+            .catch(() => {})
+            .finally(() => scheduled.resolve());
+        }, delay);
+        scheduledFlushes.set(key, { timer, resolve: resolveTask, def });
+        pendingFlushes.add(task);
+        task.finally(() => pendingFlushes.delete(task));
+      }
+
+      return {
+        notification: null,
+        inboxItems: [],
+        deliveries: [],
+        skippedChannels: [],
+        digested: true,
+      };
+    }
+
+    return deliver(recipient, def, payload);
+  }
+
+  async function flushDigestKey(
+    key: string,
+    def: NotificationDefinition<string, PayloadSchema>,
+  ): Promise<void> {
+    const entry = await database.digests.take(key);
+    if (!entry) return;
+    if (!def.digest) return;
+
+    const recipient = await database.recipients.findById(entry.recipientId);
+    if (!recipient) return;
+
+    const combined = def.digest.render({
+      recipientId: entry.recipientId,
+      notificationId: entry.notificationId,
+      payloads: entry.payloads as never,
+      count: entry.payloads.length,
+    }) as unknown as Record<string, unknown>;
+
+    // Re-validate the combined payload so a buggy render() surfaces loudly.
+    const validated = validatePayload(def.payload, combined, def.id);
+    await deliver(recipient, def, validated);
+  }
+
+  async function deliver(
+    recipient: Recipient,
+    def: NotificationDefinition<string, PayloadSchema>,
+    payload: Record<string, unknown>,
+  ): Promise<SendResult> {
     const preference = await database.preferences.get(recipient.id, def.id);
     const isChannelAllowed = (type: ChannelType): boolean => {
       if (!preference) return true;
@@ -221,6 +323,7 @@ export function createNotifyKit<
       inboxItems,
       deliveries,
       skippedChannels,
+      digested: false,
     };
   }
 
@@ -330,8 +433,32 @@ export function createNotifyKit<
       },
       update: updatePreference,
     },
-    drain() {
-      return queue.drain();
+    async drain() {
+      while (pendingFlushes.size > 0) {
+        await Promise.all(Array.from(pendingFlushes));
+      }
+      await queue.drain();
+    },
+    async flushDigests() {
+      // Fire scheduled timers immediately, each resolving its outer task.
+      const scheduled = Array.from(scheduledFlushes.entries());
+      for (const [key, entry] of scheduled) {
+        clearTimeout(entry.timer);
+        scheduledFlushes.delete(key);
+        await flushDigestKey(key, entry.def).catch(() => {});
+        entry.resolve();
+      }
+      // Catch any buckets that have no timer (e.g. left over from a restart).
+      const leftover = await database.digests.list();
+      for (const bucket of leftover) {
+        const def = byId.get(bucket.notificationId);
+        if (!def) continue;
+        await flushDigestKey(bucket.key, def).catch(() => {});
+      }
+      while (pendingFlushes.size > 0) {
+        await Promise.all(Array.from(pendingFlushes));
+      }
+      await queue.drain();
     },
     definitions: notifications,
   };

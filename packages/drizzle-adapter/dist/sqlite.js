@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { deliveries, inboxItems, notifications, preferences, recipients, } from "./schema/sqlite.js";
+import { deliveries, digestBuffers, inboxItems, notifications, preferences, recipients, } from "./schema/sqlite.js";
 function createId(prefix) {
     const rand = Math.random().toString(36).slice(2, 10);
     const time = Date.now().toString(36);
@@ -7,7 +7,14 @@ function createId(prefix) {
 }
 export function drizzleSqliteAdapter(db) {
     return {
-        _schema: { recipients, notifications, inboxItems, deliveries, preferences },
+        _schema: {
+            recipients,
+            notifications,
+            inboxItems,
+            deliveries,
+            preferences,
+            digestBuffers,
+        },
         recipients: {
             async upsert(input) {
                 const now = new Date();
@@ -289,6 +296,88 @@ export function drizzleSqliteAdapter(db) {
                     channels: { ...input.channels },
                     updatedAt: now,
                 };
+            },
+        },
+        digests: {
+            async append(input) {
+                const now = new Date();
+                const existing = await db
+                    .select()
+                    .from(digestBuffers)
+                    .where(eq(digestBuffers.key, input.key))
+                    .limit(1);
+                const current = existing[0];
+                if (current) {
+                    const merged = [
+                        ...current.payloads,
+                        input.payload,
+                    ];
+                    await db
+                        .update(digestBuffers)
+                        .set({
+                        payloads: merged,
+                        updatedAt: now,
+                    })
+                        .where(eq(digestBuffers.key, input.key));
+                    return {
+                        key: current.key,
+                        recipientId: current.recipientId,
+                        notificationId: current.notificationId,
+                        payloads: merged,
+                        flushAt: current.flushAt,
+                        createdAt: current.createdAt,
+                        updatedAt: now,
+                    };
+                }
+                const flushAt = new Date(now.getTime() + input.windowMs);
+                await db.insert(digestBuffers).values({
+                    key: input.key,
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                    payloads: [input.payload],
+                    flushAt,
+                    createdAt: now,
+                    updatedAt: now,
+                });
+                return {
+                    key: input.key,
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                    payloads: [input.payload],
+                    flushAt,
+                    createdAt: now,
+                    updatedAt: now,
+                };
+            },
+            async take(key) {
+                const rows = await db
+                    .delete(digestBuffers)
+                    .where(eq(digestBuffers.key, key))
+                    .returning();
+                const row = rows[0];
+                if (!row)
+                    return null;
+                return {
+                    key: row.key,
+                    recipientId: row.recipientId,
+                    notificationId: row.notificationId,
+                    payloads: row.payloads,
+                    flushAt: row.flushAt,
+                    createdAt: row.createdAt,
+                    updatedAt: row.updatedAt,
+                };
+            },
+            async list() {
+                const rows = await db.select().from(digestBuffers);
+                return rows.map((row) => ({
+                    key: row.key,
+                    recipientId: row.recipientId,
+                    notificationId: row.notificationId,
+                    payloads: row.payloads,
+                    flushAt: row.flushAt,
+                    createdAt: row.createdAt,
+                    updatedAt: row.updatedAt,
+                }));
             },
         },
     };

@@ -1,4 +1,4 @@
-import type { DatabaseAdapter, DeliveryRecord, InboxItem, NotificationRecord, Recipient, RecipientPreference } from "./types.js";
+import type { DatabaseAdapter, DeliveryRecord, DigestBufferEntry, InboxItem, NotificationRecord, Recipient, RecipientPreference } from "./types.js";
 export type MemoryAdapter = DatabaseAdapter & {
     _state: {
         recipients: Recipient[];
@@ -6,6 +6,7 @@ export type MemoryAdapter = DatabaseAdapter & {
         inboxItems: InboxItem[];
         deliveries: DeliveryRecord[];
         preferences: RecipientPreference[];
+        digests: DigestBufferEntry[];
     };
 };
 export declare function memoryAdapter(): MemoryAdapter;

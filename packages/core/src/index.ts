@@ -51,6 +51,8 @@ export type {
   DeliveryJob,
   DeliveryRecord,
   DeliveryStatus,
+  DigestBufferEntry,
+  DigestConfig,
   EmailChannelConfig,
   EmailProvider,
   GetPreferenceInput,

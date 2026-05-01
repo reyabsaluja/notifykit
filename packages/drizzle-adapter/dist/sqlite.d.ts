@@ -1,6 +1,6 @@
 import type { DatabaseAdapter } from "notifykit";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
-import { deliveries, inboxItems, notifications, preferences, recipients } from "./schema/sqlite.js";
+import { deliveries, digestBuffers, inboxItems, notifications, preferences, recipients } from "./schema/sqlite.js";
 type SqliteDb = BaseSQLiteDatabase<"sync" | "async", unknown, any, any>;
 export type DrizzleSqliteAdapter = DatabaseAdapter & {
     _schema: {
@@ -9,6 +9,7 @@ export type DrizzleSqliteAdapter = DatabaseAdapter & {
         inboxItems: typeof inboxItems;
         deliveries: typeof deliveries;
         preferences: typeof preferences;
+        digestBuffers: typeof digestBuffers;
     };
 };
 export declare function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter;

@@ -19,8 +19,14 @@ export async function runSend(options) {
         notificationId: options.notificationId,
         payload: options.payload,
     });
+    if (result.digested) {
+        console.log(`Buffered "${options.notificationId}" for ${options.recipientId} (digest window open)`);
+        return 0;
+    }
     console.log(`Sent "${options.notificationId}" to ${options.recipientId}`);
-    console.log(`Notification record: ${result.notification.id}`);
+    if (result.notification) {
+        console.log(`Notification record: ${result.notification.id}`);
+    }
     if (result.inboxItems.length > 0) {
         for (const item of result.inboxItems) {
             console.log(`  inbox: "${item.title}"`);

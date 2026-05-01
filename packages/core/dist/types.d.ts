@@ -15,10 +15,34 @@ export type EmailChannelConfig = {
     body: string;
 };
 export type ChannelConfig = InboxChannelConfig | EmailChannelConfig;
+export type DigestConfig<S extends PayloadSchema = PayloadSchema> = {
+    /** Rolling window to accumulate items before flushing. */
+    windowMs: number;
+    /**
+     * Groups sends into buckets. Returning the same key for two sends (within
+     * the window) merges them. Defaults to `${recipientId}:${notificationId}`.
+     */
+    key?: (ctx: {
+        recipientId: string;
+        notificationId: string;
+        payload: InferSchema<S>;
+    }) => string;
+    /**
+     * Coalesces buffered payloads into one final payload used for rendering.
+     * Receives the accumulated payloads in chronological order.
+     */
+    render: (ctx: {
+        recipientId: string;
+        notificationId: string;
+        payloads: InferSchema<S>[];
+        count: number;
+    }) => InferSchema<S>;
+};
 export type NotificationDefinition<Id extends string = string, S extends PayloadSchema = PayloadSchema> = {
     id: Id;
     payload: S;
     channels: ChannelConfig[];
+    digest?: DigestConfig<S>;
 };
 export type Recipient = {
     id: string;
@@ -56,6 +80,18 @@ export type RecipientPreference = {
     recipientId: string;
     notificationId: string;
     channels: ChannelPreferenceMap;
+    updatedAt: Date;
+};
+export type DigestBufferEntry = {
+    /** Composite "key" used to group payloads within a window. */
+    key: string;
+    recipientId: string;
+    notificationId: string;
+    /** Serialized payloads, oldest first. */
+    payloads: Record<string, unknown>[];
+    /** Wall-clock time when the window expires and a flush should fire. */
+    flushAt: Date;
+    createdAt: Date;
     updatedAt: Date;
 };
 export type DeliveryStatus = "pending" | "sent" | "failed";
@@ -142,6 +178,24 @@ export type DatabaseAdapter = {
             notificationId: string;
             channels: ChannelPreferenceMap;
         }): Promise<RecipientPreference>;
+    };
+    digests: {
+        /**
+         * Append a payload to the bucket for `key`. If the bucket does not exist,
+         * it's created with `flushAt` set to `now + windowMs`. Returns the bucket
+         * after the append.
+         */
+        append(input: {
+            key: string;
+            recipientId: string;
+            notificationId: string;
+            payload: Record<string, unknown>;
+            windowMs: number;
+        }): Promise<DigestBufferEntry>;
+        /** Atomically removes and returns the bucket, or null if already flushed. */
+        take(key: string): Promise<DigestBufferEntry | null>;
+        /** For inspection / test utilities only. */
+        list(): Promise<DigestBufferEntry[]>;
     };
 };
 export type Hooks = {

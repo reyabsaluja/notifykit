@@ -68,6 +68,17 @@ export async function createSqliteTables(
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (recipient_id, notification_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS notifykit_digest_buffers (
+      key TEXT PRIMARY KEY,
+      recipient_id TEXT NOT NULL,
+      notification_id TEXT NOT NULL,
+      payloads TEXT NOT NULL,
+      flush_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_digests_flush_at
+      ON notifykit_digest_buffers (flush_at)`,
   ];
 
   for (const stmt of statements) {

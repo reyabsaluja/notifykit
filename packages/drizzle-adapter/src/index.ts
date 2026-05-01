@@ -5,6 +5,7 @@ export {
 export { createSqliteTables } from "./create-tables.js";
 export {
   deliveries,
+  digestBuffers,
   inboxItems,
   notifications,
   notifyKitSchema,

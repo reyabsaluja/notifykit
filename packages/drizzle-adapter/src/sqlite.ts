@@ -2,6 +2,7 @@ import type {
   ChannelPreferenceMap,
   DatabaseAdapter,
   DeliveryRecord,
+  DigestBufferEntry,
   InboxItem,
   NotificationRecord,
   Recipient,
@@ -13,6 +14,7 @@ import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import {
   deliveries,
+  digestBuffers,
   inboxItems,
   notifications,
   preferences,
@@ -34,12 +36,20 @@ export type DrizzleSqliteAdapter = DatabaseAdapter & {
     inboxItems: typeof inboxItems;
     deliveries: typeof deliveries;
     preferences: typeof preferences;
+    digestBuffers: typeof digestBuffers;
   };
 };
 
 export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
   return {
-    _schema: { recipients, notifications, inboxItems, deliveries, preferences },
+    _schema: {
+      recipients,
+      notifications,
+      inboxItems,
+      deliveries,
+      preferences,
+      digestBuffers,
+    },
 
     recipients: {
       async upsert(input: UpsertRecipientInput): Promise<Recipient> {
@@ -348,6 +358,92 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           channels: { ...input.channels },
           updatedAt: now,
         };
+      },
+    },
+
+    digests: {
+      async append(input): Promise<DigestBufferEntry> {
+        const now = new Date();
+        const existing = await db
+          .select()
+          .from(digestBuffers)
+          .where(eq(digestBuffers.key, input.key))
+          .limit(1);
+
+        const current = existing[0];
+        if (current) {
+          const merged = [
+            ...(current.payloads as Record<string, unknown>[]),
+            input.payload,
+          ];
+          await db
+            .update(digestBuffers)
+            .set({
+              payloads: merged,
+              updatedAt: now,
+            })
+            .where(eq(digestBuffers.key, input.key));
+          return {
+            key: current.key,
+            recipientId: current.recipientId,
+            notificationId: current.notificationId,
+            payloads: merged,
+            flushAt: current.flushAt,
+            createdAt: current.createdAt,
+            updatedAt: now,
+          };
+        }
+
+        const flushAt = new Date(now.getTime() + input.windowMs);
+        await db.insert(digestBuffers).values({
+          key: input.key,
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          payloads: [input.payload],
+          flushAt,
+          createdAt: now,
+          updatedAt: now,
+        });
+        return {
+          key: input.key,
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          payloads: [input.payload],
+          flushAt,
+          createdAt: now,
+          updatedAt: now,
+        };
+      },
+
+      async take(key: string): Promise<DigestBufferEntry | null> {
+        const rows = await db
+          .delete(digestBuffers)
+          .where(eq(digestBuffers.key, key))
+          .returning();
+        const row = rows[0];
+        if (!row) return null;
+        return {
+          key: row.key,
+          recipientId: row.recipientId,
+          notificationId: row.notificationId,
+          payloads: row.payloads as Record<string, unknown>[],
+          flushAt: row.flushAt,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        };
+      },
+
+      async list(): Promise<DigestBufferEntry[]> {
+        const rows = await db.select().from(digestBuffers);
+        return rows.map((row) => ({
+          key: row.key,
+          recipientId: row.recipientId,
+          notificationId: row.notificationId,
+          payloads: row.payloads as Record<string, unknown>[],
+          flushAt: row.flushAt,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        }));
       },
     },
   };

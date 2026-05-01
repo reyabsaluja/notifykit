@@ -240,6 +240,63 @@ describe("drizzleSqliteAdapter", () => {
     expect(all).toHaveLength(2);
   });
 
+  test("digest buffer persists and flushes merged payload", async () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    await createSqliteTables(db);
+
+    const inboxCh = channel.inbox();
+    const digested = notification({
+      id: "digested",
+      payload: { actorName: "string", count: "number" },
+      channels: [
+        inboxCh({
+          title: "{{count}} updates",
+          body: "Latest from {{actorName}}",
+        }),
+      ],
+      digest: {
+        windowMs: 30,
+        render: ({ payloads }) => ({
+          actorName: payloads[payloads.length - 1]!.actorName,
+          count: payloads.length,
+        }),
+      },
+    });
+
+    const notify = createNotifyKit({
+      notifications: [digested] as const,
+      database: drizzleSqliteAdapter(db),
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    for (const name of ["Alice", "Bob", "Carol"]) {
+      await notify.send({
+        recipientId: "u1",
+        notificationId: "digested",
+        payload: { actorName: name, count: 1 },
+      });
+    }
+
+    const buffered = sqlite
+      .query("SELECT COUNT(*) as n FROM notifykit_digest_buffers")
+      .get() as { n: number };
+    expect(buffered.n).toBe(1);
+
+    await notify.drain();
+
+    const flushed = sqlite
+      .query("SELECT COUNT(*) as n FROM notifykit_digest_buffers")
+      .get() as { n: number };
+    expect(flushed.n).toBe(0);
+
+    const items = await notify.inbox.list("u1");
+    expect(items).toHaveLength(1);
+    expect(items[0]!.title).toBe("3 updates");
+    expect(items[0]!.body).toBe("Latest from Carol");
+  });
+
   test("JSON payload round-trips through SQLite", async () => {
     await ctx.notify.upsertRecipient({
       id: "user_1",

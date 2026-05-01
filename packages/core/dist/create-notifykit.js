@@ -29,6 +29,8 @@ export function createNotifyKit(config) {
                 : new Error(`Hook "${String(name)}" threw a non-error value.`);
         }
     }
+    const pendingFlushes = new Set();
+    const scheduledFlushes = new Map();
     async function send(rawInput) {
         const input = rawInput;
         const def = byId.get(input.notificationId);
@@ -40,6 +42,72 @@ export function createNotifyKit(config) {
             throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
         }
         const payload = validatePayload(def.payload, input.payload, def.id);
+        if (def.digest) {
+            const digest = def.digest;
+            const key = digest.key?.({
+                recipientId: recipient.id,
+                notificationId: def.id,
+                payload: payload,
+            }) ?? `${recipient.id}:${def.id}`;
+            const entry = await database.digests.append({
+                key,
+                recipientId: recipient.id,
+                notificationId: def.id,
+                payload,
+                windowMs: digest.windowMs,
+            });
+            // Schedule a flush if there isn't already one for this key. We always
+            // aim at the bucket's original `flushAt` — appends don't extend the
+            // window (tumbling behavior, not sliding).
+            if (!scheduledFlushes.has(key)) {
+                const delay = Math.max(0, entry.flushAt.getTime() - Date.now());
+                let resolveTask;
+                const task = new Promise((resolve) => {
+                    resolveTask = resolve;
+                });
+                const timer = setTimeout(() => {
+                    const scheduled = scheduledFlushes.get(key);
+                    if (!scheduled)
+                        return;
+                    scheduledFlushes.delete(key);
+                    flushDigestKey(key, def)
+                        .catch(() => { })
+                        .finally(() => scheduled.resolve());
+                }, delay);
+                scheduledFlushes.set(key, { timer, resolve: resolveTask, def });
+                pendingFlushes.add(task);
+                task.finally(() => pendingFlushes.delete(task));
+            }
+            return {
+                notification: null,
+                inboxItems: [],
+                deliveries: [],
+                skippedChannels: [],
+                digested: true,
+            };
+        }
+        return deliver(recipient, def, payload);
+    }
+    async function flushDigestKey(key, def) {
+        const entry = await database.digests.take(key);
+        if (!entry)
+            return;
+        if (!def.digest)
+            return;
+        const recipient = await database.recipients.findById(entry.recipientId);
+        if (!recipient)
+            return;
+        const combined = def.digest.render({
+            recipientId: entry.recipientId,
+            notificationId: entry.notificationId,
+            payloads: entry.payloads,
+            count: entry.payloads.length,
+        });
+        // Re-validate the combined payload so a buggy render() surfaces loudly.
+        const validated = validatePayload(def.payload, combined, def.id);
+        await deliver(recipient, def, validated);
+    }
+    async function deliver(recipient, def, payload) {
         const preference = await database.preferences.get(recipient.id, def.id);
         const isChannelAllowed = (type) => {
             if (!preference)
@@ -120,6 +188,7 @@ export function createNotifyKit(config) {
             inboxItems,
             deliveries,
             skippedChannels,
+            digested: false,
         };
     }
     async function processDeliveryJob(job, provider) {
@@ -211,8 +280,33 @@ export function createNotifyKit(config) {
             },
             update: updatePreference,
         },
-        drain() {
-            return queue.drain();
+        async drain() {
+            while (pendingFlushes.size > 0) {
+                await Promise.all(Array.from(pendingFlushes));
+            }
+            await queue.drain();
+        },
+        async flushDigests() {
+            // Fire scheduled timers immediately, each resolving its outer task.
+            const scheduled = Array.from(scheduledFlushes.entries());
+            for (const [key, entry] of scheduled) {
+                clearTimeout(entry.timer);
+                scheduledFlushes.delete(key);
+                await flushDigestKey(key, entry.def).catch(() => { });
+                entry.resolve();
+            }
+            // Catch any buckets that have no timer (e.g. left over from a restart).
+            const leftover = await database.digests.list();
+            for (const bucket of leftover) {
+                const def = byId.get(bucket.notificationId);
+                if (!def)
+                    continue;
+                await flushDigestKey(bucket.key, def).catch(() => { });
+            }
+            while (pendingFlushes.size > 0) {
+                await Promise.all(Array.from(pendingFlushes));
+            }
+            await queue.drain();
         },
         definitions: notifications,
     };
