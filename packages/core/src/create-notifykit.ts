@@ -24,7 +24,7 @@ import type {
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
@@ -137,6 +137,15 @@ export type NotifyKit<
   recoverScheduledSends(): Promise<void>;
   /** Registered notification definitions. Read-only, for introspection. */
   readonly definitions: T;
+  /**
+   * Redact sensitive payload fields for a given notification. Returns a copy
+   * with fields listed in the definition's `redact` array replaced by
+   * `"[REDACTED]"`. If no redaction is configured, returns the payload as-is.
+   */
+  redactPayload(
+    notificationId: string,
+    payload: Record<string, unknown>,
+  ): Record<string, unknown>;
 };
 
 export function createNotifyKit<
@@ -177,6 +186,88 @@ export function createNotifyKit<
       );
     }
     byId.set(def.id, def);
+  }
+
+  for (const def of notifications) {
+    if (def.channels.length === 0) {
+      throw new NotifyKitError(
+        `Notification "${def.id}" has no channels. Add at least one channel.`,
+      );
+    }
+    for (const ch of def.channels) {
+      if (ch.type === "email" && !providers?.email) {
+        throw new NotifyKitError(
+          `Notification "${def.id}" has an email channel but no email provider is configured. ` +
+            `Pass providers.email to createNotifyKit().`,
+        );
+      }
+      if (ch.type === "webhook" && !providers?.webhook) {
+        throw new NotifyKitError(
+          `Notification "${def.id}" has a webhook channel but no webhook provider is configured. ` +
+            `Pass providers.webhook to createNotifyKit().`,
+        );
+      }
+    }
+    const schemaKeys = new Set(Object.keys(def.payload));
+    const builtInVars = new Set(["_unsubscribeUrl"]);
+    for (const ch of def.channels) {
+      const templates: string[] = [];
+      if (ch.type === "inbox") {
+        templates.push(ch.title);
+        if (ch.body) templates.push(ch.body);
+        if (ch.actionUrl) templates.push(ch.actionUrl);
+      } else if (ch.type === "email") {
+        templates.push(ch.subject, ch.body);
+      } else if (ch.type === "webhook") {
+        templates.push(ch.url);
+        if (ch.headers) {
+          for (const v of Object.values(ch.headers)) templates.push(v);
+        }
+      }
+      for (const tmpl of templates) {
+        const vars = extractTemplateVars(tmpl);
+        for (const v of vars) {
+          if (!schemaKeys.has(v) && !builtInVars.has(v)) {
+            throw new NotifyKitError(
+              `Notification "${def.id}" references template variable "{{${v}}}" ` +
+                `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}. ` +
+                `Add "${v}" to the payload schema or fix the template.`,
+            );
+          }
+        }
+      }
+    }
+    if (def.fallback) {
+      const templates = [def.fallback.title];
+      if (def.fallback.body) templates.push(def.fallback.body);
+      if (def.fallback.actionUrl) templates.push(def.fallback.actionUrl);
+      for (const tmpl of templates) {
+        const vars = extractTemplateVars(tmpl);
+        for (const v of vars) {
+          if (!schemaKeys.has(v) && !builtInVars.has(v)) {
+            throw new NotifyKitError(
+              `Notification "${def.id}" fallback references template variable "{{${v}}}" ` +
+                `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}.`,
+            );
+          }
+        }
+      }
+    }
+    if (def.redact) {
+      for (const field of def.redact) {
+        if (!schemaKeys.has(field as string)) {
+          throw new NotifyKitError(
+            `Notification "${def.id}" redact list includes "${String(field)}" ` +
+              `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}.`,
+          );
+        }
+      }
+    }
+    if (def.version !== undefined && (!Number.isInteger(def.version) || def.version < 1)) {
+      throw new NotifyKitError(
+        `Notification "${def.id}" version must be a positive integer, got ${def.version}.`,
+      );
+    }
   }
 
   async function runHook<K extends keyof Hooks>(
@@ -263,7 +354,9 @@ export function createNotifyKit<
       );
     }
 
-    const payload = validatePayload(def.payload, input.payload, def.id);
+    const payload = def.validate
+      ? def.validate(input.payload)
+      : validatePayload(def.payload, input.payload, def.id);
     const scope = resolveScope(input, recipient);
 
     if (def.rateLimit) {
@@ -530,6 +623,8 @@ export function createNotifyKit<
         workspaceId: scope.workspaceId,
         notificationId: def.id,
         payload,
+        payloadSchema: { ...def.payload },
+        definitionVersion: def.version,
       }));
     if (!options.existingNotification) {
       await runHook("notification.created", {
@@ -942,5 +1037,10 @@ export function createNotifyKit<
       await runFlushScheduledSends({ force: false });
     },
     definitions: notifications,
+    redactPayload(notificationId, payload) {
+      const def = byId.get(notificationId);
+      if (!def?.redact || def.redact.length === 0) return payload;
+      return redactPayload(payload, def.redact as readonly string[]);
+    },
   };
 }

@@ -225,7 +225,7 @@ export function createHandler<
           }
           const recipientId = url.searchParams.get("recipientId") ?? undefined;
           const deliveries = await notify.deliveries.list(recipientId, context);
-          return json({ data: deliveries });
+          return json({ data: deliveries.map(redactDelivery) });
         }
       }
     } catch (err) {
@@ -241,18 +241,46 @@ export function createHandler<
   };
 }
 
+export type RedactedDeliveryRecord = Omit<
+  import("./types.js").DeliveryRecord,
+  "body" | "subject" | "to"
+>;
+
+function redactDelivery(
+  record: import("./types.js").DeliveryRecord,
+): RedactedDeliveryRecord {
+  const { body: _body, subject: _subject, to: _to, ...safe } = record;
+  return safe;
+}
+
 function buildNotificationsIndex<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 >(notify: NotifyKit<T>): Array<{
   id: string;
   channels: string[];
   payload: Record<string, string>;
+  description?: string;
+  category?: string;
+  version?: number;
 }> {
-  return notify.definitions.map((def) => ({
-    id: def.id,
-    channels: def.channels.map((c) => c.type),
-    payload: { ...def.payload },
-  }));
+  return notify.definitions.map((def) => {
+    const entry: {
+      id: string;
+      channels: string[];
+      payload: Record<string, string>;
+      description?: string;
+      category?: string;
+      version?: number;
+    } = {
+      id: def.id,
+      channels: def.channels.map((c) => c.type),
+      payload: { ...def.payload },
+    };
+    if (def.description) entry.description = def.description;
+    if (def.category) entry.category = def.category;
+    if (def.version) entry.version = def.version;
+    return entry;
+  });
 }
 
 function matchRoute(method: string, sub: string): Route {

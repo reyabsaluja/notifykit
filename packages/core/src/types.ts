@@ -115,6 +115,34 @@ export type NotificationDefinition<
    * always see the message even if their email bounces.
    */
   fallback?: InboxChannelConfig;
+  /** Human-readable description for docs, studio, and generated contracts. */
+  description?: string;
+  /**
+   * Grouping label for notification preferences UI and generated docs.
+   * Free-form string — use whatever taxonomy fits your product (e.g.
+   * "billing", "social", "security").
+   */
+  category?: string;
+  /**
+   * Monotonically increasing version number for this definition. Stored on
+   * every notification record so historical sends can be debugged/rendered
+   * even after the definition changes. Defaults to 1.
+   */
+  version?: number;
+  /**
+   * Payload field names that contain sensitive data (PII, secrets, tokens).
+   * These fields are replaced with `"[REDACTED]"` before being exposed in
+   * delivery logs, timeline, studio, and analytics surfaces. The full
+   * payload is still stored on the notification record for server-side use.
+   */
+  redact?: readonly (keyof S)[];
+  /**
+   * Custom validation function for payloads. When set, this runs *instead*
+   * of the built-in primitive schema validation. Use this to plug in Zod,
+   * Valibot, ArkType, or any other runtime validator. Should throw on
+   * invalid input and return the validated (potentially transformed) data.
+   */
+  validate?: (payload: unknown) => Record<string, unknown>;
 };
 
 /**
@@ -158,6 +186,13 @@ export type NotificationRecord = {
   workspaceId?: string;
   notificationId: string;
   payload: Record<string, unknown>;
+  /**
+   * Snapshot of the payload schema at send time. Allows historical sends to
+   * be validated/rendered even after the definition changes.
+   */
+  payloadSchema?: Record<string, string>;
+  /** Definition version at send time. Matches `NotificationDefinition.version`. */
+  definitionVersion?: number;
   createdAt: Date;
 };
 

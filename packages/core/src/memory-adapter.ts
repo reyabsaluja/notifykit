@@ -107,6 +107,8 @@ export function memoryAdapter(): MemoryAdapter {
           workspaceId: input.workspaceId,
           notificationId: input.notificationId,
           payload: input.payload,
+          payloadSchema: input.payloadSchema,
+          definitionVersion: input.definitionVersion,
           createdAt: new Date(),
         };
         state.notifications.push(record);

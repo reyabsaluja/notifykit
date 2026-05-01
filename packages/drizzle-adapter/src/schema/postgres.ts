@@ -37,6 +37,8 @@ export const notifications = pgTable(
     workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    payloadSchema: jsonb("payload_schema").$type<Record<string, string>>(),
+    definitionVersion: integer("definition_version"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (table) => ({

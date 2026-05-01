@@ -23,6 +23,11 @@ export type NotificationInput<
   digest?: DigestConfig<S>;
   rateLimit?: RateLimitConfig;
   fallback?: InboxChannelConfig;
+  description?: string;
+  category?: string;
+  version?: number;
+  redact?: readonly (keyof S)[];
+  validate?: (payload: unknown) => Record<string, unknown>;
 };
 
 export function notification<Id extends string, S extends PayloadSchema>(

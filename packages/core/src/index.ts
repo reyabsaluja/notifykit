@@ -21,6 +21,7 @@ export {
 export {
   NotifyKitError,
   PayloadValidationError,
+  redactPayload,
   renderTemplate,
 } from "./utils.js";
 
@@ -31,6 +32,7 @@ export type {
   HandlerIdentity,
   HandlerPermission,
   Identify,
+  RedactedDeliveryRecord,
 } from "./handler.js";
 
 export type {

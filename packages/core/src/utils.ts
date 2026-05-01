@@ -17,6 +17,16 @@ export function renderTemplate(
   });
 }
 
+export function extractTemplateVars(template: string): string[] {
+  const vars: string[] = [];
+  const re = /\{\{\s*([\w.$]+)\s*\}\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(template)) !== null) {
+    if (m[1]) vars.push(m[1]);
+  }
+  return vars;
+}
+
 export class NotifyKitError extends Error {
   constructor(message: string) {
     super(message);
@@ -69,5 +79,21 @@ export function validatePayload(
     result[key] = value;
   }
 
+  return result;
+}
+
+const REDACTED = "[REDACTED]" as const;
+
+export function redactPayload(
+  payload: Record<string, unknown>,
+  redactFields: readonly string[],
+): Record<string, unknown> {
+  if (redactFields.length === 0) return payload;
+  const result = { ...payload };
+  for (const field of redactFields) {
+    if (field in result) {
+      result[field] = REDACTED;
+    }
+  }
   return result;
 }

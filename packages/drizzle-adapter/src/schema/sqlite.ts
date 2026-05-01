@@ -34,6 +34,9 @@ export const notifications = sqliteTable("notifykit_notifications", {
   payload: text("payload", { mode: "json" })
     .$type<Record<string, unknown>>()
     .notNull(),
+  payloadSchema: text("payload_schema", { mode: "json" })
+    .$type<Record<string, string>>(),
+  definitionVersion: integer("definition_version"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 

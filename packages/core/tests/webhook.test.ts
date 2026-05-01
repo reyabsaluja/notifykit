@@ -209,20 +209,14 @@ describe("channel.webhook()", () => {
     expect(webhookProv.sent).toHaveLength(1);
   });
 
-  test("throws on send if provider missing", async () => {
+  test("throws at startup if provider missing", () => {
     const def = buildWebhookDef();
-    const notify = createNotifyKit({
-      notifications: [def] as const,
-      database: memoryAdapter(),
-    });
-    await notify.upsertRecipient({ id: "u1" });
-    await expect(
-      notify.send({
-        recipientId: "u1",
-        notificationId: "comment_mentioned",
-        payload: basePayload,
+    expect(() =>
+      createNotifyKit({
+        notifications: [def] as const,
+        database: memoryAdapter(),
       }),
-    ).rejects.toThrow(/no webhook provider/i);
+    ).toThrow(/no webhook provider/i);
   });
 
   test("quiet hours defer webhook alongside email", async () => {
