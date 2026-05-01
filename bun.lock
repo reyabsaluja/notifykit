@@ -93,6 +93,17 @@
         "react": ">=18",
       },
     },
+    "packages/resend": {
+      "name": "notifykit-resend",
+      "version": "0.0.1",
+      "devDependencies": {
+        "notifykit": "workspace:*",
+        "typescript": "^5.6.3",
+      },
+      "peerDependencies": {
+        "notifykit": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@types/bun": ["@types/bun@1.3.13", "", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
@@ -122,6 +133,8 @@
     "notifykit-drizzle": ["notifykit-drizzle@workspace:packages/drizzle-adapter"],
 
     "notifykit-react": ["notifykit-react@workspace:packages/react"],
+
+    "notifykit-resend": ["notifykit-resend@workspace:packages/resend"],
 
     "react": ["react@19.2.5", "", {}, "sha512-llUJLzz1zTUBrskt2pwZgLq59AemifIftw4aB7JxOqf1HY2FDaGDxgwpAPVzHU1kdWabH7FauP4i1oEeer2WCA=="],
 
