@@ -63,13 +63,14 @@ export function createHandler(notify, options) {
                     return json({ data: items });
                 }
                 case "inbox.markRead": {
-                    const item = await notify.inbox.markRead(route.id);
-                    if (!item)
+                    const result = await notify.inbox.markReadForRecipient(route.id, recipientId);
+                    if (result.status === "not_found") {
                         return json({ error: "Inbox item not found" }, 404);
-                    if (item.recipientId !== recipientId) {
+                    }
+                    if (result.status === "forbidden") {
                         return json({ error: "Forbidden" }, 403);
                     }
-                    return json({ data: item });
+                    return json({ data: result.item });
                 }
                 case "preferences.list": {
                     const prefs = await notify.preferences.list(recipientId);

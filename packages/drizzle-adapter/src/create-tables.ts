@@ -96,10 +96,14 @@ export async function createSqliteTables(
       payload TEXT NOT NULL,
       scheduled_for INTEGER NOT NULL,
       reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      claimed_at INTEGER,
       created_at INTEGER NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_scheduled_sends_scheduled_for
       ON notifykit_scheduled_sends (scheduled_for)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_scheduled_sends_status_due
+      ON notifykit_scheduled_sends (status, scheduled_for)`,
   ];
 
   for (const stmt of statements) {

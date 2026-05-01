@@ -108,6 +108,13 @@ export function memoryAdapter(): MemoryAdapter {
         item.readAt = new Date();
         return item;
       },
+      async markReadForRecipient(inboxItemId: string, recipientId: string) {
+        const item = state.inboxItems.find((i) => i.id === inboxItemId);
+        if (!item) return { status: "not_found" };
+        if (item.recipientId !== recipientId) return { status: "forbidden" };
+        item.readAt = new Date();
+        return { status: "marked", item };
+      },
     },
     deliveries: {
       async create(input): Promise<DeliveryRecord> {
@@ -220,12 +227,41 @@ export function memoryAdapter(): MemoryAdapter {
         const [entry] = state.digests.splice(idx, 1);
         return entry ?? null;
       },
+      async restore(entry: DigestBufferEntry): Promise<DigestBufferEntry> {
+        const existing = state.digests.find((d) => d.key === entry.key);
+        if (existing) {
+          existing.payloads = [...entry.payloads, ...existing.payloads];
+          existing.recipientId = entry.recipientId;
+          existing.notificationId = entry.notificationId;
+          existing.flushAt = entry.flushAt;
+          existing.createdAt = entry.createdAt;
+          existing.updatedAt = new Date();
+          return existing;
+        }
+        state.digests.push({
+          ...entry,
+          payloads: entry.payloads.slice(),
+        });
+        return entry;
+      },
       async list(): Promise<DigestBufferEntry[]> {
         return state.digests.slice();
       },
     },
     rateLimits: {
-      async record(input): Promise<RateLimitEvent> {
+      async reserve(input): Promise<{ allowed: boolean }> {
+        // Memory adapter runs on a single event-loop turn — this block is
+        // effectively atomic because there are no awaits between count and
+        // push. Prune aged rows, count, and (if under max) record in one go.
+        const cutoff = Date.now() - input.windowMs;
+        state.rateLimits = state.rateLimits.filter(
+          (e) => e.occurredAt.getTime() >= cutoff,
+        );
+        let n = 0;
+        for (const e of state.rateLimits) {
+          if (e.key === input.key) n++;
+        }
+        if (n >= input.max) return { allowed: false };
         const event: RateLimitEvent = {
           key: input.key,
           recipientId: input.recipientId,
@@ -233,11 +269,10 @@ export function memoryAdapter(): MemoryAdapter {
           occurredAt: new Date(),
         };
         state.rateLimits.push(event);
-        return event;
+        return { allowed: true };
       },
       async count(input): Promise<number> {
         const cutoff = Date.now() - input.windowMs;
-        // Prune in place so the array stays small.
         state.rateLimits = state.rateLimits.filter(
           (e) => e.occurredAt.getTime() >= cutoff,
         );
@@ -257,19 +292,41 @@ export function memoryAdapter(): MemoryAdapter {
           payload: input.payload,
           scheduledFor: input.scheduledFor,
           reason: input.reason,
+          status: input.status ?? "pending",
+          claimedAt: null,
           createdAt: new Date(),
         };
         state.scheduledSends.push(record);
         return record;
       },
-      async take(id: string): Promise<ScheduledSend | null> {
+      async claim(id: string): Promise<ScheduledSend | null> {
+        const record = state.scheduledSends.find((s) => s.id === id);
+        if (!record) return null;
+        if (record.status !== "pending") return null;
+        record.status = "claimed";
+        record.claimedAt = new Date();
+        return { ...record };
+      },
+      async complete(id: string): Promise<void> {
         const idx = state.scheduledSends.findIndex((s) => s.id === id);
-        if (idx < 0) return null;
-        const [record] = state.scheduledSends.splice(idx, 1);
-        return record ?? null;
+        if (idx >= 0) state.scheduledSends.splice(idx, 1);
+      },
+      async release(id: string): Promise<void> {
+        const record = state.scheduledSends.find((s) => s.id === id);
+        if (!record) return;
+        record.status = "pending";
+        record.claimedAt = null;
+      },
+      async listDue(now: Date): Promise<ScheduledSend[]> {
+        const t = now.getTime();
+        return state.scheduledSends
+          .filter(
+            (s) => s.status === "pending" && s.scheduledFor.getTime() <= t,
+          )
+          .map((s) => ({ ...s }));
       },
       async list(): Promise<ScheduledSend[]> {
-        return state.scheduledSends.slice();
+        return state.scheduledSends.map((s) => ({ ...s }));
       },
     },
   };

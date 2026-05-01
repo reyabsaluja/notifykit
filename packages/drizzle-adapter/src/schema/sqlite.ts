@@ -91,6 +91,11 @@ export const scheduledSends = sqliteTable("notifykit_scheduled_sends", {
     .notNull(),
   scheduledFor: integer("scheduled_for", { mode: "timestamp_ms" }).notNull(),
   reason: text("reason").notNull().$type<"quiet_hours">(),
+  status: text("status")
+    .notNull()
+    .$type<"pending" | "claimed">()
+    .default("pending"),
+  claimedAt: integer("claimed_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 

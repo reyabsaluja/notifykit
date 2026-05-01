@@ -1,3 +1,4 @@
+"use client";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useNotifyKitClient } from "./provider.js";
 function useClientState(select) {

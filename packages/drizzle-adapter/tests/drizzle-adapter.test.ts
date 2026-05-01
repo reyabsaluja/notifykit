@@ -128,6 +128,40 @@ describe("drizzleSqliteAdapter", () => {
     expect(items[0]!.readAt).toBeInstanceOf(Date);
   });
 
+  test("markReadForRecipient refuses another recipient without updating", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    await ctx.notify.upsertRecipient({ id: "user_2" });
+    const result = await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const inboxItemId = result.inboxItems[0]!.id;
+
+    const forbidden = await ctx.adapter.inbox.markReadForRecipient(
+      inboxItemId,
+      "user_2",
+    );
+    expect(forbidden.status).toBe("forbidden");
+
+    let items = await ctx.notify.inbox.list("user_1");
+    expect(items[0]!.readAt).toBeNull();
+
+    const missing = await ctx.adapter.inbox.markReadForRecipient(
+      "does_not_exist",
+      "user_1",
+    );
+    expect(missing.status).toBe("not_found");
+
+    const marked = await ctx.adapter.inbox.markReadForRecipient(
+      inboxItemId,
+      "user_1",
+    );
+    expect(marked.status).toBe("marked");
+    items = await ctx.notify.inbox.list("user_1");
+    expect(items[0]!.readAt).toBeInstanceOf(Date);
+  });
+
   test("delivery.failed persists error text after retries exhausted", async () => {
     const sqlite = new Database(":memory:");
     const db = drizzle(sqlite);
@@ -478,6 +512,46 @@ describe("drizzleSqliteAdapter", () => {
     expect(items).toHaveLength(1);
     expect(items[0]!.title).toBe("3 updates");
     expect(items[0]!.body).toBe("Latest from Carol");
+  });
+
+  test("invalid digest render preserves the buffered row", async () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    await createSqliteTables(db);
+
+    const inboxCh = channel.inbox();
+    const broken = notification({
+      id: "broken_digest",
+      payload: { count: "number" },
+      channels: [inboxCh({ title: "{{count}}" })],
+      digest: {
+        windowMs: 30,
+        render: () => ({ count: "nope" as unknown as number }),
+      },
+    });
+
+    const notify = createNotifyKit({
+      notifications: [broken] as const,
+      database: drizzleSqliteAdapter(db),
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "broken_digest",
+      payload: { count: 1 },
+    });
+
+    await expect(notify.flushDigests()).rejects.toThrow(
+      /expected "count" to be number/,
+    );
+
+    const buffered = sqlite
+      .query("SELECT payloads FROM notifykit_digest_buffers")
+      .get() as { payloads: string };
+    expect(JSON.parse(buffered.payloads)).toEqual([{ count: 1 }]);
+    const items = await notify.inbox.list("u1");
+    expect(items).toEqual([]);
   });
 
   test("JSON payload round-trips through SQLite", async () => {

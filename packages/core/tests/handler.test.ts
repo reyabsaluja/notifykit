@@ -166,6 +166,9 @@ describe("createHandler", () => {
       new Request(`${BASE}/inbox/${otherId}/read`, { method: "POST" }),
     );
     expect(res.status).toBe(403);
+
+    const bobItems = await ctx.notify.inbox.list("user_2");
+    expect(bobItems[0]!.readAt).toBeNull();
   });
 
   test("POST /inbox/missing/read returns 404", async () => {

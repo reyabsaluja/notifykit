@@ -84,6 +84,15 @@ export function memoryAdapter() {
                 item.readAt = new Date();
                 return item;
             },
+            async markReadForRecipient(inboxItemId, recipientId) {
+                const item = state.inboxItems.find((i) => i.id === inboxItemId);
+                if (!item)
+                    return { status: "not_found" };
+                if (item.recipientId !== recipientId)
+                    return { status: "forbidden" };
+                item.readAt = new Date();
+                return { status: "marked", item };
+            },
         },
         deliveries: {
             async create(input) {
@@ -190,12 +199,41 @@ export function memoryAdapter() {
                 const [entry] = state.digests.splice(idx, 1);
                 return entry ?? null;
             },
+            async restore(entry) {
+                const existing = state.digests.find((d) => d.key === entry.key);
+                if (existing) {
+                    existing.payloads = [...entry.payloads, ...existing.payloads];
+                    existing.recipientId = entry.recipientId;
+                    existing.notificationId = entry.notificationId;
+                    existing.flushAt = entry.flushAt;
+                    existing.createdAt = entry.createdAt;
+                    existing.updatedAt = new Date();
+                    return existing;
+                }
+                state.digests.push({
+                    ...entry,
+                    payloads: entry.payloads.slice(),
+                });
+                return entry;
+            },
             async list() {
                 return state.digests.slice();
             },
         },
         rateLimits: {
-            async record(input) {
+            async reserve(input) {
+                // Memory adapter runs on a single event-loop turn — this block is
+                // effectively atomic because there are no awaits between count and
+                // push. Prune aged rows, count, and (if under max) record in one go.
+                const cutoff = Date.now() - input.windowMs;
+                state.rateLimits = state.rateLimits.filter((e) => e.occurredAt.getTime() >= cutoff);
+                let n = 0;
+                for (const e of state.rateLimits) {
+                    if (e.key === input.key)
+                        n++;
+                }
+                if (n >= input.max)
+                    return { allowed: false };
                 const event = {
                     key: input.key,
                     recipientId: input.recipientId,
@@ -203,11 +241,10 @@ export function memoryAdapter() {
                     occurredAt: new Date(),
                 };
                 state.rateLimits.push(event);
-                return event;
+                return { allowed: true };
             },
             async count(input) {
                 const cutoff = Date.now() - input.windowMs;
-                // Prune in place so the array stays small.
                 state.rateLimits = state.rateLimits.filter((e) => e.occurredAt.getTime() >= cutoff);
                 let n = 0;
                 for (const e of state.rateLimits) {
@@ -226,20 +263,43 @@ export function memoryAdapter() {
                     payload: input.payload,
                     scheduledFor: input.scheduledFor,
                     reason: input.reason,
+                    status: input.status ?? "pending",
+                    claimedAt: null,
                     createdAt: new Date(),
                 };
                 state.scheduledSends.push(record);
                 return record;
             },
-            async take(id) {
-                const idx = state.scheduledSends.findIndex((s) => s.id === id);
-                if (idx < 0)
+            async claim(id) {
+                const record = state.scheduledSends.find((s) => s.id === id);
+                if (!record)
                     return null;
-                const [record] = state.scheduledSends.splice(idx, 1);
-                return record ?? null;
+                if (record.status !== "pending")
+                    return null;
+                record.status = "claimed";
+                record.claimedAt = new Date();
+                return { ...record };
+            },
+            async complete(id) {
+                const idx = state.scheduledSends.findIndex((s) => s.id === id);
+                if (idx >= 0)
+                    state.scheduledSends.splice(idx, 1);
+            },
+            async release(id) {
+                const record = state.scheduledSends.find((s) => s.id === id);
+                if (!record)
+                    return;
+                record.status = "pending";
+                record.claimedAt = null;
+            },
+            async listDue(now) {
+                const t = now.getTime();
+                return state.scheduledSends
+                    .filter((s) => s.status === "pending" && s.scheduledFor.getTime() <= t)
+                    .map((s) => ({ ...s }));
             },
             async list() {
-                return state.scheduledSends.slice();
+                return state.scheduledSends.map((s) => ({ ...s }));
             },
         },
     };

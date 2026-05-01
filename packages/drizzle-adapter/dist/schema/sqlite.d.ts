@@ -917,6 +917,43 @@ export declare const scheduledSends: import("drizzle-orm/sqlite-core").SQLiteTab
             length: number | undefined;
             $type: "quiet_hours";
         }>;
+        status: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "status";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: "pending" | "claimed";
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+            $type: "pending" | "claimed";
+        }>;
+        claimedAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "claimed_at";
+            tableName: "notifykit_scheduled_sends";
+            dataType: "date";
+            columnType: "SQLiteTimestamp";
+            data: Date;
+            driverParam: number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "created_at";
             tableName: "notifykit_scheduled_sends";
@@ -2325,6 +2362,43 @@ export declare const notifyKitSchema: {
                 length: number | undefined;
                 $type: "quiet_hours";
             }>;
+            status: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "status";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "string";
+                columnType: "SQLiteText";
+                data: "pending" | "claimed";
+                driverParam: string;
+                notNull: true;
+                hasDefault: true;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: [string, ...string[]];
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                length: number | undefined;
+                $type: "pending" | "claimed";
+            }>;
+            claimedAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "claimed_at";
+                tableName: "notifykit_scheduled_sends";
+                dataType: "date";
+                columnType: "SQLiteTimestamp";
+                data: Date;
+                driverParam: number;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
             createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "created_at";
                 tableName: "notifykit_scheduled_sends";

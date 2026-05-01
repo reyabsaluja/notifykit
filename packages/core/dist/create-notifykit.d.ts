@@ -1,4 +1,4 @@
-import type { ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, NotificationDefinition, NotificationRecord, PayloadSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
+import type { ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
 export type CreateNotifyKitInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     notifications: T;
     database: DatabaseAdapter;
@@ -57,6 +57,7 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
     inbox: {
         list(recipientId: string): Promise<InboxItem[]>;
         markRead(inboxItemId: string): Promise<InboxItem | null>;
+        markReadForRecipient(inboxItemId: string, recipientId: string): Promise<MarkReadForRecipientResult>;
     };
     deliveries: {
         list(recipientId?: string): Promise<DeliveryRecord[]>;
@@ -78,10 +79,27 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
      */
     flushDigests(): Promise<void>;
     /**
-     * Forces pending quiet-hours deferrals to fire now. Resolves once every
-     * triggered send has completed.
+     * Fire scheduled-send rows immediately.
+     *
+     * - `{ force: true }` (default when called from tests / admin UIs) flushes
+     *   every row regardless of `scheduledFor`. Use this to bypass quiet hours
+     *   intentionally.
+     * - `{ force: false }` (the production recovery default) only flushes rows
+     *   whose `scheduledFor` is already in the past. Call this on boot to pick
+     *   up rows left behind by a crash without sending future-dated rows early.
+     *
+     * Defaults to `{ force: true }` to preserve the "admin force" intent of
+     * callers who were using this method before the split.
      */
-    flushScheduledSends(): Promise<void>;
+    flushScheduledSends(options?: {
+        force?: boolean;
+    }): Promise<void>;
+    /**
+     * Recovery sweep: deliver every scheduled-send row whose `scheduledFor` is
+     * already in the past. Safe to call on boot and periodically. Equivalent to
+     * `flushScheduledSends({ force: false })`.
+     */
+    recoverScheduledSends(): Promise<void>;
     /** Registered notification definitions. Read-only, for introspection. */
     readonly definitions: T;
 };

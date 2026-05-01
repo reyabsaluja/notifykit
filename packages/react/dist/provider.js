@@ -1,3 +1,4 @@
+"use client";
 import { jsx as _jsx } from "react/jsx-runtime";
 import { createContext, useContext, useMemo } from "react";
 import { createNotifyKitClient, } from "./client.js";

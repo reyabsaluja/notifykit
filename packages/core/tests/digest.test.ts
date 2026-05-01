@@ -268,7 +268,7 @@ describe("digests", () => {
     expect(true).toBe(true);
   });
 
-  test("render() returning an invalid payload surfaces a validation error on flush", async () => {
+  test("render() returning an invalid payload reports the error and preserves the bucket", async () => {
     const broken = notification({
       id: "bad",
       payload: { count: "number" },
@@ -279,7 +279,6 @@ describe("digests", () => {
       },
     });
     const db = memoryAdapter();
-    const failures: string[] = [];
     const notify = createNotifyKit({
       notifications: [broken] as const,
       database: db,
@@ -291,12 +290,13 @@ describe("digests", () => {
       notificationId: "bad",
       payload: { count: 1 },
     });
-    // Flushing should not throw out of the engine (flushDigestKey swallows)
-    await notify.flushDigests();
+    await expect(notify.flushDigests()).rejects.toThrow(
+      /expected "count" to be number/,
+    );
     // Inbox should be empty because validation failed
     expect(db._state.inboxItems).toEqual([]);
-    // Bucket is already taken before validation ran
-    expect(db._state.digests).toEqual([]);
-    void failures;
+    // Bucket stays recoverable for inspection or retry.
+    expect(db._state.digests).toHaveLength(1);
+    expect(db._state.digests[0]!.payloads).toEqual([{ count: 1 }]);
   });
 });

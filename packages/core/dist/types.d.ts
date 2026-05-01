@@ -55,11 +55,32 @@ export type DigestConfig<S extends PayloadSchema = PayloadSchema> = {
         count: number;
     }) => InferSchema<S>;
 };
+/**
+ * The digest shape the engine stores and reads internally. The callbacks
+ * use `Record<string, unknown>` so that a `DigestConfig<{...specific}>` is
+ * assignable to this type — i.e. `NotificationDefinition<"x", {...specific}>`
+ * widens to `NotificationDefinition<string, PayloadSchema>` cleanly.
+ * The engine validates payloads at runtime anyway.
+ */
+export type AnyDigestConfig = {
+    windowMs: number;
+    key?: (ctx: {
+        recipientId: string;
+        notificationId: string;
+        payload: Record<string, unknown>;
+    }) => string;
+    render: (ctx: {
+        recipientId: string;
+        notificationId: string;
+        payloads: Record<string, unknown>[];
+        count: number;
+    }) => Record<string, unknown>;
+};
 export type NotificationDefinition<Id extends string = string, S extends PayloadSchema = PayloadSchema> = {
     id: Id;
     payload: S;
     channels: ChannelConfig[];
-    digest?: DigestConfig<S>;
+    digest?: AnyDigestConfig;
     rateLimit?: RateLimitConfig;
     /**
      * Channel used when every primary delivery has terminally failed. Only
@@ -115,6 +136,14 @@ export type InboxItem = {
     readAt?: Date | null;
     createdAt: Date;
 };
+export type MarkReadForRecipientResult = {
+    status: "marked";
+    item: InboxItem;
+} | {
+    status: "not_found";
+} | {
+    status: "forbidden";
+};
 export type ChannelType = ChannelConfig["type"];
 export type ChannelPreferenceMap = Partial<Record<ChannelType, boolean>>;
 export type RecipientPreference = {
@@ -123,6 +152,7 @@ export type RecipientPreference = {
     channels: ChannelPreferenceMap;
     updatedAt: Date;
 };
+export type ScheduledSendStatus = "pending" | "claimed";
 export type ScheduledSend = {
     id: string;
     recipientId: string;
@@ -132,6 +162,15 @@ export type ScheduledSend = {
     scheduledFor: Date;
     /** Why the send was deferred. Informational. */
     reason: "quiet_hours";
+    /**
+     * Lifecycle state. "pending" — not yet picked up. "claimed" — a worker has
+     * reserved it but delivery hasn't confirmed completion. Rows are only
+     * removed after a successful `complete()` call; failures `release()` them
+     * back to pending so nothing is silently dropped.
+     */
+    status: ScheduledSendStatus;
+    /** When a worker claimed this row. Cleared on release. */
+    claimedAt?: Date | null;
     createdAt: Date;
 };
 export type RateLimitEvent = {
@@ -250,6 +289,7 @@ export type DatabaseAdapter = {
         create(input: Omit<InboxItem, "id" | "createdAt" | "readAt">): Promise<InboxItem>;
         listByRecipient(recipientId: string): Promise<InboxItem[]>;
         markRead(inboxItemId: string): Promise<InboxItem | null>;
+        markReadForRecipient(inboxItemId: string, recipientId: string): Promise<MarkReadForRecipientResult>;
     };
     deliveries: {
         create(input: Omit<DeliveryRecord, "id" | "createdAt" | "updatedAt" | "attempts"> & {
@@ -283,20 +323,37 @@ export type DatabaseAdapter = {
         }): Promise<DigestBufferEntry>;
         /** Atomically removes and returns the bucket, or null if already flushed. */
         take(key: string): Promise<DigestBufferEntry | null>;
+        /**
+         * Puts a taken bucket back if digest flush fails before delivery completes.
+         * If a newer bucket already exists for the same key, implementations should
+         * prepend the restored payloads so retrying does not lose order.
+         */
+        restore(entry: DigestBufferEntry): Promise<DigestBufferEntry>;
         /** For inspection / test utilities only. */
         list(): Promise<DigestBufferEntry[]>;
     };
     rateLimits: {
-        /** Append a rate-limit event for `key` at the current instant. */
-        record(input: {
+        /**
+         * Atomically: count events for `key` within the last `windowMs`, prune
+         * aged rows, and — if below `max` — append a new event. Returns
+         * `{ allowed: true }` on pass (the event was recorded), `{ allowed: false }`
+         * on drop (no event recorded). Must be safe under concurrent callers; a
+         * correct implementation guarantees at most `max` successful reservations
+         * within any sliding window.
+         */
+        reserve(input: {
             key: string;
+            max: number;
+            windowMs: number;
             recipientId: string;
             notificationId: string;
-        }): Promise<RateLimitEvent>;
+        }): Promise<{
+            allowed: boolean;
+        }>;
         /**
-         * Number of events for `key` within the last `windowMs` milliseconds.
-         * Implementations may prune older events opportunistically during this
-         * call; stale rows never contribute to the count.
+         * Non-admission count used by tests and inspection. Does not record.
+         * Implementations may prune aged events opportunistically during this
+         * call.
          */
         count(input: {
             key: string;
@@ -304,10 +361,27 @@ export type DatabaseAdapter = {
         }): Promise<number>;
     };
     scheduledSends: {
-        create(input: Omit<ScheduledSend, "id" | "createdAt">): Promise<ScheduledSend>;
-        /** Atomic take-by-id; null if already consumed. */
-        take(id: string): Promise<ScheduledSend | null>;
-        /** For inspection / recovery after restart. */
+        create(input: Omit<ScheduledSend, "id" | "createdAt" | "status" | "claimedAt"> & {
+            status?: ScheduledSendStatus;
+        }): Promise<ScheduledSend>;
+        /**
+         * Claim a specific row for delivery. Transitions status from "pending"
+         * to "claimed" and sets `claimedAt`. Returns the row if the claim won,
+         * `null` if the row is already claimed or doesn't exist. Delivery MUST
+         * call `complete(id)` on success or `release(id)` on failure — never
+         * delete before delivery is confirmed.
+         */
+        claim(id: string): Promise<ScheduledSend | null>;
+        /** Remove a successfully-delivered claim. No-op if the row is gone. */
+        complete(id: string): Promise<void>;
+        /** Return a claimed row to "pending" so it can be retried. */
+        release(id: string): Promise<void>;
+        /**
+         * Rows whose `scheduledFor <= now` and whose status is "pending".
+         * Used by the recovery sweep so future-dated rows don't fire early.
+         */
+        listDue(now: Date): Promise<ScheduledSend[]>;
+        /** All rows, regardless of state. For tests and admin tooling. */
         list(): Promise<ScheduledSend[]>;
     };
 };

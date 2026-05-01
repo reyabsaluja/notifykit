@@ -59,11 +59,16 @@ export function createNotifyKit(config) {
             const key = scope === "global"
                 ? def.id
                 : `${recipient.id}:${def.id}`;
-            const count = await database.rateLimits.count({
+            // Atomic admission: count + insert happen in one adapter call so two
+            // concurrent sends cannot both read N < max and both insert.
+            const result = await database.rateLimits.reserve({
                 key,
+                max: limit.max,
                 windowMs: limit.windowMs,
+                recipientId: recipient.id,
+                notificationId: def.id,
             });
-            if (count >= limit.max) {
+            if (!result.allowed) {
                 await runHook("notification.rate_limited", {
                     notificationId: def.id,
                     recipientId: recipient.id,
@@ -79,11 +84,6 @@ export function createNotifyKit(config) {
                     rateLimited: true,
                 };
             }
-            await database.rateLimits.record({
-                key,
-                recipientId: recipient.id,
-                notificationId: def.id,
-            });
         }
         if (def.digest) {
             const digest = def.digest;
@@ -179,44 +179,73 @@ export function createNotifyKit(config) {
         task.finally(() => pendingFlushes.delete(task));
     }
     async function flushScheduledSend(id) {
-        const record = await database.scheduledSends.take(id);
+        // Claim first — if we can't (already claimed / already completed / gone)
+        // just bail. This makes concurrent flushers safe and keeps the row
+        // around until we confirm delivery succeeded.
+        const record = await database.scheduledSends.claim(id);
         if (!record)
             return;
-        const def = byId.get(record.notificationId);
-        if (!def)
-            return;
-        const recipient = await database.recipients.findById(record.recipientId);
-        if (!recipient)
-            return;
-        // The payload was validated at send() time; still validate here so a
-        // buggy store path surfaces loudly rather than feeding junk downstream.
-        const payload = validatePayload(def.payload, record.payload, def.id);
-        // The inbox item was written at send() time. Only fire the previously
-        // deferred channels now. We create a fresh notification record for the
-        // deferred delivery so the delivery row has a parent — matches the
-        // behavior where digest flushes also create a fresh record.
-        await deliver(recipient, def, payload, {
-            onlyChannels: ["email", "webhook"],
-        });
+        try {
+            const def = byId.get(record.notificationId);
+            if (!def) {
+                // Definition was removed since the row was created. There's nothing
+                // we can deliver, so complete the row to stop it from blocking
+                // future sweeps.
+                await database.scheduledSends.complete(id);
+                return;
+            }
+            const recipient = await database.recipients.findById(record.recipientId);
+            if (!recipient) {
+                // Recipient no longer exists. Same reasoning — complete to drop.
+                await database.scheduledSends.complete(id);
+                return;
+            }
+            // The payload was validated at send() time; still validate here so a
+            // buggy store path surfaces loudly rather than feeding junk downstream.
+            const payload = validatePayload(def.payload, record.payload, def.id);
+            // The inbox item was written at send() time. Only fire the previously
+            // deferred channels now. We create a fresh notification record for the
+            // deferred delivery so the delivery row has a parent — matches the
+            // behavior where digest flushes also create a fresh record.
+            await deliver(recipient, def, payload, {
+                onlyChannels: ["email", "webhook"],
+            });
+            // Only delete after delivery has been enqueued/completed successfully.
+            await database.scheduledSends.complete(id);
+        }
+        catch (err) {
+            // Something blew up after the claim. Release so a retry sweep can pick
+            // the row up again — we do NOT want silent data loss.
+            await database.scheduledSends.release(id).catch(() => { });
+            throw err;
+        }
     }
     async function flushDigestKey(key, def) {
         const entry = await database.digests.take(key);
         if (!entry)
             return;
-        if (!def.digest)
-            return;
-        const recipient = await database.recipients.findById(entry.recipientId);
-        if (!recipient)
-            return;
-        const combined = def.digest.render({
-            recipientId: entry.recipientId,
-            notificationId: entry.notificationId,
-            payloads: entry.payloads,
-            count: entry.payloads.length,
-        });
-        // Re-validate the combined payload so a buggy render() surfaces loudly.
-        const validated = validatePayload(def.payload, combined, def.id);
-        await deliver(recipient, def, validated);
+        try {
+            if (!def.digest) {
+                throw new NotifyKitError(`Notification "${def.id}" has no digest config.`);
+            }
+            const recipient = await database.recipients.findById(entry.recipientId);
+            if (!recipient) {
+                throw new NotifyKitError(`Unknown recipient: "${entry.recipientId}". Cannot flush digest "${key}".`);
+            }
+            const combined = def.digest.render({
+                recipientId: entry.recipientId,
+                notificationId: entry.notificationId,
+                payloads: entry.payloads,
+                count: entry.payloads.length,
+            });
+            // Re-validate the combined payload so a buggy render() surfaces loudly.
+            const validated = validatePayload(def.payload, combined, def.id);
+            await deliver(recipient, def, validated);
+        }
+        catch (err) {
+            await database.digests.restore(entry);
+            throw err;
+        }
     }
     async function deliver(recipient, def, payload, options = {}) {
         const preference = await database.preferences.get(recipient.id, def.id);
@@ -473,6 +502,36 @@ export function createNotifyKit(config) {
         const input = rawInput;
         return database.preferences.get(input.recipientId, input.notificationId);
     }
+    async function runFlushScheduledSends(options) {
+        const force = options?.force ?? true;
+        // Cancel in-memory timers. Any row that still had a pending timer is
+        // by definition due or near-due; flush it inline.
+        const scheduled = Array.from(scheduledSendTimers.entries());
+        for (const [id, entry] of scheduled) {
+            clearTimeout(entry.timer);
+            scheduledSendTimers.delete(id);
+            await flushScheduledSend(id).catch(() => { });
+            entry.resolve();
+        }
+        // Sweep stored rows. When force=false, only rows whose scheduledFor has
+        // already passed — the correct recovery-on-boot semantic so future-dated
+        // rows don't fire early.
+        const leftover = force
+            ? await database.scheduledSends.list()
+            : await database.scheduledSends.listDue(new Date());
+        for (const row of leftover) {
+            // A claimed row from a crashed prior run stays claimed — skip it
+            // rather than double-delivering. Operators wanting to recover stuck
+            // claims should do so explicitly via release().
+            if (row.status !== "pending")
+                continue;
+            await flushScheduledSend(row.id).catch(() => { });
+        }
+        while (pendingFlushes.size > 0) {
+            await Promise.all(Array.from(pendingFlushes));
+        }
+        await queue.drain();
+    }
     return {
         async upsertRecipient(input) {
             return database.recipients.upsert(input);
@@ -484,6 +543,9 @@ export function createNotifyKit(config) {
             },
             markRead(inboxItemId) {
                 return database.inbox.markRead(inboxItemId);
+            },
+            markReadForRecipient(inboxItemId, recipientId) {
+                return database.inbox.markReadForRecipient(inboxItemId, recipientId);
             },
         },
         deliveries: {
@@ -505,45 +567,48 @@ export function createNotifyKit(config) {
             await queue.drain();
         },
         async flushDigests() {
+            const errors = [];
+            const attempted = new Set();
             // Fire scheduled timers immediately, each resolving its outer task.
             const scheduled = Array.from(scheduledFlushes.entries());
             for (const [key, entry] of scheduled) {
+                attempted.add(key);
                 clearTimeout(entry.timer);
                 scheduledFlushes.delete(key);
-                await flushDigestKey(key, entry.def).catch(() => { });
+                try {
+                    await flushDigestKey(key, entry.def);
+                }
+                catch (err) {
+                    errors.push(err);
+                }
                 entry.resolve();
             }
             // Catch any buckets that have no timer (e.g. left over from a restart).
             const leftover = await database.digests.list();
             for (const bucket of leftover) {
+                if (attempted.has(bucket.key))
+                    continue;
                 const def = byId.get(bucket.notificationId);
                 if (!def)
                     continue;
-                await flushDigestKey(bucket.key, def).catch(() => { });
+                try {
+                    await flushDigestKey(bucket.key, def);
+                }
+                catch (err) {
+                    errors.push(err);
+                }
             }
             while (pendingFlushes.size > 0) {
                 await Promise.all(Array.from(pendingFlushes));
             }
             await queue.drain();
+            if (errors.length > 0) {
+                throw errors[0];
+            }
         },
-        async flushScheduledSends() {
-            // Cancel timers, then flush by id. Resolves each outer task.
-            const scheduled = Array.from(scheduledSendTimers.entries());
-            for (const [id, entry] of scheduled) {
-                clearTimeout(entry.timer);
-                scheduledSendTimers.delete(id);
-                await flushScheduledSend(id).catch(() => { });
-                entry.resolve();
-            }
-            // Sweep any stored rows with no in-memory timer (post-restart case).
-            const leftover = await database.scheduledSends.list();
-            for (const row of leftover) {
-                await flushScheduledSend(row.id).catch(() => { });
-            }
-            while (pendingFlushes.size > 0) {
-                await Promise.all(Array.from(pendingFlushes));
-            }
-            await queue.drain();
+        flushScheduledSends: runFlushScheduledSends,
+        async recoverScheduledSends() {
+            await runFlushScheduledSends({ force: false });
         },
         definitions: notifications,
     };

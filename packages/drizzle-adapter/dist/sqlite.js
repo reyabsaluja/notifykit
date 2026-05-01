@@ -1,11 +1,42 @@
-import { and, desc, eq, gte, lt } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte } from "drizzle-orm";
 import { deliveries, digestBuffers, inboxItems, notifications, preferences, rateLimitEvents, recipients, scheduledSends, } from "./schema/sqlite.js";
 function createId(prefix) {
     const rand = Math.random().toString(36).slice(2, 10);
     const time = Date.now().toString(36);
     return `${prefix}_${time}${rand}`;
 }
+/**
+ * Process-local serialization for the adapter's atomic operations.
+ *
+ * drizzle-orm's `db.transaction(async ...)` on sync drivers (Bun SQLite,
+ * better-sqlite3) commits the underlying transaction before the async body
+ * yields back, so wrapping a check-then-write in `transaction(async)` does
+ * NOT prevent two concurrent callers from seeing the same pre-write state.
+ *
+ * A JS-level mutex is both simple and correct for the single-process case:
+ * it serializes our read-modify-write blocks so at most one is active at a
+ * time. For multi-process deployments you'd add SELECT ... FOR UPDATE
+ * (Postgres) or rely on SQLite's writer lock with BEGIN IMMEDIATE — both are
+ * separate adapter variants.
+ */
+function createMutex() {
+    let tail = Promise.resolve();
+    return async function run(fn) {
+        const prev = tail;
+        let release;
+        const mine = new Promise((r) => (release = r));
+        tail = mine;
+        try {
+            await prev;
+            return await fn();
+        }
+        finally {
+            release();
+        }
+    };
+}
 export function drizzleSqliteAdapter(db) {
+    const atomic = createMutex();
     return {
         _schema: {
             recipients,
@@ -163,6 +194,37 @@ export function drizzleSqliteAdapter(db) {
                     createdAt: row.createdAt,
                 };
             },
+            async markReadForRecipient(inboxItemId, recipientId) {
+                const now = new Date();
+                const updated = await db
+                    .update(inboxItems)
+                    .set({ readAt: now })
+                    .where(and(eq(inboxItems.id, inboxItemId), eq(inboxItems.recipientId, recipientId)))
+                    .returning();
+                const row = updated[0];
+                if (row) {
+                    return {
+                        status: "marked",
+                        item: {
+                            id: row.id,
+                            notificationRecordId: row.notificationRecordId,
+                            recipientId: row.recipientId,
+                            notificationId: row.notificationId,
+                            title: row.title,
+                            body: row.body ?? undefined,
+                            actionUrl: row.actionUrl ?? undefined,
+                            readAt: row.readAt ?? null,
+                            createdAt: row.createdAt,
+                        },
+                    };
+                }
+                const existing = await db
+                    .select({ id: inboxItems.id })
+                    .from(inboxItems)
+                    .where(eq(inboxItems.id, inboxItemId))
+                    .limit(1);
+                return existing[0] ? { status: "forbidden" } : { status: "not_found" };
+            },
         },
         deliveries: {
             async create(input) {
@@ -309,54 +371,58 @@ export function drizzleSqliteAdapter(db) {
         },
         digests: {
             async append(input) {
-                const now = new Date();
-                const existing = await db
-                    .select()
-                    .from(digestBuffers)
-                    .where(eq(digestBuffers.key, input.key))
-                    .limit(1);
-                const current = existing[0];
-                if (current) {
-                    const merged = [
-                        ...current.payloads,
-                        input.payload,
-                    ];
-                    await db
-                        .update(digestBuffers)
-                        .set({
-                        payloads: merged,
+                // Serialize read-modify-write against the same bucket. See createMutex
+                // comment — drizzle's async transaction wrapper on a sync driver does
+                // NOT serialize the JS-level awaits between read and write, so two
+                // concurrent appends to the same key can both see the pre-insert
+                // state and clobber each other.
+                return atomic(async () => {
+                    const now = new Date();
+                    const existing = await db
+                        .select()
+                        .from(digestBuffers)
+                        .where(eq(digestBuffers.key, input.key))
+                        .limit(1);
+                    const current = existing[0];
+                    if (current) {
+                        const merged = [
+                            ...current.payloads,
+                            input.payload,
+                        ];
+                        await db
+                            .update(digestBuffers)
+                            .set({ payloads: merged, updatedAt: now })
+                            .where(eq(digestBuffers.key, input.key));
+                        return {
+                            key: current.key,
+                            recipientId: current.recipientId,
+                            notificationId: current.notificationId,
+                            payloads: merged,
+                            flushAt: current.flushAt,
+                            createdAt: current.createdAt,
+                            updatedAt: now,
+                        };
+                    }
+                    const flushAt = new Date(now.getTime() + input.windowMs);
+                    await db.insert(digestBuffers).values({
+                        key: input.key,
+                        recipientId: input.recipientId,
+                        notificationId: input.notificationId,
+                        payloads: [input.payload],
+                        flushAt,
+                        createdAt: now,
                         updatedAt: now,
-                    })
-                        .where(eq(digestBuffers.key, input.key));
+                    });
                     return {
-                        key: current.key,
-                        recipientId: current.recipientId,
-                        notificationId: current.notificationId,
-                        payloads: merged,
-                        flushAt: current.flushAt,
-                        createdAt: current.createdAt,
+                        key: input.key,
+                        recipientId: input.recipientId,
+                        notificationId: input.notificationId,
+                        payloads: [input.payload],
+                        flushAt,
+                        createdAt: now,
                         updatedAt: now,
                     };
-                }
-                const flushAt = new Date(now.getTime() + input.windowMs);
-                await db.insert(digestBuffers).values({
-                    key: input.key,
-                    recipientId: input.recipientId,
-                    notificationId: input.notificationId,
-                    payloads: [input.payload],
-                    flushAt,
-                    createdAt: now,
-                    updatedAt: now,
                 });
-                return {
-                    key: input.key,
-                    recipientId: input.recipientId,
-                    notificationId: input.notificationId,
-                    payloads: [input.payload],
-                    flushAt,
-                    createdAt: now,
-                    updatedAt: now,
-                };
             },
             async take(key) {
                 const rows = await db
@@ -376,6 +442,53 @@ export function drizzleSqliteAdapter(db) {
                     updatedAt: row.updatedAt,
                 };
             },
+            async restore(entry) {
+                return atomic(async () => {
+                    const now = new Date();
+                    const existing = await db
+                        .select()
+                        .from(digestBuffers)
+                        .where(eq(digestBuffers.key, entry.key))
+                        .limit(1);
+                    const current = existing[0];
+                    if (current) {
+                        const payloads = [
+                            ...entry.payloads,
+                            ...current.payloads,
+                        ];
+                        await db
+                            .update(digestBuffers)
+                            .set({
+                            recipientId: entry.recipientId,
+                            notificationId: entry.notificationId,
+                            payloads,
+                            flushAt: entry.flushAt,
+                            createdAt: entry.createdAt,
+                            updatedAt: now,
+                        })
+                            .where(eq(digestBuffers.key, entry.key));
+                        return {
+                            key: entry.key,
+                            recipientId: entry.recipientId,
+                            notificationId: entry.notificationId,
+                            payloads,
+                            flushAt: entry.flushAt,
+                            createdAt: entry.createdAt,
+                            updatedAt: now,
+                        };
+                    }
+                    await db.insert(digestBuffers).values({
+                        key: entry.key,
+                        recipientId: entry.recipientId,
+                        notificationId: entry.notificationId,
+                        payloads: entry.payloads,
+                        flushAt: entry.flushAt,
+                        createdAt: entry.createdAt,
+                        updatedAt: entry.updatedAt,
+                    });
+                    return entry;
+                });
+            },
             async list() {
                 const rows = await db.select().from(digestBuffers);
                 return rows.map((row) => ({
@@ -390,26 +503,35 @@ export function drizzleSqliteAdapter(db) {
             },
         },
         rateLimits: {
-            async record(input) {
-                const event = {
-                    key: input.key,
-                    recipientId: input.recipientId,
-                    notificationId: input.notificationId,
-                    occurredAt: new Date(),
-                };
-                await db.insert(rateLimitEvents).values({
-                    id: createId("rlm"),
-                    key: event.key,
-                    recipientId: event.recipientId,
-                    notificationId: event.notificationId,
-                    occurredAt: event.occurredAt,
+            async reserve(input) {
+                // Atomic via the adapter mutex: prune → count → conditionally insert.
+                // Under concurrent callers at most `max` reservations succeed per
+                // window. See createMutex() for why `db.transaction(async …)` alone
+                // is not enough on sync sqlite drivers.
+                return atomic(async () => {
+                    const cutoff = new Date(Date.now() - input.windowMs);
+                    await db
+                        .delete(rateLimitEvents)
+                        .where(lt(rateLimitEvents.occurredAt, cutoff));
+                    const rows = await db
+                        .select({ id: rateLimitEvents.id })
+                        .from(rateLimitEvents)
+                        .where(and(eq(rateLimitEvents.key, input.key), gte(rateLimitEvents.occurredAt, cutoff)));
+                    if (rows.length >= input.max) {
+                        return { allowed: false };
+                    }
+                    await db.insert(rateLimitEvents).values({
+                        id: createId("rlm"),
+                        key: input.key,
+                        recipientId: input.recipientId,
+                        notificationId: input.notificationId,
+                        occurredAt: new Date(),
+                    });
+                    return { allowed: true };
                 });
-                return event;
             },
             async count(input) {
                 const cutoff = new Date(Date.now() - input.windowMs);
-                // Opportunistic pruning: drop anything older than the window across
-                // all keys. Keeps the table from growing unbounded without a cron.
                 await db
                     .delete(rateLimitEvents)
                     .where(lt(rateLimitEvents.occurredAt, cutoff));
@@ -422,6 +544,7 @@ export function drizzleSqliteAdapter(db) {
         },
         scheduledSends: {
             async create(input) {
+                const status = input.status ?? "pending";
                 const record = {
                     id: createId("sch"),
                     recipientId: input.recipientId,
@@ -429,6 +552,8 @@ export function drizzleSqliteAdapter(db) {
                     payload: input.payload,
                     scheduledFor: input.scheduledFor,
                     reason: input.reason,
+                    status,
+                    claimedAt: null,
                     createdAt: new Date(),
                 };
                 await db.insert(scheduledSends).values({
@@ -438,14 +563,20 @@ export function drizzleSqliteAdapter(db) {
                     payload: record.payload,
                     scheduledFor: record.scheduledFor,
                     reason: record.reason,
+                    status,
+                    claimedAt: null,
                     createdAt: record.createdAt,
                 });
                 return record;
             },
-            async take(id) {
+            async claim(id) {
+                // Atomic compare-and-set: only flip to "claimed" if still "pending".
+                // Returning rows let us detect whether we won the race.
+                const now = new Date();
                 const rows = await db
-                    .delete(scheduledSends)
-                    .where(eq(scheduledSends.id, id))
+                    .update(scheduledSends)
+                    .set({ status: "claimed", claimedAt: now })
+                    .where(and(eq(scheduledSends.id, id), eq(scheduledSends.status, "pending")))
                     .returning();
                 const row = rows[0];
                 if (!row)
@@ -457,8 +588,36 @@ export function drizzleSqliteAdapter(db) {
                     payload: row.payload,
                     scheduledFor: row.scheduledFor,
                     reason: row.reason,
+                    status: row.status,
+                    claimedAt: row.claimedAt ?? null,
                     createdAt: row.createdAt,
                 };
+            },
+            async complete(id) {
+                await db.delete(scheduledSends).where(eq(scheduledSends.id, id));
+            },
+            async release(id) {
+                await db
+                    .update(scheduledSends)
+                    .set({ status: "pending", claimedAt: null })
+                    .where(eq(scheduledSends.id, id));
+            },
+            async listDue(now) {
+                const rows = await db
+                    .select()
+                    .from(scheduledSends)
+                    .where(and(eq(scheduledSends.status, "pending"), lte(scheduledSends.scheduledFor, now)));
+                return rows.map((row) => ({
+                    id: row.id,
+                    recipientId: row.recipientId,
+                    notificationId: row.notificationId,
+                    payload: row.payload,
+                    scheduledFor: row.scheduledFor,
+                    reason: row.reason,
+                    status: row.status,
+                    claimedAt: row.claimedAt ?? null,
+                    createdAt: row.createdAt,
+                }));
             },
             async list() {
                 const rows = await db.select().from(scheduledSends);
@@ -469,6 +628,8 @@ export function drizzleSqliteAdapter(db) {
                     payload: row.payload,
                     scheduledFor: row.scheduledFor,
                     reason: row.reason,
+                    status: row.status,
+                    claimedAt: row.claimedAt ?? null,
                     createdAt: row.createdAt,
                 }));
             },

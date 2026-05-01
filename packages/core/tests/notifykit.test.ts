@@ -249,6 +249,38 @@ describe("NotifyKit core", () => {
     expect(listed[0]!.readAt).toBeInstanceOf(Date);
   });
 
+  test("markReadForRecipient() refuses another recipient without updating", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    await notify.upsertRecipient({ id: "user_2" });
+    const result = await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const item = result.inboxItems[0]!;
+
+    const forbidden = await notify.inbox.markReadForRecipient(
+      item.id,
+      "user_2",
+    );
+    expect(forbidden.status).toBe("forbidden");
+
+    let listed = await notify.inbox.list("user_1");
+    expect(listed[0]!.readAt).toBeNull();
+
+    const missing = await notify.inbox.markReadForRecipient(
+      "does_not_exist",
+      "user_1",
+    );
+    expect(missing.status).toBe("not_found");
+
+    const marked = await notify.inbox.markReadForRecipient(item.id, "user_1");
+    expect(marked.status).toBe("marked");
+    listed = await notify.inbox.list("user_1");
+    expect(listed[0]!.readAt).toBeInstanceOf(Date);
+  });
+
   test("invalid payload throws", async () => {
     const { notify } = buildKit();
     await notify.upsertRecipient({
