@@ -151,6 +151,17 @@
         "react": ">=18",
       },
     },
+    "packages/realtime-pg": {
+      "name": "@notifykit/realtime-pg",
+      "version": "0.0.1",
+      "devDependencies": {
+        "notifykit": "^0.0.1",
+        "typescript": "^5.6.3",
+      },
+      "peerDependencies": {
+        "notifykit": "^0.0.1",
+      },
+    },
     "packages/realtime-ws": {
       "name": "@notifykit/realtime-ws",
       "version": "0.0.1",
@@ -252,6 +263,8 @@
     "@next/swc-win32-x64-msvc": ["@next/swc-win32-x64-msvc@15.5.15", "", { "os": "win32", "cpu": "x64" }, "sha512-nFucjVdwlFqxh/JG3hWSJ4p8+YJV7Ii8aPDuBQULB6DzUF4UNZETXLfEUk+oI2zEznWWULPt7MeuTE6xtK1HSA=="],
 
     "@notifykit/next": ["@notifykit/next@workspace:packages/next"],
+
+    "@notifykit/realtime-pg": ["@notifykit/realtime-pg@workspace:packages/realtime-pg"],
 
     "@notifykit/realtime-ws": ["@notifykit/realtime-ws@workspace:packages/realtime-ws"],
 
