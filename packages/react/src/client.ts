@@ -118,6 +118,7 @@ export function createNotifyKitClient(
 
   let eventSource: EventSource | null = null;
   let rtStatus: RealtimeStatus = "disconnected";
+  let connectRefCount = 0;
 
   function handleRealtimeEvent(raw: MessageEvent) {
     let event: {
@@ -187,26 +188,26 @@ export function createNotifyKitClient(
     }
   }
 
-  function connect() {
-    if (!realtimeEnabled || eventSource) return;
-    if (typeof EventSource === "undefined") return;
-    rtStatus = "connecting";
+  function setRtStatus(next: RealtimeStatus) {
+    if (rtStatus === next) return;
+    rtStatus = next;
     for (const l of listeners) l();
+  }
+
+  function openConnection() {
+    if (typeof EventSource === "undefined") return;
+    setRtStatus("connecting");
     const url = `${baseUrl}/inbox/stream`;
     const es = new EventSource(url, { withCredentials: credentials !== "omit" });
     eventSource = es;
-    es.onopen = () => {
-      rtStatus = "connected";
-      for (const l of listeners) l();
-    };
+    es.onopen = () => setRtStatus("connected");
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) {
-        rtStatus = "disconnected";
+        setRtStatus("disconnected");
         eventSource = null;
       } else {
-        rtStatus = "connecting";
+        setRtStatus("connecting");
       }
-      for (const l of listeners) l();
     };
     es.addEventListener("inbox.created", handleRealtimeEvent);
     es.addEventListener("inbox.updated", handleRealtimeEvent);
@@ -214,13 +215,24 @@ export function createNotifyKitClient(
     es.addEventListener("inbox.all_read", handleRealtimeEvent);
   }
 
-  function disconnect() {
+  function closeConnection() {
     if (eventSource) {
       eventSource.close();
       eventSource = null;
     }
-    rtStatus = "disconnected";
-    for (const l of listeners) l();
+    setRtStatus("disconnected");
+  }
+
+  function connect() {
+    if (!realtimeEnabled) return;
+    connectRefCount++;
+    if (connectRefCount === 1) openConnection();
+  }
+
+  function disconnect() {
+    if (!realtimeEnabled) return;
+    connectRefCount = Math.max(0, connectRefCount - 1);
+    if (connectRefCount === 0) closeConnection();
   }
 
   async function request(
