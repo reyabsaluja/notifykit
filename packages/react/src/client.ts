@@ -164,6 +164,36 @@ export function createNotifyKitClient(
           unreadCount: Math.max(0, prev.unreadCount + delta),
         },
       });
+    } else if (event.type === "inbox.archived" && event.item) {
+      const item = reviveInboxItem(event.item);
+      const old = prev.items.find((it) => it.id === item.id);
+      const wasUnread = old && !old.readAt && !old.archivedAt;
+      const items = prev.items.filter((it) => it.id !== item.id);
+      setState({
+        ...state,
+        inbox: {
+          ...prev,
+          items,
+          unreadCount: wasUnread
+            ? Math.max(0, prev.unreadCount - 1)
+            : prev.unreadCount,
+        },
+      });
+    } else if (event.type === "inbox.unarchived" && event.item) {
+      const item = reviveInboxItem(event.item);
+      const exists = prev.items.some((it) => it.id === item.id);
+      if (!exists) {
+        const items = [item, ...prev.items];
+        const unread = !item.readAt ? 1 : 0;
+        setState({
+          ...state,
+          inbox: {
+            ...prev,
+            items,
+            unreadCount: prev.unreadCount + unread,
+          },
+        });
+      }
     } else if (event.type === "inbox.deleted" && event.itemId) {
       const target = prev.items.find((it) => it.id === event.itemId);
       const wasUnread = target && !target.readAt && !target.archivedAt;

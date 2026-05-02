@@ -458,7 +458,7 @@ export function createHandler<
             return withCors(json({ error: "Forbidden" }, 403));
           }
           notify.realtime?.publish(context.recipientId, context, {
-            type: "inbox.updated",
+            type: "inbox.archived",
             item: result.item,
           });
           return withCors(json({ data: result.item }));
@@ -476,7 +476,7 @@ export function createHandler<
             return withCors(json({ error: "Forbidden" }, 403));
           }
           notify.realtime?.publish(context.recipientId, context, {
-            type: "inbox.updated",
+            type: "inbox.unarchived",
             item: result.item,
           });
           return withCors(json({ data: result.item }));

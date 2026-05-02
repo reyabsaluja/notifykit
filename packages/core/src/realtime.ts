@@ -3,6 +3,8 @@ import type { InboxItem, SecurityScope } from "./types.js";
 export type RealtimeEvent =
   | { type: "inbox.created"; item: InboxItem }
   | { type: "inbox.updated"; item: InboxItem }
+  | { type: "inbox.archived"; item: InboxItem }
+  | { type: "inbox.unarchived"; item: InboxItem }
   | { type: "inbox.deleted"; itemId: string }
   | { type: "inbox.all_read"; count: number };
 
