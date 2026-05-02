@@ -45,6 +45,7 @@ export async function createPgTables(
       body TEXT,
       action_url TEXT,
       read_at TIMESTAMPTZ,
+      archived_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_inbox_recipient
@@ -127,4 +128,11 @@ export async function createPgTables(
   for (const stmt of statements) {
     await db.execute(sql.raw(stmt));
   }
+
+  // Backfill archived_at for tables created before this column existed.
+  await db.execute(
+    sql.raw(
+      `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`,
+    ),
+  );
 }

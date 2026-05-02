@@ -7,7 +7,7 @@ export function createNotifyKitClient(options = {}) {
     const credentials = options.credentials ?? "same-origin";
     const extraHeaders = options.headers ?? {};
     let state = {
-        inbox: { items: [], status: "idle", error: null },
+        inbox: { items: [], unreadCount: 0, status: "idle", error: null },
         preferences: { items: [], status: "idle", error: null },
     };
     const listeners = new Set();
@@ -56,6 +56,11 @@ export function createNotifyKitClient(options = {}) {
                 : r.readAt === null
                     ? null
                     : null,
+            archivedAt: typeof r.archivedAt === "string"
+                ? new Date(r.archivedAt)
+                : r.archivedAt === null
+                    ? null
+                    : null,
             createdAt: new Date(String(r.createdAt)),
         };
     }
@@ -84,16 +89,20 @@ export function createNotifyKitClient(options = {}) {
             return () => listeners.delete(listener);
         },
         inbox: {
-            async list() {
+            async list(options) {
                 setState({
                     ...state,
                     inbox: { ...state.inbox, status: "loading", error: null },
                 });
                 try {
-                    const items = reviveInbox(await request("GET", "/inbox"));
+                    const qs = options?.archived ? "?archived=true" : "";
+                    const items = reviveInbox(await request("GET", `/inbox${qs}`));
+                    const unreadCount = options?.archived
+                        ? state.inbox.unreadCount
+                        : items.filter((it) => !it.readAt).length;
                     setState({
                         ...state,
-                        inbox: { items, status: "ready", error: null },
+                        inbox: { items, unreadCount, status: "ready", error: null },
                     });
                     return items;
                 }
@@ -107,14 +116,19 @@ export function createNotifyKitClient(options = {}) {
                 }
             },
             async markRead(inboxItemId) {
-                // Optimistic: mark locally, then request; revert on failure.
-                const prev = state.inbox.items;
-                const optimistic = prev.map((it) => it.id === inboxItemId && !it.readAt
+                const prev = state.inbox;
+                const target = prev.items.find((it) => it.id === inboxItemId);
+                const wasUnread = target && !target.readAt && !target.archivedAt;
+                const optimistic = prev.items.map((it) => it.id === inboxItemId && !it.readAt
                     ? { ...it, readAt: new Date() }
                     : it);
                 setState({
                     ...state,
-                    inbox: { ...state.inbox, items: optimistic },
+                    inbox: {
+                        ...state.inbox,
+                        items: optimistic,
+                        unreadCount: wasUnread ? prev.unreadCount - 1 : prev.unreadCount,
+                    },
                 });
                 try {
                     const raw = await request("POST", `/inbox/${encodeURIComponent(inboxItemId)}/read`);
@@ -132,8 +146,132 @@ export function createNotifyKitClient(options = {}) {
                     setState({
                         ...state,
                         inbox: {
-                            ...state.inbox,
-                            items: prev,
+                            ...prev,
+                            error: err instanceof Error ? err.message : String(err),
+                        },
+                    });
+                    throw err;
+                }
+            },
+            async unreadCount() {
+                const raw = (await request("GET", "/inbox/unread-count"));
+                const count = raw?.count ?? 0;
+                setState({
+                    ...state,
+                    inbox: { ...state.inbox, unreadCount: count },
+                });
+                return count;
+            },
+            async markAllRead() {
+                const prev = state.inbox;
+                const now = new Date();
+                const optimistic = prev.items.map((it) => !it.readAt && !it.archivedAt ? { ...it, readAt: now } : it);
+                setState({
+                    ...state,
+                    inbox: { ...state.inbox, items: optimistic, unreadCount: 0 },
+                });
+                try {
+                    const raw = (await request("POST", "/inbox/mark-all-read"));
+                    return raw?.count ?? 0;
+                }
+                catch (err) {
+                    setState({
+                        ...state,
+                        inbox: {
+                            ...prev,
+                            error: err instanceof Error ? err.message : String(err),
+                        },
+                    });
+                    throw err;
+                }
+            },
+            async archive(inboxItemId) {
+                const prev = state.inbox;
+                const target = prev.items.find((it) => it.id === inboxItemId);
+                const alreadyArchived = target?.archivedAt != null;
+                const shouldDecrementCount = target && !target.readAt && !alreadyArchived;
+                const optimistic = alreadyArchived
+                    ? prev.items
+                    : prev.items.filter((it) => it.id !== inboxItemId);
+                setState({
+                    ...state,
+                    inbox: {
+                        ...state.inbox,
+                        items: optimistic,
+                        unreadCount: shouldDecrementCount
+                            ? prev.unreadCount - 1
+                            : prev.unreadCount,
+                    },
+                });
+                try {
+                    const raw = await request("POST", `/inbox/${encodeURIComponent(inboxItemId)}/archive`);
+                    return raw ? reviveInboxItem(raw) : null;
+                }
+                catch (err) {
+                    setState({
+                        ...state,
+                        inbox: {
+                            ...prev,
+                            error: err instanceof Error ? err.message : String(err),
+                        },
+                    });
+                    throw err;
+                }
+            },
+            async unarchive(inboxItemId) {
+                const prev = state.inbox;
+                const target = prev.items.find((it) => it.id === inboxItemId);
+                const alreadyUnarchived = target != null && target.archivedAt == null;
+                const shouldIncrementCount = target && !target.readAt && !alreadyUnarchived;
+                const optimistic = alreadyUnarchived
+                    ? prev.items
+                    : prev.items.filter((it) => it.id !== inboxItemId);
+                setState({
+                    ...state,
+                    inbox: {
+                        ...state.inbox,
+                        items: optimistic,
+                        unreadCount: shouldIncrementCount
+                            ? prev.unreadCount + 1
+                            : prev.unreadCount,
+                    },
+                });
+                try {
+                    const raw = await request("POST", `/inbox/${encodeURIComponent(inboxItemId)}/unarchive`);
+                    return raw ? reviveInboxItem(raw) : null;
+                }
+                catch (err) {
+                    setState({
+                        ...state,
+                        inbox: {
+                            ...prev,
+                            error: err instanceof Error ? err.message : String(err),
+                        },
+                    });
+                    throw err;
+                }
+            },
+            async deleteItem(inboxItemId) {
+                const prev = state.inbox;
+                const target = prev.items.find((it) => it.id === inboxItemId);
+                const wasUnread = target && !target.readAt && !target.archivedAt;
+                const optimistic = prev.items.filter((it) => it.id !== inboxItemId);
+                setState({
+                    ...state,
+                    inbox: {
+                        ...state.inbox,
+                        items: optimistic,
+                        unreadCount: wasUnread ? prev.unreadCount - 1 : prev.unreadCount,
+                    },
+                });
+                try {
+                    await request("DELETE", `/inbox/${encodeURIComponent(inboxItemId)}`);
+                }
+                catch (err) {
+                    setState({
+                        ...state,
+                        inbox: {
+                            ...prev,
                             error: err instanceof Error ? err.message : String(err),
                         },
                     });

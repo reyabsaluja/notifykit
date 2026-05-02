@@ -41,6 +41,7 @@ export async function createSqliteTables(db) {
       body TEXT,
       action_url TEXT,
       read_at INTEGER,
+      archived_at INTEGER,
       created_at INTEGER NOT NULL
     )`,
         `CREATE INDEX IF NOT EXISTS idx_notifykit_inbox_recipient
@@ -121,6 +122,13 @@ export async function createSqliteTables(db) {
     ];
     for (const stmt of statements) {
         await db.run(sql.raw(stmt));
+    }
+    // Backfill archived_at for tables created before this column existed.
+    try {
+        await db.run(sql.raw(`ALTER TABLE notifykit_inbox_items ADD COLUMN archived_at INTEGER`));
+    }
+    catch {
+        // Column already exists — expected for fresh tables.
     }
 }
 //# sourceMappingURL=create-tables.js.map

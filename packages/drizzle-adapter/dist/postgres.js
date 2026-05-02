@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
+import { and, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { deliveries, digestBuffers, inboxItems, notifications, preferences, rateLimitEvents, recipients, scheduledSends, } from "./schema/postgres.js";
 function createId(prefix) {
     const rand = Math.random().toString(36).slice(2, 10);
@@ -151,6 +151,7 @@ export function drizzlePostgresAdapter(db) {
                     body: input.body,
                     actionUrl: input.actionUrl,
                     readAt: null,
+                    archivedAt: null,
                     createdAt: new Date(),
                 };
                 await db.insert(inboxItems).values({
@@ -164,57 +165,28 @@ export function drizzlePostgresAdapter(db) {
                     body: item.body ?? null,
                     actionUrl: item.actionUrl ?? null,
                     readAt: null,
+                    archivedAt: null,
                     createdAt: item.createdAt,
                 });
                 return item;
             },
-            async listByRecipient(recipientId, scope) {
+            async listByRecipient(recipientId, scope, filter) {
                 const conditions = [
                     eq(inboxItems.recipientId, recipientId),
                     ...scopedConditions(inboxItems, scope),
                 ];
+                if (filter?.archived === true) {
+                    conditions.push(isNotNull(inboxItems.archivedAt));
+                }
+                else {
+                    conditions.push(isNull(inboxItems.archivedAt));
+                }
                 const rows = await db
                     .select()
                     .from(inboxItems)
                     .where(and(...conditions))
                     .orderBy(desc(inboxItems.createdAt));
-                return rows.map((r) => ({
-                    id: r.id,
-                    notificationRecordId: r.notificationRecordId,
-                    recipientId: r.recipientId,
-                    tenantId: r.tenantId ?? undefined,
-                    workspaceId: r.workspaceId ?? undefined,
-                    notificationId: r.notificationId,
-                    title: r.title,
-                    body: r.body ?? undefined,
-                    actionUrl: r.actionUrl ?? undefined,
-                    readAt: r.readAt ?? null,
-                    createdAt: r.createdAt,
-                }));
-            },
-            async markRead(inboxItemId) {
-                const now = new Date();
-                const updated = await db
-                    .update(inboxItems)
-                    .set({ readAt: now })
-                    .where(eq(inboxItems.id, inboxItemId))
-                    .returning();
-                const row = updated[0];
-                if (!row)
-                    return null;
-                return {
-                    id: row.id,
-                    notificationRecordId: row.notificationRecordId,
-                    recipientId: row.recipientId,
-                    tenantId: row.tenantId ?? undefined,
-                    workspaceId: row.workspaceId ?? undefined,
-                    notificationId: row.notificationId,
-                    title: row.title,
-                    body: row.body ?? undefined,
-                    actionUrl: row.actionUrl ?? undefined,
-                    readAt: row.readAt ?? null,
-                    createdAt: row.createdAt,
-                };
+                return rows.map(rowToInboxItem);
             },
             async markReadForRecipient(inboxItemId, recipientId, scope) {
                 const now = new Date();
@@ -230,22 +202,100 @@ export function drizzlePostgresAdapter(db) {
                     .returning();
                 const row = updated[0];
                 if (row) {
-                    return {
-                        status: "marked",
-                        item: {
-                            id: row.id,
-                            notificationRecordId: row.notificationRecordId,
-                            recipientId: row.recipientId,
-                            tenantId: row.tenantId ?? undefined,
-                            workspaceId: row.workspaceId ?? undefined,
-                            notificationId: row.notificationId,
-                            title: row.title,
-                            body: row.body ?? undefined,
-                            actionUrl: row.actionUrl ?? undefined,
-                            readAt: row.readAt ?? null,
-                            createdAt: row.createdAt,
-                        },
-                    };
+                    return { status: "marked", item: rowToInboxItem(row) };
+                }
+                const existing = await db
+                    .select({ id: inboxItems.id })
+                    .from(inboxItems)
+                    .where(eq(inboxItems.id, inboxItemId))
+                    .limit(1);
+                return existing[0] ? { status: "forbidden" } : { status: "not_found" };
+            },
+            async unreadCount(recipientId, scope) {
+                const conditions = [
+                    eq(inboxItems.recipientId, recipientId),
+                    isNull(inboxItems.readAt),
+                    isNull(inboxItems.archivedAt),
+                    ...scopedConditions(inboxItems, scope),
+                ];
+                const rows = await db
+                    .select({ value: drizzleCount() })
+                    .from(inboxItems)
+                    .where(and(...conditions));
+                return rows[0]?.value ?? 0;
+            },
+            async markAllRead(recipientId, scope) {
+                const now = new Date();
+                const conditions = [
+                    eq(inboxItems.recipientId, recipientId),
+                    isNull(inboxItems.readAt),
+                    isNull(inboxItems.archivedAt),
+                    ...scopedConditions(inboxItems, scope),
+                ];
+                const updated = await db
+                    .update(inboxItems)
+                    .set({ readAt: now })
+                    .where(and(...conditions))
+                    .returning({ id: inboxItems.id });
+                return updated.length;
+            },
+            async archiveForRecipient(inboxItemId, recipientId, scope) {
+                const now = new Date();
+                const conditions = [
+                    eq(inboxItems.id, inboxItemId),
+                    eq(inboxItems.recipientId, recipientId),
+                    ...scopedConditions(inboxItems, scope),
+                ];
+                const updated = await db
+                    .update(inboxItems)
+                    .set({ archivedAt: now })
+                    .where(and(...conditions))
+                    .returning();
+                const row = updated[0];
+                if (row) {
+                    return { status: "ok", item: rowToInboxItem(row) };
+                }
+                const existing = await db
+                    .select({ id: inboxItems.id })
+                    .from(inboxItems)
+                    .where(eq(inboxItems.id, inboxItemId))
+                    .limit(1);
+                return existing[0] ? { status: "forbidden" } : { status: "not_found" };
+            },
+            async unarchiveForRecipient(inboxItemId, recipientId, scope) {
+                const conditions = [
+                    eq(inboxItems.id, inboxItemId),
+                    eq(inboxItems.recipientId, recipientId),
+                    ...scopedConditions(inboxItems, scope),
+                ];
+                const updated = await db
+                    .update(inboxItems)
+                    .set({ archivedAt: null })
+                    .where(and(...conditions))
+                    .returning();
+                const row = updated[0];
+                if (row) {
+                    return { status: "ok", item: rowToInboxItem(row) };
+                }
+                const existing = await db
+                    .select({ id: inboxItems.id })
+                    .from(inboxItems)
+                    .where(eq(inboxItems.id, inboxItemId))
+                    .limit(1);
+                return existing[0] ? { status: "forbidden" } : { status: "not_found" };
+            },
+            async deleteForRecipient(inboxItemId, recipientId, scope) {
+                const conditions = [
+                    eq(inboxItems.id, inboxItemId),
+                    eq(inboxItems.recipientId, recipientId),
+                    ...scopedConditions(inboxItems, scope),
+                ];
+                const deleted = await db
+                    .delete(inboxItems)
+                    .where(and(...conditions))
+                    .returning({ id: inboxItems.id });
+                if (deleted[0]) {
+                    return { status: "deleted" };
                 }
                 const existing = await db
                     .select({ id: inboxItems.id })
@@ -679,6 +729,22 @@ export function drizzlePostgresAdapter(db) {
                 }));
             },
         },
+    };
+}
+function rowToInboxItem(row) {
+    return {
+        id: row.id,
+        notificationRecordId: row.notificationRecordId,
+        recipientId: row.recipientId,
+        tenantId: row.tenantId ?? undefined,
+        workspaceId: row.workspaceId ?? undefined,
+        notificationId: row.notificationId,
+        title: row.title,
+        body: row.body ?? undefined,
+        actionUrl: row.actionUrl ?? undefined,
+        readAt: row.readAt ?? null,
+        archivedAt: row.archivedAt ?? null,
+        createdAt: row.createdAt,
     };
 }
 function rowToDelivery(row) {

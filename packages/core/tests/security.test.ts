@@ -351,6 +351,181 @@ describe("delivery record redaction", () => {
   });
 });
 
+describe("handler inbox routes", () => {
+  let database: MemoryAdapter;
+  let notify: NotifyKit<readonly [typeof commentMentioned]>;
+  let handle: Handler;
+
+  beforeEach(async () => {
+    database = memoryAdapter();
+    notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", email: "alice@x.com" });
+    handle = createHandler(notify, { identify: () => "alice" });
+  });
+
+  test("GET /inbox/unread-count returns count", async () => {
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload("Bob"),
+    });
+
+    const res = await handle(new Request(`${BASE}/inbox/unread-count`));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { count: number } };
+    expect(body.data.count).toBe(2);
+  });
+
+  test("POST /inbox/mark-all-read marks all and returns count", async () => {
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload("Bob"),
+    });
+
+    const res = await handle(
+      new Request(`${BASE}/inbox/mark-all-read`, { method: "POST" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { count: number } };
+    expect(body.data.count).toBe(2);
+
+    const countRes = await handle(new Request(`${BASE}/inbox/unread-count`));
+    const countBody = (await countRes.json()) as { data: { count: number } };
+    expect(countBody.data.count).toBe(0);
+  });
+
+  test("POST /inbox/:id/archive archives and hides from default list", async () => {
+    const result = await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    const res = await handle(
+      new Request(`${BASE}/inbox/${itemId}/archive`, { method: "POST" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { id: string; archivedAt: string };
+    };
+    expect(body.data.archivedAt).toBeTruthy();
+
+    const listRes = await handle(new Request(`${BASE}/inbox`));
+    const listBody = (await listRes.json()) as { data: unknown[] };
+    expect(listBody.data).toHaveLength(0);
+
+    const archivedRes = await handle(
+      new Request(`${BASE}/inbox?archived=true`),
+    );
+    const archivedBody = (await archivedRes.json()) as { data: unknown[] };
+    expect(archivedBody.data).toHaveLength(1);
+  });
+
+  test("POST /inbox/:id/unarchive restores item", async () => {
+    const result = await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    await handle(
+      new Request(`${BASE}/inbox/${itemId}/archive`, { method: "POST" }),
+    );
+
+    const res = await handle(
+      new Request(`${BASE}/inbox/${itemId}/unarchive`, { method: "POST" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { id: string; archivedAt: string | null };
+    };
+    expect(body.data.archivedAt).toBeNull();
+
+    const listRes = await handle(new Request(`${BASE}/inbox`));
+    const listBody = (await listRes.json()) as { data: unknown[] };
+    expect(listBody.data).toHaveLength(1);
+  });
+
+  test("DELETE /inbox/:id hard deletes item", async () => {
+    const result = await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    const res = await handle(
+      new Request(`${BASE}/inbox/${itemId}`, { method: "DELETE" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { deleted: boolean } };
+    expect(body.data.deleted).toBe(true);
+
+    const listRes = await handle(new Request(`${BASE}/inbox`));
+    const listBody = (await listRes.json()) as { data: unknown[] };
+    expect(listBody.data).toHaveLength(0);
+  });
+
+  test("archive/unarchive/delete return 404 for missing items", async () => {
+    const archiveRes = await handle(
+      new Request(`${BASE}/inbox/nope/archive`, { method: "POST" }),
+    );
+    expect(archiveRes.status).toBe(404);
+
+    const unarchiveRes = await handle(
+      new Request(`${BASE}/inbox/nope/unarchive`, { method: "POST" }),
+    );
+    expect(unarchiveRes.status).toBe(404);
+
+    const deleteRes = await handle(
+      new Request(`${BASE}/inbox/nope`, { method: "DELETE" }),
+    );
+    expect(deleteRes.status).toBe(404);
+  });
+
+  test("archive/unarchive/delete return 403 for another user's items", async () => {
+    await notify.upsertRecipient({ id: "bob", email: "bob@x.com" });
+    const result = await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    const bobItemId = result.inboxItems[0]!.id;
+
+    const archiveRes = await handle(
+      new Request(`${BASE}/inbox/${bobItemId}/archive`, { method: "POST" }),
+    );
+    expect(archiveRes.status).toBe(403);
+
+    const unarchiveRes = await handle(
+      new Request(`${BASE}/inbox/${bobItemId}/unarchive`, { method: "POST" }),
+    );
+    expect(unarchiveRes.status).toBe(403);
+
+    const deleteRes = await handle(
+      new Request(`${BASE}/inbox/${bobItemId}`, { method: "DELETE" }),
+    );
+    expect(deleteRes.status).toBe(403);
+  });
+});
+
 describe("unauthenticated access", () => {
   test("all protected routes return 401 when identify returns null", async () => {
     const database = memoryAdapter();
@@ -364,6 +539,11 @@ describe("unauthenticated access", () => {
     const routes = [
       new Request(`${BASE}/inbox`),
       new Request(`${BASE}/inbox/some-id/read`, { method: "POST" }),
+      new Request(`${BASE}/inbox/unread-count`),
+      new Request(`${BASE}/inbox/mark-all-read`, { method: "POST" }),
+      new Request(`${BASE}/inbox/some-id/archive`, { method: "POST" }),
+      new Request(`${BASE}/inbox/some-id/unarchive`, { method: "POST" }),
+      new Request(`${BASE}/inbox/some-id`, { method: "DELETE" }),
       new Request(`${BASE}/preferences`),
       new Request(`${BASE}/preferences`, {
         method: "POST",
@@ -843,7 +1023,7 @@ describe("CORS support", () => {
     );
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
     expect(res.headers.get("Access-Control-Allow-Methods")).toBe(
-      "GET, POST, OPTIONS",
+      "GET, POST, DELETE, OPTIONS",
     );
   });
 

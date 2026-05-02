@@ -527,6 +527,23 @@ export declare const inboxItems: import("drizzle-orm/sqlite-core").SQLiteTableWi
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        archivedAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "archived_at";
+            tableName: "notifykit_inbox_items";
+            dataType: "date";
+            columnType: "SQLiteTimestamp";
+            data: Date;
+            driverParam: number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "created_at";
             tableName: "notifykit_inbox_items";
@@ -2063,6 +2080,23 @@ export declare const notifyKitSchema: {
             }>;
             readAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "read_at";
+                tableName: "notifykit_inbox_items";
+                dataType: "date";
+                columnType: "SQLiteTimestamp";
+                data: Date;
+                driverParam: number;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
+            archivedAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "archived_at";
                 tableName: "notifykit_inbox_items";
                 dataType: "date";
                 columnType: "SQLiteTimestamp";

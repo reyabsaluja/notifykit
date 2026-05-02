@@ -1,4 +1,4 @@
-import type { CategoryDefaults, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryExplanation, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, PreferenceExplanation, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, SecurityScope, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
+import type { CategoryDefaults, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryExplanation, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxDeleteForRecipientResult, InboxItem, InboxItemForRecipientResult, InboxListFilter, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, PreferenceExplanation, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, SecurityScope, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
 export type CreateNotifyKitInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     notifications: T;
     database: DatabaseAdapter;
@@ -89,9 +89,13 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
          * use the handler's `GET /inbox` route, which derives the recipient
          * from `identify()`.
          */
-        list(recipientId: string, scope?: SecurityScope): Promise<InboxItem[]>;
-        markRead(inboxItemId: string): Promise<InboxItem | null>;
+        list(recipientId: string, scope?: SecurityScope, filter?: InboxListFilter): Promise<InboxItem[]>;
         markReadForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<MarkReadForRecipientResult>;
+        unreadCount(recipientId: string, scope?: SecurityScope): Promise<number>;
+        markAllRead(recipientId: string, scope?: SecurityScope): Promise<number>;
+        archiveForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<InboxItemForRecipientResult>;
+        unarchiveForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<InboxItemForRecipientResult>;
+        deleteForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<InboxDeleteForRecipientResult>;
     };
     deliveries: {
         /**

@@ -18,6 +18,7 @@ export type NotificationMetadata = {
 export type ClientState = {
   inbox: {
     items: InboxItem[];
+    unreadCount: number;
     status: ClientStatus;
     error: string | null;
   };
@@ -53,8 +54,13 @@ export type NotifyKitClient = {
   getState(): ClientState;
   subscribe(listener: () => void): () => void;
   inbox: {
-    list(): Promise<InboxItem[]>;
+    list(options?: { archived?: boolean }): Promise<InboxItem[]>;
     markRead(inboxItemId: string): Promise<InboxItem | null>;
+    unreadCount(): Promise<number>;
+    markAllRead(): Promise<number>;
+    archive(inboxItemId: string): Promise<InboxItem | null>;
+    unarchive(inboxItemId: string): Promise<InboxItem | null>;
+    deleteItem(inboxItemId: string): Promise<void>;
   };
   preferences: {
     list(): Promise<RecipientPreference[]>;
@@ -82,7 +88,7 @@ export function createNotifyKitClient(
   const extraHeaders = options.headers ?? {};
 
   let state: ClientState = {
-    inbox: { items: [], status: "idle", error: null },
+    inbox: { items: [], unreadCount: 0, status: "idle", error: null },
     preferences: { items: [], status: "idle", error: null },
   };
   const listeners = new Set<() => void>();
@@ -142,6 +148,12 @@ export function createNotifyKitClient(
           : r.readAt === null
             ? null
             : null,
+      archivedAt:
+        typeof r.archivedAt === "string"
+          ? new Date(r.archivedAt)
+          : r.archivedAt === null
+            ? null
+            : null,
       createdAt: new Date(String(r.createdAt)),
     };
   }
@@ -175,16 +187,20 @@ export function createNotifyKitClient(
     },
 
     inbox: {
-      async list(): Promise<InboxItem[]> {
+      async list(options?: { archived?: boolean }): Promise<InboxItem[]> {
         setState({
           ...state,
           inbox: { ...state.inbox, status: "loading", error: null },
         });
         try {
-          const items = reviveInbox(await request("GET", "/inbox"));
+          const qs = options?.archived ? "?archived=true" : "";
+          const items = reviveInbox(await request("GET", `/inbox${qs}`));
+          const unreadCount = options?.archived
+            ? state.inbox.unreadCount
+            : items.filter((it) => !it.readAt).length;
           setState({
             ...state,
-            inbox: { items, status: "ready", error: null },
+            inbox: { items, unreadCount, status: "ready", error: null },
           });
           return items;
         } catch (err) {
@@ -198,16 +214,21 @@ export function createNotifyKitClient(
       },
 
       async markRead(inboxItemId: string): Promise<InboxItem | null> {
-        // Optimistic: mark locally, then request; revert on failure.
-        const prev = state.inbox.items;
-        const optimistic = prev.map((it) =>
+        const prev = state.inbox;
+        const target = prev.items.find((it) => it.id === inboxItemId);
+        const wasUnread = target && !target.readAt && !target.archivedAt;
+        const optimistic = prev.items.map((it) =>
           it.id === inboxItemId && !it.readAt
             ? { ...it, readAt: new Date() }
             : it,
         );
         setState({
           ...state,
-          inbox: { ...state.inbox, items: optimistic },
+          inbox: {
+            ...state.inbox,
+            items: optimistic,
+            unreadCount: wasUnread ? prev.unreadCount - 1 : prev.unreadCount,
+          },
         });
         try {
           const raw = await request(
@@ -229,8 +250,149 @@ export function createNotifyKitClient(
           setState({
             ...state,
             inbox: {
-              ...state.inbox,
-              items: prev,
+              ...prev,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
+          throw err;
+        }
+      },
+
+      async unreadCount(): Promise<number> {
+        const raw = (await request("GET", "/inbox/unread-count")) as {
+          count?: number;
+        };
+        const count = raw?.count ?? 0;
+        setState({
+          ...state,
+          inbox: { ...state.inbox, unreadCount: count },
+        });
+        return count;
+      },
+
+      async markAllRead(): Promise<number> {
+        const prev = state.inbox;
+        const now = new Date();
+        const optimistic = prev.items.map((it) =>
+          !it.readAt && !it.archivedAt ? { ...it, readAt: now } : it,
+        );
+        setState({
+          ...state,
+          inbox: { ...state.inbox, items: optimistic, unreadCount: 0 },
+        });
+        try {
+          const raw = (await request("POST", "/inbox/mark-all-read")) as {
+            count?: number;
+          };
+          return raw?.count ?? 0;
+        } catch (err) {
+          setState({
+            ...state,
+            inbox: {
+              ...prev,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
+          throw err;
+        }
+      },
+
+      async archive(inboxItemId: string): Promise<InboxItem | null> {
+        const prev = state.inbox;
+        const target = prev.items.find((it) => it.id === inboxItemId);
+        const alreadyArchived = target?.archivedAt != null;
+        const shouldDecrementCount = target && !target.readAt && !alreadyArchived;
+        const optimistic = alreadyArchived
+          ? prev.items
+          : prev.items.filter((it) => it.id !== inboxItemId);
+        setState({
+          ...state,
+          inbox: {
+            ...state.inbox,
+            items: optimistic,
+            unreadCount: shouldDecrementCount
+              ? prev.unreadCount - 1
+              : prev.unreadCount,
+          },
+        });
+        try {
+          const raw = await request(
+            "POST",
+            `/inbox/${encodeURIComponent(inboxItemId)}/archive`,
+          );
+          return raw ? reviveInboxItem(raw) : null;
+        } catch (err) {
+          setState({
+            ...state,
+            inbox: {
+              ...prev,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
+          throw err;
+        }
+      },
+
+      async unarchive(inboxItemId: string): Promise<InboxItem | null> {
+        const prev = state.inbox;
+        const target = prev.items.find((it) => it.id === inboxItemId);
+        const alreadyUnarchived = target != null && target.archivedAt == null;
+        const shouldIncrementCount =
+          target && !target.readAt && !alreadyUnarchived;
+        const optimistic = alreadyUnarchived
+          ? prev.items
+          : prev.items.filter((it) => it.id !== inboxItemId);
+        setState({
+          ...state,
+          inbox: {
+            ...state.inbox,
+            items: optimistic,
+            unreadCount: shouldIncrementCount
+              ? prev.unreadCount + 1
+              : prev.unreadCount,
+          },
+        });
+        try {
+          const raw = await request(
+            "POST",
+            `/inbox/${encodeURIComponent(inboxItemId)}/unarchive`,
+          );
+          return raw ? reviveInboxItem(raw) : null;
+        } catch (err) {
+          setState({
+            ...state,
+            inbox: {
+              ...prev,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
+          throw err;
+        }
+      },
+
+      async deleteItem(inboxItemId: string): Promise<void> {
+        const prev = state.inbox;
+        const target = prev.items.find((it) => it.id === inboxItemId);
+        const wasUnread = target && !target.readAt && !target.archivedAt;
+        const optimistic = prev.items.filter((it) => it.id !== inboxItemId);
+        setState({
+          ...state,
+          inbox: {
+            ...state.inbox,
+            items: optimistic,
+            unreadCount: wasUnread ? prev.unreadCount - 1 : prev.unreadCount,
+          },
+        });
+        try {
+          await request(
+            "DELETE",
+            `/inbox/${encodeURIComponent(inboxItemId)}`,
+          );
+        } catch (err) {
+          setState({
+            ...state,
+            inbox: {
+              ...prev,
               error: err instanceof Error ? err.message : String(err),
             },
           });

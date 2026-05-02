@@ -20,8 +20,15 @@ export function useInbox(options = {}) {
     }, [autoLoad, client, status]);
     const refresh = useCallback(() => client.inbox.list(), [client]);
     const markRead = useCallback((id) => client.inbox.markRead(id), [client]);
-    const unreadCount = items.reduce((count, item) => (item.readAt ? count : count + 1), 0);
-    return { items, status, error, unreadCount, refresh, markRead };
+    const markAllRead = useCallback(() => client.inbox.markAllRead(), [client]);
+    const archive = useCallback((id) => client.inbox.archive(id), [client]);
+    const unarchive = useCallback((id) => client.inbox.unarchive(id), [client]);
+    const deleteItem = useCallback((id) => client.inbox.deleteItem(id), [client]);
+    const unreadCount = useClientState((s) => s.inbox.unreadCount);
+    return {
+        items, status, error, unreadCount, refresh,
+        markRead, markAllRead, archive, unarchive, deleteItem,
+    };
 }
 export function usePreferences(options = {}) {
     const client = useNotifyKitClient();

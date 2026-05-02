@@ -489,6 +489,23 @@ export declare const inboxItems: import("drizzle-orm/pg-core").PgTableWithColumn
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        archivedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "archived_at";
+            tableName: "notifykit_inbox_items";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "notifykit_inbox_items";
@@ -1919,6 +1936,23 @@ export declare const notifyKitPgSchema: {
             }, {}, {}>;
             readAt: import("drizzle-orm/pg-core").PgColumn<{
                 name: "read_at";
+                tableName: "notifykit_inbox_items";
+                dataType: "date";
+                columnType: "PgTimestamp";
+                data: Date;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
+            archivedAt: import("drizzle-orm/pg-core").PgColumn<{
+                name: "archived_at";
                 tableName: "notifykit_inbox_items";
                 dataType: "date";
                 columnType: "PgTimestamp";

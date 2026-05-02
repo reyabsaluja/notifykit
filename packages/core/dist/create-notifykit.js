@@ -856,14 +856,26 @@ export function createNotifyKit(config) {
         send,
         explain,
         inbox: {
-            list(recipientId, scope) {
-                return database.inbox.listByRecipient(recipientId, scope);
-            },
-            markRead(inboxItemId) {
-                return database.inbox.markRead(inboxItemId);
+            list(recipientId, scope, filter) {
+                return database.inbox.listByRecipient(recipientId, scope, filter);
             },
             markReadForRecipient(inboxItemId, recipientId, scope) {
                 return database.inbox.markReadForRecipient(inboxItemId, recipientId, scope);
+            },
+            unreadCount(recipientId, scope) {
+                return database.inbox.unreadCount(recipientId, scope);
+            },
+            markAllRead(recipientId, scope) {
+                return database.inbox.markAllRead(recipientId, scope);
+            },
+            archiveForRecipient(inboxItemId, recipientId, scope) {
+                return database.inbox.archiveForRecipient(inboxItemId, recipientId, scope);
+            },
+            unarchiveForRecipient(inboxItemId, recipientId, scope) {
+                return database.inbox.unarchiveForRecipient(inboxItemId, recipientId, scope);
+            },
+            deleteForRecipient(inboxItemId, recipientId, scope) {
+                return database.inbox.deleteForRecipient(inboxItemId, recipientId, scope);
             },
         },
         deliveries: {

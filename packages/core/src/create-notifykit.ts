@@ -10,7 +10,10 @@ import type {
   EmailProvider,
   GetPreferenceInput,
   Hooks,
+  InboxDeleteForRecipientResult,
   InboxItem,
+  InboxItemForRecipientResult,
+  InboxListFilter,
   MarkReadForRecipientResult,
   NotificationDefinition,
   NotificationRecord,
@@ -135,13 +138,29 @@ export type NotifyKit<
      * use the handler's `GET /inbox` route, which derives the recipient
      * from `identify()`.
      */
-    list(recipientId: string, scope?: SecurityScope): Promise<InboxItem[]>;
-    markRead(inboxItemId: string): Promise<InboxItem | null>;
+    list(recipientId: string, scope?: SecurityScope, filter?: InboxListFilter): Promise<InboxItem[]>;
     markReadForRecipient(
       inboxItemId: string,
       recipientId: string,
       scope?: SecurityScope,
     ): Promise<MarkReadForRecipientResult>;
+    unreadCount(recipientId: string, scope?: SecurityScope): Promise<number>;
+    markAllRead(recipientId: string, scope?: SecurityScope): Promise<number>;
+    archiveForRecipient(
+      inboxItemId: string,
+      recipientId: string,
+      scope?: SecurityScope,
+    ): Promise<InboxItemForRecipientResult>;
+    unarchiveForRecipient(
+      inboxItemId: string,
+      recipientId: string,
+      scope?: SecurityScope,
+    ): Promise<InboxItemForRecipientResult>;
+    deleteForRecipient(
+      inboxItemId: string,
+      recipientId: string,
+      scope?: SecurityScope,
+    ): Promise<InboxDeleteForRecipientResult>;
   };
   deliveries: {
     /**
@@ -1262,11 +1281,8 @@ export function createNotifyKit<
     send,
     explain,
     inbox: {
-      list(recipientId, scope) {
-        return database.inbox.listByRecipient(recipientId, scope);
-      },
-      markRead(inboxItemId) {
-        return database.inbox.markRead(inboxItemId);
+      list(recipientId, scope, filter) {
+        return database.inbox.listByRecipient(recipientId, scope, filter);
       },
       markReadForRecipient(inboxItemId, recipientId, scope) {
         return database.inbox.markReadForRecipient(
@@ -1274,6 +1290,21 @@ export function createNotifyKit<
           recipientId,
           scope,
         );
+      },
+      unreadCount(recipientId, scope) {
+        return database.inbox.unreadCount(recipientId, scope);
+      },
+      markAllRead(recipientId, scope) {
+        return database.inbox.markAllRead(recipientId, scope);
+      },
+      archiveForRecipient(inboxItemId, recipientId, scope) {
+        return database.inbox.archiveForRecipient(inboxItemId, recipientId, scope);
+      },
+      unarchiveForRecipient(inboxItemId, recipientId, scope) {
+        return database.inbox.unarchiveForRecipient(inboxItemId, recipientId, scope);
+      },
+      deleteForRecipient(inboxItemId, recipientId, scope) {
+        return database.inbox.deleteForRecipient(inboxItemId, recipientId, scope);
       },
     },
     deliveries: {

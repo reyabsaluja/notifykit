@@ -3,7 +3,10 @@ import type {
   DatabaseAdapter,
   DeliveryRecord,
   DigestBufferEntry,
+  InboxDeleteForRecipientResult,
   InboxItem,
+  InboxItemForRecipientResult,
+  InboxListFilter,
   NotificationRecord,
   QuietHours,
   Recipient,
@@ -12,7 +15,7 @@ import type {
   SecurityScope,
   UpsertRecipientInput,
 } from "notifykit";
-import { and, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
+import { and, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
@@ -211,6 +214,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           body: input.body,
           actionUrl: input.actionUrl,
           readAt: null,
+          archivedAt: null,
           createdAt: new Date(),
         };
         await db.insert(inboxItems).values({
@@ -224,6 +228,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           body: item.body ?? null,
           actionUrl: item.actionUrl ?? null,
           readAt: null,
+          archivedAt: null,
           createdAt: item.createdAt,
         });
         return item;
@@ -232,53 +237,23 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
       async listByRecipient(
         recipientId: string,
         scope?: SecurityScope,
+        filter?: InboxListFilter,
       ): Promise<InboxItem[]> {
         const conditions = [
           eq(inboxItems.recipientId, recipientId),
           ...scopedConditions(inboxItems, scope),
         ];
+        if (filter?.archived === true) {
+          conditions.push(isNotNull(inboxItems.archivedAt));
+        } else {
+          conditions.push(isNull(inboxItems.archivedAt));
+        }
         const rows = await db
           .select()
           .from(inboxItems)
           .where(and(...conditions))
           .orderBy(desc(inboxItems.createdAt));
-        return rows.map((r) => ({
-          id: r.id,
-          notificationRecordId: r.notificationRecordId,
-          recipientId: r.recipientId,
-          tenantId: r.tenantId ?? undefined,
-          workspaceId: r.workspaceId ?? undefined,
-          notificationId: r.notificationId,
-          title: r.title,
-          body: r.body ?? undefined,
-          actionUrl: r.actionUrl ?? undefined,
-          readAt: r.readAt ?? null,
-          createdAt: r.createdAt,
-        }));
-      },
-
-      async markRead(inboxItemId: string): Promise<InboxItem | null> {
-        const now = new Date();
-        const updated = await db
-          .update(inboxItems)
-          .set({ readAt: now })
-          .where(eq(inboxItems.id, inboxItemId))
-          .returning();
-        const row = updated[0];
-        if (!row) return null;
-        return {
-          id: row.id,
-          notificationRecordId: row.notificationRecordId,
-          recipientId: row.recipientId,
-          tenantId: row.tenantId ?? undefined,
-          workspaceId: row.workspaceId ?? undefined,
-          notificationId: row.notificationId,
-          title: row.title,
-          body: row.body ?? undefined,
-          actionUrl: row.actionUrl ?? undefined,
-          readAt: row.readAt ?? null,
-          createdAt: row.createdAt,
-        };
+        return rows.map(rowToInboxItem);
       },
 
       async markReadForRecipient(
@@ -299,24 +274,125 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           .returning();
         const row = updated[0];
         if (row) {
-          return {
-            status: "marked",
-            item: {
-              id: row.id,
-              notificationRecordId: row.notificationRecordId,
-              recipientId: row.recipientId,
-              tenantId: row.tenantId ?? undefined,
-              workspaceId: row.workspaceId ?? undefined,
-              notificationId: row.notificationId,
-              title: row.title,
-              body: row.body ?? undefined,
-              actionUrl: row.actionUrl ?? undefined,
-              readAt: row.readAt ?? null,
-              createdAt: row.createdAt,
-            },
-          };
+          return { status: "marked", item: rowToInboxItem(row) };
         }
 
+        const existing = await db
+          .select({ id: inboxItems.id })
+          .from(inboxItems)
+          .where(eq(inboxItems.id, inboxItemId))
+          .limit(1);
+        return existing[0] ? { status: "forbidden" } : { status: "not_found" };
+      },
+
+      async unreadCount(
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<number> {
+        const conditions = [
+          eq(inboxItems.recipientId, recipientId),
+          isNull(inboxItems.readAt),
+          isNull(inboxItems.archivedAt),
+          ...scopedConditions(inboxItems, scope),
+        ];
+        const rows = await db
+          .select({ value: drizzleCount() })
+          .from(inboxItems)
+          .where(and(...conditions));
+        return rows[0]?.value ?? 0;
+      },
+
+      async markAllRead(
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<number> {
+        const now = new Date();
+        const conditions = [
+          eq(inboxItems.recipientId, recipientId),
+          isNull(inboxItems.readAt),
+          isNull(inboxItems.archivedAt),
+          ...scopedConditions(inboxItems, scope),
+        ];
+        const updated = await db
+          .update(inboxItems)
+          .set({ readAt: now })
+          .where(and(...conditions))
+          .returning({ id: inboxItems.id });
+        return updated.length;
+      },
+
+      async archiveForRecipient(
+        inboxItemId: string,
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<InboxItemForRecipientResult> {
+        const now = new Date();
+        const conditions = [
+          eq(inboxItems.id, inboxItemId),
+          eq(inboxItems.recipientId, recipientId),
+          ...scopedConditions(inboxItems, scope),
+        ];
+        const updated = await db
+          .update(inboxItems)
+          .set({ archivedAt: now })
+          .where(and(...conditions))
+          .returning();
+        const row = updated[0];
+        if (row) {
+          return { status: "ok", item: rowToInboxItem(row) };
+        }
+        const existing = await db
+          .select({ id: inboxItems.id })
+          .from(inboxItems)
+          .where(eq(inboxItems.id, inboxItemId))
+          .limit(1);
+        return existing[0] ? { status: "forbidden" } : { status: "not_found" };
+      },
+
+      async unarchiveForRecipient(
+        inboxItemId: string,
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<InboxItemForRecipientResult> {
+        const conditions = [
+          eq(inboxItems.id, inboxItemId),
+          eq(inboxItems.recipientId, recipientId),
+          ...scopedConditions(inboxItems, scope),
+        ];
+        const updated = await db
+          .update(inboxItems)
+          .set({ archivedAt: null })
+          .where(and(...conditions))
+          .returning();
+        const row = updated[0];
+        if (row) {
+          return { status: "ok", item: rowToInboxItem(row) };
+        }
+        const existing = await db
+          .select({ id: inboxItems.id })
+          .from(inboxItems)
+          .where(eq(inboxItems.id, inboxItemId))
+          .limit(1);
+        return existing[0] ? { status: "forbidden" } : { status: "not_found" };
+      },
+
+      async deleteForRecipient(
+        inboxItemId: string,
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<InboxDeleteForRecipientResult> {
+        const conditions = [
+          eq(inboxItems.id, inboxItemId),
+          eq(inboxItems.recipientId, recipientId),
+          ...scopedConditions(inboxItems, scope),
+        ];
+        const deleted = await db
+          .delete(inboxItems)
+          .where(and(...conditions))
+          .returning({ id: inboxItems.id });
+        if (deleted[0]) {
+          return { status: "deleted" };
+        }
         const existing = await db
           .select({ id: inboxItems.id })
           .from(inboxItems)
@@ -799,6 +875,23 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         }));
       },
     },
+  };
+}
+
+function rowToInboxItem(row: typeof inboxItems.$inferSelect): InboxItem {
+  return {
+    id: row.id,
+    notificationRecordId: row.notificationRecordId,
+    recipientId: row.recipientId,
+    tenantId: row.tenantId ?? undefined,
+    workspaceId: row.workspaceId ?? undefined,
+    notificationId: row.notificationId,
+    title: row.title,
+    body: row.body ?? undefined,
+    actionUrl: row.actionUrl ?? undefined,
+    readAt: row.readAt ?? null,
+    archivedAt: row.archivedAt ?? null,
+    createdAt: row.createdAt,
   };
 }
 

@@ -41,6 +41,8 @@ export const inboxItems = sqliteTable("notifykit_inbox_items", {
     body: text("body"),
     actionUrl: text("action_url"),
     readAt: integer("read_at", { mode: "timestamp_ms" }),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_inbox_items ADD COLUMN archived_at INTEGER; */
+    archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 export const deliveries = sqliteTable("notifykit_deliveries", {

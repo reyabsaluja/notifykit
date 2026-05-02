@@ -5,12 +5,11 @@ function mockFetch(routes: Record<string, unknown>) {
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? "GET";
-    const path = new URL(url, "http://localhost").pathname.replace(
-      /^\/api\/notifykit/,
-      "",
-    );
-    const key = `${method} ${path}`;
-    const body = routes[key];
+    const parsed = new URL(url, "http://localhost");
+    const path = parsed.pathname.replace(/^\/api\/notifykit/, "");
+    const search = parsed.search;
+    const key = `${method} ${path}${search}`;
+    const body = routes[key] ?? routes[`${method} ${path}`];
     if (body === undefined) {
       return new Response(JSON.stringify({ error: "Not found" }), {
         status: 404,
@@ -287,5 +286,498 @@ describe("createNotifyKitClient", () => {
     await client.inbox.list();
     expect(capturedUrl).toContain("/custom/path/inbox");
     expect(capturedHeaders["x-token"]).toBe("secret123");
+  });
+
+  test("inbox.unreadCount fetches from server and updates state", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox/unread-count": { data: { count: 5 } },
+      }),
+    });
+
+    const count = await client.inbox.unreadCount();
+    expect(count).toBe(5);
+    expect(client.getState().inbox.unreadCount).toBe(5);
+  });
+
+  test("inbox.markAllRead optimistically zeroes count and reverts on failure", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+            {
+              id: "inb_2",
+              notificationRecordId: "ntf_2",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "World",
+              readAt: null,
+              archivedAt: null,
+              createdAt: "2026-04-30T12:01:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/mark-all-read": { data: { count: 2 } },
+      }),
+    });
+
+    await client.inbox.list();
+    expect(client.getState().inbox.unreadCount).toBe(2);
+
+    const count = await client.inbox.markAllRead();
+    expect(count).toBe(2);
+    expect(client.getState().inbox.unreadCount).toBe(0);
+  });
+
+  test("inbox.markAllRead reverts on failure", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    });
+
+    await client.inbox.list();
+    expect(client.getState().inbox.unreadCount).toBe(1);
+
+    await expect(client.inbox.markAllRead()).rejects.toThrow();
+    expect(client.getState().inbox.unreadCount).toBe(1);
+  });
+
+  test("inbox.archive optimistically removes item and decrements count", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/inb_1/archive": {
+          data: {
+            id: "inb_1",
+            notificationRecordId: "ntf_1",
+            recipientId: "u1",
+            notificationId: "comment",
+            title: "Hello",
+            readAt: null,
+            archivedAt: "2026-04-30T12:05:00.000Z",
+            createdAt: "2026-04-30T12:00:00.000Z",
+          },
+        },
+      }),
+    });
+
+    await client.inbox.list();
+    expect(client.getState().inbox.unreadCount).toBe(1);
+
+    const result = await client.inbox.archive("inb_1");
+    expect(result).not.toBeNull();
+    expect(result!.archivedAt).toBeInstanceOf(Date);
+    expect(client.getState().inbox.items).toHaveLength(0);
+    expect(client.getState().inbox.unreadCount).toBe(0);
+  });
+
+  test("inbox.archive reverts on failure", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    });
+
+    await client.inbox.list();
+    await expect(client.inbox.archive("inb_1")).rejects.toThrow();
+    expect(client.getState().inbox.items).toHaveLength(1);
+    expect(client.getState().inbox.unreadCount).toBe(1);
+  });
+
+  test("inbox.archive does not decrement count for already-read items", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: "2026-04-30T12:01:00.000Z",
+              archivedAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/inb_1/archive": {
+          data: {
+            id: "inb_1",
+            notificationRecordId: "ntf_1",
+            recipientId: "u1",
+            notificationId: "comment",
+            title: "Hello",
+            readAt: "2026-04-30T12:01:00.000Z",
+            archivedAt: "2026-04-30T12:05:00.000Z",
+            createdAt: "2026-04-30T12:00:00.000Z",
+          },
+        },
+      }),
+    });
+
+    await client.inbox.list();
+    expect(client.getState().inbox.unreadCount).toBe(0);
+
+    await client.inbox.archive("inb_1");
+    expect(client.getState().inbox.unreadCount).toBe(0);
+  });
+
+  test("inbox.unarchive removes item from state and increments count for unread", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox?archived=true": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: "2026-04-30T12:05:00.000Z",
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/inb_1/unarchive": {
+          data: {
+            id: "inb_1",
+            notificationRecordId: "ntf_1",
+            recipientId: "u1",
+            notificationId: "comment",
+            title: "Hello",
+            readAt: null,
+            archivedAt: null,
+            createdAt: "2026-04-30T12:00:00.000Z",
+          },
+        },
+      }),
+    });
+
+    await client.inbox.list({ archived: true });
+    const prevCount = client.getState().inbox.unreadCount;
+
+    const result = await client.inbox.unarchive("inb_1");
+    expect(result).not.toBeNull();
+    expect(result!.archivedAt).toBeNull();
+    expect(client.getState().inbox.items).toHaveLength(0);
+    expect(client.getState().inbox.unreadCount).toBe(prevCount + 1);
+  });
+
+  test("inbox.unarchive does not increment count for read items", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox?archived=true": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: "2026-04-30T12:01:00.000Z",
+              archivedAt: "2026-04-30T12:05:00.000Z",
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/inb_1/unarchive": {
+          data: {
+            id: "inb_1",
+            notificationRecordId: "ntf_1",
+            recipientId: "u1",
+            notificationId: "comment",
+            title: "Hello",
+            readAt: "2026-04-30T12:01:00.000Z",
+            archivedAt: null,
+            createdAt: "2026-04-30T12:00:00.000Z",
+          },
+        },
+      }),
+    });
+
+    await client.inbox.list({ archived: true });
+    const prevCount = client.getState().inbox.unreadCount;
+
+    await client.inbox.unarchive("inb_1");
+    expect(client.getState().inbox.unreadCount).toBe(prevCount);
+  });
+
+  test("inbox.archive does not decrement count for already-archived unread item", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox?archived=true": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: "2026-04-30T12:05:00.000Z",
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/inb_1/archive": {
+          data: {
+            id: "inb_1",
+            notificationRecordId: "ntf_1",
+            recipientId: "u1",
+            notificationId: "comment",
+            title: "Hello",
+            readAt: null,
+            archivedAt: "2026-04-30T12:05:00.000Z",
+            createdAt: "2026-04-30T12:00:00.000Z",
+          },
+        },
+      }),
+    });
+
+    await client.inbox.list({ archived: true });
+    const countBefore = client.getState().inbox.unreadCount;
+
+    await client.inbox.archive("inb_1");
+    expect(client.getState().inbox.unreadCount).toBe(countBefore);
+    expect(client.getState().inbox.items).toHaveLength(1);
+  });
+
+  test("inbox.unarchive does not increment count for already-unarchived unread item", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/inb_1/unarchive": {
+          data: {
+            id: "inb_1",
+            notificationRecordId: "ntf_1",
+            recipientId: "u1",
+            notificationId: "comment",
+            title: "Hello",
+            readAt: null,
+            archivedAt: null,
+            createdAt: "2026-04-30T12:00:00.000Z",
+          },
+        },
+      }),
+    });
+
+    await client.inbox.list();
+    const countBefore = client.getState().inbox.unreadCount;
+
+    await client.inbox.unarchive("inb_1");
+    expect(client.getState().inbox.unreadCount).toBe(countBefore);
+    expect(client.getState().inbox.items).toHaveLength(1);
+  });
+
+  test("inbox.unarchive reverts on failure", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox?archived=true": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: "2026-04-30T12:05:00.000Z",
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    });
+
+    await client.inbox.list({ archived: true });
+    await expect(client.inbox.unarchive("inb_1")).rejects.toThrow();
+    expect(client.getState().inbox.items).toHaveLength(1);
+  });
+
+  test("inbox.deleteItem optimistically removes and decrements count", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "DELETE /inbox/inb_1": { data: { deleted: true } },
+      }),
+    });
+
+    await client.inbox.list();
+    expect(client.getState().inbox.unreadCount).toBe(1);
+
+    await client.inbox.deleteItem("inb_1");
+    expect(client.getState().inbox.items).toHaveLength(0);
+    expect(client.getState().inbox.unreadCount).toBe(0);
+  });
+
+  test("inbox.deleteItem does not decrement count for archived unread items", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox?archived=true": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: "2026-04-30T12:05:00.000Z",
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "DELETE /inbox/inb_1": { data: { deleted: true } },
+      }),
+    });
+
+    await client.inbox.list({ archived: true });
+    const prevCount = client.getState().inbox.unreadCount;
+
+    await client.inbox.deleteItem("inb_1");
+    expect(client.getState().inbox.unreadCount).toBe(prevCount);
+  });
+
+  test("inbox.deleteItem reverts on failure", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    });
+
+    await client.inbox.list();
+    await expect(client.inbox.deleteItem("inb_1")).rejects.toThrow();
+    expect(client.getState().inbox.items).toHaveLength(1);
+    expect(client.getState().inbox.unreadCount).toBe(1);
+  });
+
+  test("inbox.markRead does not decrement count for archived unread items", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox?archived=true": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              archivedAt: "2026-04-30T12:05:00.000Z",
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/inb_1/read": {
+          data: {
+            id: "inb_1",
+            notificationRecordId: "ntf_1",
+            recipientId: "u1",
+            notificationId: "comment",
+            title: "Hello",
+            readAt: "2026-04-30T12:06:00.000Z",
+            archivedAt: "2026-04-30T12:05:00.000Z",
+            createdAt: "2026-04-30T12:00:00.000Z",
+          },
+        },
+      }),
+    });
+
+    await client.inbox.list({ archived: true });
+    const prevCount = client.getState().inbox.unreadCount;
+
+    await client.inbox.markRead("inb_1");
+    expect(client.getState().inbox.unreadCount).toBe(prevCount);
   });
 });

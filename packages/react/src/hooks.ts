@@ -25,6 +25,10 @@ export type UseInboxResult = {
   unreadCount: number;
   refresh(): Promise<InboxItem[]>;
   markRead(inboxItemId: string): Promise<InboxItem | null>;
+  markAllRead(): Promise<number>;
+  archive(inboxItemId: string): Promise<InboxItem | null>;
+  unarchive(inboxItemId: string): Promise<InboxItem | null>;
+  deleteItem(inboxItemId: string): Promise<void>;
 };
 
 export function useInbox(options: { autoLoad?: boolean } = {}): UseInboxResult {
@@ -47,13 +51,26 @@ export function useInbox(options: { autoLoad?: boolean } = {}): UseInboxResult {
     (id: string) => client.inbox.markRead(id),
     [client],
   );
-
-  const unreadCount = items.reduce(
-    (count, item) => (item.readAt ? count : count + 1),
-    0,
+  const markAllRead = useCallback(() => client.inbox.markAllRead(), [client]);
+  const archive = useCallback(
+    (id: string) => client.inbox.archive(id),
+    [client],
+  );
+  const unarchive = useCallback(
+    (id: string) => client.inbox.unarchive(id),
+    [client],
+  );
+  const deleteItem = useCallback(
+    (id: string) => client.inbox.deleteItem(id),
+    [client],
   );
 
-  return { items, status, error, unreadCount, refresh, markRead };
+  const unreadCount = useClientState((s) => s.inbox.unreadCount);
+
+  return {
+    items, status, error, unreadCount, refresh,
+    markRead, markAllRead, archive, unarchive, deleteItem,
+  };
 }
 
 export type UsePreferencesResult = {

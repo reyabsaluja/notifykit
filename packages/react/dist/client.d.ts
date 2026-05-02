@@ -11,6 +11,7 @@ export type NotificationMetadata = {
 export type ClientState = {
     inbox: {
         items: InboxItem[];
+        unreadCount: number;
         status: ClientStatus;
         error: string | null;
     };
@@ -44,8 +45,15 @@ export type NotifyKitClient = {
     getState(): ClientState;
     subscribe(listener: () => void): () => void;
     inbox: {
-        list(): Promise<InboxItem[]>;
+        list(options?: {
+            archived?: boolean;
+        }): Promise<InboxItem[]>;
         markRead(inboxItemId: string): Promise<InboxItem | null>;
+        unreadCount(): Promise<number>;
+        markAllRead(): Promise<number>;
+        archive(inboxItemId: string): Promise<InboxItem | null>;
+        unarchive(inboxItemId: string): Promise<InboxItem | null>;
+        deleteItem(inboxItemId: string): Promise<void>;
     };
     preferences: {
         list(): Promise<RecipientPreference[]>;

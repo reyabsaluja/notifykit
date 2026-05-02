@@ -1,0 +1,37 @@
+{
+  "name": "notifykit-next",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./middleware": {
+      "types": "./dist/middleware.d.ts",
+      "import": "./dist/middleware.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "next": ">=14",
+    "notifykit": "^0.0.1"
+  },
+  "devDependencies": {
+    "next": "^15.3.2",
+    "notifykit": "^0.0.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "typescript": "^5.6.3"
+  }
+}

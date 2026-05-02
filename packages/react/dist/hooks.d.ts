@@ -7,6 +7,10 @@ export type UseInboxResult = {
     unreadCount: number;
     refresh(): Promise<InboxItem[]>;
     markRead(inboxItemId: string): Promise<InboxItem | null>;
+    markAllRead(): Promise<number>;
+    archive(inboxItemId: string): Promise<InboxItem | null>;
+    unarchive(inboxItemId: string): Promise<InboxItem | null>;
+    deleteItem(inboxItemId: string): Promise<void>;
 };
 export declare function useInbox(options?: {
     autoLoad?: boolean;

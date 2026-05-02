@@ -37,7 +37,7 @@ export function createHandler(notify, options) {
             return response;
         const headers = new Headers(response.headers);
         headers.set("Access-Control-Allow-Origin", corsOrigin);
-        headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
         const requestedHeaders = request?.headers.get("Access-Control-Request-Headers");
         headers.set("Access-Control-Allow-Headers", requestedHeaders || "Content-Type, Authorization");
         headers.set("Access-Control-Max-Age", "86400");
@@ -171,7 +171,11 @@ export function createHandler(notify, options) {
         try {
             switch (route.kind) {
                 case "inbox.list": {
-                    const items = await notify.inbox.list(context.recipientId, context);
+                    const archivedParam = url.searchParams.get("archived");
+                    const filter = archivedParam === "true"
+                        ? { archived: true }
+                        : undefined;
+                    const items = await notify.inbox.list(context.recipientId, context, filter);
                     return withCors(json({ data: items }));
                 }
                 case "inbox.markRead": {
@@ -183,6 +187,44 @@ export function createHandler(notify, options) {
                         return withCors(json({ error: "Forbidden" }, 403));
                     }
                     return withCors(json({ data: result.item }));
+                }
+                case "inbox.unreadCount": {
+                    const count = await notify.inbox.unreadCount(context.recipientId, context);
+                    return withCors(json({ data: { count } }));
+                }
+                case "inbox.markAllRead": {
+                    const count = await notify.inbox.markAllRead(context.recipientId, context);
+                    return withCors(json({ data: { count } }));
+                }
+                case "inbox.archive": {
+                    const result = await notify.inbox.archiveForRecipient(route.id, context.recipientId, context);
+                    if (result.status === "not_found") {
+                        return withCors(json({ error: "Inbox item not found" }, 404));
+                    }
+                    if (result.status === "forbidden") {
+                        return withCors(json({ error: "Forbidden" }, 403));
+                    }
+                    return withCors(json({ data: result.item }));
+                }
+                case "inbox.unarchive": {
+                    const result = await notify.inbox.unarchiveForRecipient(route.id, context.recipientId, context);
+                    if (result.status === "not_found") {
+                        return withCors(json({ error: "Inbox item not found" }, 404));
+                    }
+                    if (result.status === "forbidden") {
+                        return withCors(json({ error: "Forbidden" }, 403));
+                    }
+                    return withCors(json({ data: result.item }));
+                }
+                case "inbox.delete": {
+                    const result = await notify.inbox.deleteForRecipient(route.id, context.recipientId, context);
+                    if (result.status === "not_found") {
+                        return withCors(json({ error: "Inbox item not found" }, 404));
+                    }
+                    if (result.status === "forbidden") {
+                        return withCors(json({ error: "Forbidden" }, 403));
+                    }
+                    return withCors(json({ data: { deleted: true } }));
                 }
                 case "preferences.list": {
                     const prefs = await notify.preferences.list(context.recipientId, context);
@@ -341,10 +383,41 @@ function matchRoute(method, sub) {
             return { kind: "inbox.list" };
         return { kind: "not_found" };
     }
+    if (trimmed === "/inbox/unread-count") {
+        if (method === "GET")
+            return { kind: "inbox.unreadCount" };
+        return { kind: "not_found" };
+    }
+    if (trimmed === "/inbox/mark-all-read") {
+        if (method === "POST")
+            return { kind: "inbox.markAllRead" };
+        return { kind: "not_found" };
+    }
     const markRead = trimmed.match(/^\/inbox\/([^/]+)\/read$/);
     if (markRead && markRead[1]) {
         if (method === "POST") {
             return { kind: "inbox.markRead", id: decodeURIComponent(markRead[1]) };
+        }
+        return { kind: "not_found" };
+    }
+    const archive = trimmed.match(/^\/inbox\/([^/]+)\/archive$/);
+    if (archive && archive[1]) {
+        if (method === "POST") {
+            return { kind: "inbox.archive", id: decodeURIComponent(archive[1]) };
+        }
+        return { kind: "not_found" };
+    }
+    const unarchive = trimmed.match(/^\/inbox\/([^/]+)\/unarchive$/);
+    if (unarchive && unarchive[1]) {
+        if (method === "POST") {
+            return { kind: "inbox.unarchive", id: decodeURIComponent(unarchive[1]) };
+        }
+        return { kind: "not_found" };
+    }
+    const deleteItem = trimmed.match(/^\/inbox\/([^/]+)$/);
+    if (deleteItem && deleteItem[1]) {
+        if (method === "DELETE") {
+            return { kind: "inbox.delete", id: decodeURIComponent(deleteItem[1]) };
         }
         return { kind: "not_found" };
     }

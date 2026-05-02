@@ -40,6 +40,8 @@ export const inboxItems = pgTable("notifykit_inbox_items", {
     body: text("body"),
     actionUrl: text("action_url"),
     readAt: timestamp("read_at", { withTimezone: true, mode: "date" }),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_inbox_items ADD COLUMN archived_at TIMESTAMP WITH TIME ZONE; */
+    archivedAt: timestamp("archived_at", { withTimezone: true, mode: "date" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
 }, (table) => ({
     recipientIdx: index("idx_notifykit_inbox_recipient").on(table.recipientId),

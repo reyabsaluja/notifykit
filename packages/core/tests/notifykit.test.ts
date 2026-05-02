@@ -94,7 +94,7 @@ describe("NotifyKit core", () => {
     expect(typeof notify.send).toBe("function");
     expect(typeof notify.upsertRecipient).toBe("function");
     expect(typeof notify.inbox.list).toBe("function");
-    expect(typeof notify.inbox.markRead).toBe("function");
+    expect(typeof notify.inbox.markReadForRecipient).toBe("function");
     expect(typeof notify.deliveries.list).toBe("function");
   });
 
@@ -241,9 +241,9 @@ describe("NotifyKit core", () => {
     const item = result.inboxItems[0]!;
     expect(item.readAt).toBeNull();
 
-    const marked = await notify.inbox.markRead(item.id);
-    expect(marked).not.toBeNull();
-    expect(marked!.readAt).toBeInstanceOf(Date);
+    const marked = await notify.inbox.markReadForRecipient(item.id, "user_1");
+    expect(marked.status).toBe("marked");
+    expect(marked.status === "marked" && marked.item.readAt).toBeInstanceOf(Date);
 
     const listed = await notify.inbox.list("user_1");
     expect(listed[0]!.readAt).toBeInstanceOf(Date);
@@ -452,6 +452,222 @@ describe("NotifyKit core", () => {
         channels: { email: false },
       }),
     ).rejects.toThrow(/Unknown notification/);
+  });
+
+  test("inbox.unreadCount() returns count without loading full inbox", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Bob" },
+    });
+
+    expect(await notify.inbox.unreadCount("user_1")).toBe(2);
+
+    const items = await notify.inbox.list("user_1");
+    await notify.inbox.markReadForRecipient(items[0]!.id, "user_1");
+    expect(await notify.inbox.unreadCount("user_1")).toBe(1);
+  });
+
+  test("inbox.markAllRead() marks all unread items and returns count", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Bob" },
+    });
+
+    const count = await notify.inbox.markAllRead("user_1");
+    expect(count).toBe(2);
+    expect(await notify.inbox.unreadCount("user_1")).toBe(0);
+
+    const items = await notify.inbox.list("user_1");
+    expect(items.every((i) => i.readAt !== null)).toBe(true);
+
+    const again = await notify.inbox.markAllRead("user_1");
+    expect(again).toBe(0);
+  });
+
+  test("inbox.archive() hides from default list, retrievable with filter", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    const result = await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const item = result.inboxItems[0]!;
+
+    const archived = await notify.inbox.archiveForRecipient(
+      item.id,
+      "user_1",
+    );
+    expect(archived.status).toBe("ok");
+    if (archived.status === "ok") {
+      expect(archived.item.archivedAt).toBeInstanceOf(Date);
+    }
+
+    const defaultList = await notify.inbox.list("user_1");
+    expect(defaultList).toHaveLength(0);
+
+    const archivedList = await notify.inbox.list("user_1", undefined, {
+      archived: true,
+    });
+    expect(archivedList).toHaveLength(1);
+    expect(archivedList[0]!.id).toBe(item.id);
+  });
+
+  test("inbox.unarchive() restores item to default list", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    const result = await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const item = result.inboxItems[0]!;
+
+    await notify.inbox.archiveForRecipient(item.id, "user_1");
+    expect(await notify.inbox.list("user_1")).toHaveLength(0);
+
+    const unarchived = await notify.inbox.unarchiveForRecipient(
+      item.id,
+      "user_1",
+    );
+    expect(unarchived.status).toBe("ok");
+    if (unarchived.status === "ok") {
+      expect(unarchived.item.archivedAt).toBeNull();
+    }
+
+    expect(await notify.inbox.list("user_1")).toHaveLength(1);
+  });
+
+  test("inbox.deleteItem() hard deletes", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    const result = await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const item = result.inboxItems[0]!;
+
+    const deleted = await notify.inbox.deleteForRecipient(item.id, "user_1");
+    expect(deleted.status).toBe("deleted");
+
+    expect(await notify.inbox.list("user_1")).toHaveLength(0);
+    expect(
+      await notify.inbox.list("user_1", undefined, { archived: true }),
+    ).toHaveLength(0);
+  });
+
+  test("inbox operations enforce recipient isolation", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    await notify.upsertRecipient({ id: "user_2" });
+    const result = await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const item = result.inboxItems[0]!;
+
+    const archiveForbidden = await notify.inbox.archiveForRecipient(
+      item.id,
+      "user_2",
+    );
+    expect(archiveForbidden.status).toBe("forbidden");
+
+    const unarchiveForbidden = await notify.inbox.unarchiveForRecipient(
+      item.id,
+      "user_2",
+    );
+    expect(unarchiveForbidden.status).toBe("forbidden");
+
+    const deleteForbidden = await notify.inbox.deleteForRecipient(
+      item.id,
+      "user_2",
+    );
+    expect(deleteForbidden.status).toBe("forbidden");
+
+    expect(await notify.inbox.list("user_1")).toHaveLength(1);
+  });
+
+  test("inbox operations return not_found for missing items", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+
+    expect(
+      (await notify.inbox.archiveForRecipient("nope", "user_1")).status,
+    ).toBe("not_found");
+    expect(
+      (await notify.inbox.unarchiveForRecipient("nope", "user_1")).status,
+    ).toBe("not_found");
+    expect(
+      (await notify.inbox.deleteForRecipient("nope", "user_1")).status,
+    ).toBe("not_found");
+  });
+
+  test("archived items are excluded from unreadCount", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const result2 = await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Bob" },
+    });
+    expect(await notify.inbox.unreadCount("user_1")).toBe(2);
+
+    await notify.inbox.archiveForRecipient(
+      result2.inboxItems[0]!.id,
+      "user_1",
+    );
+    expect(await notify.inbox.unreadCount("user_1")).toBe(1);
+  });
+
+  test("markAllRead does not affect archived items", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+    const r1 = await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Bob" },
+    });
+
+    await notify.inbox.archiveForRecipient(
+      r1.inboxItems[0]!.id,
+      "user_1",
+    );
+
+    const count = await notify.inbox.markAllRead("user_1");
+    expect(count).toBe(1);
+
+    const archivedList = await notify.inbox.list("user_1", undefined, {
+      archived: true,
+    });
+    expect(archivedList[0]!.readAt).toBeNull();
   });
 
   test("delivery.failed hook fires when provider keeps throwing", async () => {

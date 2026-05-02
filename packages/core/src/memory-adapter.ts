@@ -2,7 +2,10 @@ import type {
   DatabaseAdapter,
   DeliveryRecord,
   DigestBufferEntry,
+  InboxDeleteForRecipientResult,
   InboxItem,
+  InboxItemForRecipientResult,
+  InboxListFilter,
   NotificationRecord,
   RateLimitEvent,
   Recipient,
@@ -128,6 +131,7 @@ export function memoryAdapter(): MemoryAdapter {
           body: input.body,
           actionUrl: input.actionUrl,
           readAt: null,
+          archivedAt: null,
           createdAt: new Date(),
         };
         state.inboxItems.push(item);
@@ -136,19 +140,17 @@ export function memoryAdapter(): MemoryAdapter {
       async listByRecipient(
         recipientId: string,
         scope?: SecurityScope,
+        filter?: InboxListFilter,
       ): Promise<InboxItem[]> {
         return state.inboxItems
-          .filter(
-            (i) => i.recipientId === recipientId && matchesScope(i, scope),
-          )
+          .filter((i) => {
+            if (i.recipientId !== recipientId || !matchesScope(i, scope)) return false;
+            if (filter?.archived === true) return !!i.archivedAt;
+            if (filter?.archived === false || filter?.archived === undefined) return !i.archivedAt;
+            return true;
+          })
           .slice()
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-      },
-      async markRead(inboxItemId: string): Promise<InboxItem | null> {
-        const item = state.inboxItems.find((i) => i.id === inboxItemId);
-        if (!item) return null;
-        item.readAt = new Date();
-        return item;
       },
       async markReadForRecipient(
         inboxItemId: string,
@@ -162,6 +164,82 @@ export function memoryAdapter(): MemoryAdapter {
         }
         item.readAt = new Date();
         return { status: "marked", item };
+      },
+      async unreadCount(
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<number> {
+        let count = 0;
+        for (const i of state.inboxItems) {
+          if (
+            i.recipientId === recipientId &&
+            matchesScope(i, scope) &&
+            !i.readAt &&
+            !i.archivedAt
+          ) {
+            count++;
+          }
+        }
+        return count;
+      },
+      async markAllRead(
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<number> {
+        const now = new Date();
+        let count = 0;
+        for (const i of state.inboxItems) {
+          if (
+            i.recipientId === recipientId &&
+            matchesScope(i, scope) &&
+            !i.readAt &&
+            !i.archivedAt
+          ) {
+            i.readAt = now;
+            count++;
+          }
+        }
+        return count;
+      },
+      async archiveForRecipient(
+        inboxItemId: string,
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<InboxItemForRecipientResult> {
+        const item = state.inboxItems.find((i) => i.id === inboxItemId);
+        if (!item) return { status: "not_found" };
+        if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
+          return { status: "forbidden" };
+        }
+        item.archivedAt = new Date();
+        return { status: "ok", item };
+      },
+      async unarchiveForRecipient(
+        inboxItemId: string,
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<InboxItemForRecipientResult> {
+        const item = state.inboxItems.find((i) => i.id === inboxItemId);
+        if (!item) return { status: "not_found" };
+        if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
+          return { status: "forbidden" };
+        }
+        item.archivedAt = null;
+        return { status: "ok", item };
+      },
+      async deleteForRecipient(
+        inboxItemId: string,
+        recipientId: string,
+        scope?: SecurityScope,
+      ): Promise<InboxDeleteForRecipientResult> {
+        const item = state.inboxItems.find((i) => i.id === inboxItemId);
+        if (!item) return { status: "not_found" };
+        if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
+          return { status: "forbidden" };
+        }
+        const idx = state.inboxItems.indexOf(item);
+        state.inboxItems.splice(idx, 1);
+        return { status: "deleted" };
       },
     },
     deliveries: {

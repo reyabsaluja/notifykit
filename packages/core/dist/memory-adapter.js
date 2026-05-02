@@ -95,23 +95,25 @@ export function memoryAdapter() {
                     body: input.body,
                     actionUrl: input.actionUrl,
                     readAt: null,
+                    archivedAt: null,
                     createdAt: new Date(),
                 };
                 state.inboxItems.push(item);
                 return item;
             },
-            async listByRecipient(recipientId, scope) {
+            async listByRecipient(recipientId, scope, filter) {
                 return state.inboxItems
-                    .filter((i) => i.recipientId === recipientId && matchesScope(i, scope))
+                    .filter((i) => {
+                    if (i.recipientId !== recipientId || !matchesScope(i, scope))
+                        return false;
+                    if (filter?.archived === true)
+                        return !!i.archivedAt;
+                    if (filter?.archived === false || filter?.archived === undefined)
+                        return !i.archivedAt;
+                    return true;
+                })
                     .slice()
                     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-            },
-            async markRead(inboxItemId) {
-                const item = state.inboxItems.find((i) => i.id === inboxItemId);
-                if (!item)
-                    return null;
-                item.readAt = new Date();
-                return item;
             },
             async markReadForRecipient(inboxItemId, recipientId, scope) {
                 const item = state.inboxItems.find((i) => i.id === inboxItemId);
@@ -122,6 +124,63 @@ export function memoryAdapter() {
                 }
                 item.readAt = new Date();
                 return { status: "marked", item };
+            },
+            async unreadCount(recipientId, scope) {
+                let count = 0;
+                for (const i of state.inboxItems) {
+                    if (i.recipientId === recipientId &&
+                        matchesScope(i, scope) &&
+                        !i.readAt &&
+                        !i.archivedAt) {
+                        count++;
+                    }
+                }
+                return count;
+            },
+            async markAllRead(recipientId, scope) {
+                const now = new Date();
+                let count = 0;
+                for (const i of state.inboxItems) {
+                    if (i.recipientId === recipientId &&
+                        matchesScope(i, scope) &&
+                        !i.readAt &&
+                        !i.archivedAt) {
+                        i.readAt = now;
+                        count++;
+                    }
+                }
+                return count;
+            },
+            async archiveForRecipient(inboxItemId, recipientId, scope) {
+                const item = state.inboxItems.find((i) => i.id === inboxItemId);
+                if (!item)
+                    return { status: "not_found" };
+                if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
+                    return { status: "forbidden" };
+                }
+                item.archivedAt = new Date();
+                return { status: "ok", item };
+            },
+            async unarchiveForRecipient(inboxItemId, recipientId, scope) {
+                const item = state.inboxItems.find((i) => i.id === inboxItemId);
+                if (!item)
+                    return { status: "not_found" };
+                if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
+                    return { status: "forbidden" };
+                }
+                item.archivedAt = null;
+                return { status: "ok", item };
+            },
+            async deleteForRecipient(inboxItemId, recipientId, scope) {
+                const item = state.inboxItems.find((i) => i.id === inboxItemId);
+                if (!item)
+                    return { status: "not_found" };
+                if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
+                    return { status: "forbidden" };
+                }
+                const idx = state.inboxItems.indexOf(item);
+                state.inboxItems.splice(idx, 1);
+                return { status: "deleted" };
             },
         },
         deliveries: {

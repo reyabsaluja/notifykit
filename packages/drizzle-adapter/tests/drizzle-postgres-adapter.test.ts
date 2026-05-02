@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
@@ -10,6 +10,16 @@ import {
 } from "notifykit";
 
 import { createPgTables, drizzlePostgresAdapter } from "../src/index.js";
+
+const pgClients: PGlite[] = [];
+function newPgClient(): PGlite {
+  const c = new PGlite();
+  pgClients.push(c);
+  return c;
+}
+afterAll(async () => {
+  for (const c of pgClients) await c.close();
+});
 
 const inbox = channel.inbox();
 const email = channel.email();
@@ -41,7 +51,7 @@ const welcome = notification({
 });
 
 async function buildKit() {
-  const client = new PGlite();
+  const client = newPgClient();
   const db = drizzle(client);
   await createPgTables(db);
 
@@ -124,7 +134,8 @@ describe("drizzlePostgresAdapter", () => {
     });
     const inboxItemId = result.inboxItems[0]!.id;
 
-    await ctx.notify.inbox.markRead(inboxItemId);
+    const readResult = await ctx.notify.inbox.markReadForRecipient(inboxItemId, "user_1");
+    expect(readResult.status).toBe("marked");
     const items = await ctx.notify.inbox.list("user_1");
     expect(items[0]!.readAt).toBeInstanceOf(Date);
   });
@@ -164,7 +175,7 @@ describe("drizzlePostgresAdapter", () => {
   });
 
   test("delivery.failed persists error text after retries exhausted", async () => {
-    const client = new PGlite();
+    const client = newPgClient();
     const db = drizzle(client);
     await createPgTables(db);
     const alwaysFail = {
@@ -302,7 +313,7 @@ describe("drizzlePostgresAdapter", () => {
   });
 
   test("scheduled send is persisted and flushed via flushScheduledSends", async () => {
-    const client = new PGlite();
+    const client = newPgClient();
     const db = drizzle(client);
     await createPgTables(db);
     const emailCh = channel.email();
@@ -358,7 +369,7 @@ describe("drizzlePostgresAdapter", () => {
   });
 
   test("fallback inbox fires when email terminally fails", async () => {
-    const client = new PGlite();
+    const client = newPgClient();
     const db = drizzle(client);
     await createPgTables(db);
     const emailCh = channel.email();
@@ -393,7 +404,7 @@ describe("drizzlePostgresAdapter", () => {
   });
 
   test("rate limit drops sends over max, persists events, prunes stale rows", async () => {
-    const client = new PGlite();
+    const client = newPgClient();
     const db = drizzle(client);
     await createPgTables(db);
 
@@ -447,7 +458,7 @@ describe("drizzlePostgresAdapter", () => {
   });
 
   test("digest buffer persists and flushes merged payload", async () => {
-    const client = new PGlite();
+    const client = newPgClient();
     const db = drizzle(client);
     await createPgTables(db);
 
@@ -504,7 +515,7 @@ describe("drizzlePostgresAdapter", () => {
   });
 
   test("invalid digest render preserves the buffered row", async () => {
-    const client = new PGlite();
+    const client = newPgClient();
     const db = drizzle(client);
     await createPgTables(db);
 
@@ -569,7 +580,7 @@ describe("drizzlePostgresAdapter", () => {
     // The whole point of the pg adapter vs. the sqlite one: ON CONFLICT DO
     // UPDATE with jsonb concat is atomic per-row, so interleaved appends
     // cannot lose writes. No JS mutex is involved.
-    const client = new PGlite();
+    const client = newPgClient();
     const db = drizzle(client);
     await createPgTables(db);
     const adapter = drizzlePostgresAdapter(db);
@@ -611,5 +622,109 @@ describe("drizzlePostgresAdapter", () => {
     );
     const winners = results.filter((r) => r !== null);
     expect(winners).toHaveLength(1);
+  });
+
+  test("unreadCount returns count, decrements after markRead", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Bob" },
+    });
+
+    expect(await ctx.notify.inbox.unreadCount("user_1")).toBe(2);
+
+    const items = await ctx.notify.inbox.list("user_1");
+    await ctx.notify.inbox.markReadForRecipient(items[0]!.id, "user_1");
+
+    expect(await ctx.notify.inbox.unreadCount("user_1")).toBe(1);
+  });
+
+  test("markAllRead marks all and is idempotent", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Bob" },
+    });
+
+    const count = await ctx.notify.inbox.markAllRead("user_1");
+    expect(count).toBe(2);
+
+    const items = await ctx.notify.inbox.list("user_1");
+    for (const item of items) {
+      expect(item.readAt).toBeInstanceOf(Date);
+    }
+
+    expect(await ctx.notify.inbox.markAllRead("user_1")).toBe(0);
+  });
+
+  test("archive hides from default list, unarchive restores", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    const result = await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    const archived = await ctx.adapter.inbox.archiveForRecipient(itemId, "user_1");
+    expect(archived.status).toBe("ok");
+
+    expect(await ctx.notify.inbox.list("user_1")).toHaveLength(0);
+    expect(await ctx.notify.inbox.list("user_1", undefined, { archived: true })).toHaveLength(1);
+
+    const unarchived = await ctx.adapter.inbox.unarchiveForRecipient(itemId, "user_1");
+    expect(unarchived.status).toBe("ok");
+    if (unarchived.status === "ok") {
+      expect(unarchived.item.archivedAt).toBeNull();
+    }
+
+    expect(await ctx.notify.inbox.list("user_1")).toHaveLength(1);
+  });
+
+  test("deleteForRecipient hard-deletes an inbox item", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    const result = await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    const deleted = await ctx.adapter.inbox.deleteForRecipient(itemId, "user_1");
+    expect(deleted.status).toBe("deleted");
+
+    expect(await ctx.notify.inbox.list("user_1")).toHaveLength(0);
+    expect(await ctx.notify.inbox.list("user_1", undefined, { archived: true })).toHaveLength(0);
+  });
+
+  test("archive/unarchive/delete refuse wrong recipient and return not_found for missing", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    await ctx.notify.upsertRecipient({ id: "user_2" });
+    const result = await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    expect((await ctx.adapter.inbox.archiveForRecipient(itemId, "user_2")).status).toBe("forbidden");
+    expect((await ctx.adapter.inbox.unarchiveForRecipient(itemId, "user_2")).status).toBe("forbidden");
+    expect((await ctx.adapter.inbox.deleteForRecipient(itemId, "user_2")).status).toBe("forbidden");
+
+    expect((await ctx.adapter.inbox.archiveForRecipient("missing", "user_1")).status).toBe("not_found");
+    expect((await ctx.adapter.inbox.unarchiveForRecipient("missing", "user_1")).status).toBe("not_found");
+    expect((await ctx.adapter.inbox.deleteForRecipient("missing", "user_1")).status).toBe("not_found");
   });
 });

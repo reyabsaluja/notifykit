@@ -123,7 +123,8 @@ describe("drizzleSqliteAdapter", () => {
     });
     const inboxItemId = result.inboxItems[0]!.id;
 
-    await ctx.notify.inbox.markRead(inboxItemId);
+    const readResult = await ctx.notify.inbox.markReadForRecipient(inboxItemId, "user_1");
+    expect(readResult.status).toBe("marked");
     const items = await ctx.notify.inbox.list("user_1");
     expect(items[0]!.readAt).toBeInstanceOf(Date);
   });
@@ -573,5 +574,109 @@ describe("drizzleSqliteAdapter", () => {
       postTitle: 'Launch "Plan"',
       postUrl: "/posts/123",
     });
+  });
+
+  test("unreadCount returns count, decrements after markRead", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Bob" },
+    });
+
+    expect(await ctx.notify.inbox.unreadCount("user_1")).toBe(2);
+
+    const items = await ctx.notify.inbox.list("user_1");
+    await ctx.notify.inbox.markReadForRecipient(items[0]!.id, "user_1");
+
+    expect(await ctx.notify.inbox.unreadCount("user_1")).toBe(1);
+  });
+
+  test("markAllRead marks all and is idempotent", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Bob" },
+    });
+
+    const count = await ctx.notify.inbox.markAllRead("user_1");
+    expect(count).toBe(2);
+
+    const items = await ctx.notify.inbox.list("user_1");
+    for (const item of items) {
+      expect(item.readAt).toBeInstanceOf(Date);
+    }
+
+    expect(await ctx.notify.inbox.markAllRead("user_1")).toBe(0);
+  });
+
+  test("archive hides from default list, unarchive restores", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    const result = await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    const archived = await ctx.adapter.inbox.archiveForRecipient(itemId, "user_1");
+    expect(archived.status).toBe("ok");
+
+    expect(await ctx.notify.inbox.list("user_1")).toHaveLength(0);
+    expect(await ctx.notify.inbox.list("user_1", undefined, { archived: true })).toHaveLength(1);
+
+    const unarchived = await ctx.adapter.inbox.unarchiveForRecipient(itemId, "user_1");
+    expect(unarchived.status).toBe("ok");
+    if (unarchived.status === "ok") {
+      expect(unarchived.item.archivedAt).toBeNull();
+    }
+
+    expect(await ctx.notify.inbox.list("user_1")).toHaveLength(1);
+  });
+
+  test("deleteForRecipient hard-deletes an inbox item", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    const result = await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    const deleted = await ctx.adapter.inbox.deleteForRecipient(itemId, "user_1");
+    expect(deleted.status).toBe("deleted");
+
+    expect(await ctx.notify.inbox.list("user_1")).toHaveLength(0);
+    expect(await ctx.notify.inbox.list("user_1", undefined, { archived: true })).toHaveLength(0);
+  });
+
+  test("archive/unarchive/delete refuse wrong recipient and return not_found for missing", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1" });
+    await ctx.notify.upsertRecipient({ id: "user_2" });
+    const result = await ctx.notify.send({
+      recipientId: "user_1",
+      notificationId: "user_welcome",
+      payload: { name: "Alice" },
+    });
+    const itemId = result.inboxItems[0]!.id;
+
+    expect((await ctx.adapter.inbox.archiveForRecipient(itemId, "user_2")).status).toBe("forbidden");
+    expect((await ctx.adapter.inbox.unarchiveForRecipient(itemId, "user_2")).status).toBe("forbidden");
+    expect((await ctx.adapter.inbox.deleteForRecipient(itemId, "user_2")).status).toBe("forbidden");
+
+    expect((await ctx.adapter.inbox.archiveForRecipient("missing", "user_1")).status).toBe("not_found");
+    expect((await ctx.adapter.inbox.unarchiveForRecipient("missing", "user_1")).status).toBe("not_found");
+    expect((await ctx.adapter.inbox.deleteForRecipient("missing", "user_1")).status).toBe("not_found");
   });
 });

@@ -246,6 +246,7 @@ export type InboxItem = {
     body?: string;
     actionUrl?: string;
     readAt?: Date | null;
+    archivedAt?: Date | null;
     createdAt: Date;
 };
 export type MarkReadForRecipientResult = {
@@ -255,6 +256,24 @@ export type MarkReadForRecipientResult = {
     status: "not_found";
 } | {
     status: "forbidden";
+};
+export type InboxItemForRecipientResult = {
+    status: "ok";
+    item: InboxItem;
+} | {
+    status: "not_found";
+} | {
+    status: "forbidden";
+};
+export type InboxDeleteForRecipientResult = {
+    status: "deleted";
+} | {
+    status: "not_found";
+} | {
+    status: "forbidden";
+};
+export type InboxListFilter = {
+    archived?: boolean;
 };
 export type ChannelType = ChannelConfig["type"];
 export type ChannelPreferenceMap = Partial<Record<ChannelType, boolean>>;
@@ -414,10 +433,14 @@ export type DatabaseAdapter = {
         create(input: Omit<NotificationRecord, "id" | "createdAt">): Promise<NotificationRecord>;
     };
     inbox: {
-        create(input: Omit<InboxItem, "id" | "createdAt" | "readAt">): Promise<InboxItem>;
-        listByRecipient(recipientId: string, scope?: SecurityScope): Promise<InboxItem[]>;
-        markRead(inboxItemId: string): Promise<InboxItem | null>;
+        create(input: Omit<InboxItem, "id" | "createdAt" | "readAt" | "archivedAt">): Promise<InboxItem>;
+        listByRecipient(recipientId: string, scope?: SecurityScope, filter?: InboxListFilter): Promise<InboxItem[]>;
         markReadForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<MarkReadForRecipientResult>;
+        unreadCount(recipientId: string, scope?: SecurityScope): Promise<number>;
+        markAllRead(recipientId: string, scope?: SecurityScope): Promise<number>;
+        archiveForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<InboxItemForRecipientResult>;
+        unarchiveForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<InboxItemForRecipientResult>;
+        deleteForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<InboxDeleteForRecipientResult>;
     };
     deliveries: {
         create(input: Omit<DeliveryRecord, "id" | "createdAt" | "updatedAt" | "attempts"> & {
