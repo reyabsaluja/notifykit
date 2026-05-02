@@ -31,9 +31,9 @@ npm run dev`}</code>
         secrets are configured.
       </p>
 
-      <h2>Or install into an existing app</h2>
+      <h2>Or install into an existing Next.js app</h2>
       <pre>
-        <code>{`npm install notifykit notifykit-react`}</code>
+        <code>{`npm install notifykit @notifykit/next notifykit-react`}</code>
       </pre>
       <p>A minimal setup:</p>
       <pre>
@@ -73,16 +73,30 @@ export const notify = createNotifyKit({
       </pre>
       <pre>
         <code>{`// app/api/notifykit/[...route]/route.ts
-import { createHandler } from "notifykit"
+import { createRouteHandler } from "@notifykit/next"
 import { notify } from "@/lib/notifykit"
 import { getCurrentUserId } from "@/lib/session"
 
-const handler = createHandler(notify, {
+export const { GET, POST, DELETE, OPTIONS } = createRouteHandler({
+  notifykit: notify,
   identify: () => getCurrentUserId(),
   unsubscribeSecret: process.env.NOTIFYKIT_SECRET,
+})`}</code>
+      </pre>
+      <pre>
+        <code>{`// middleware.ts (optional — adds CORS for cross-origin clients)
+import { createNotifyKitMiddleware } from "@notifykit/next/middleware"
+import type { NextRequest } from "next/server"
+
+const withNotifyKit = createNotifyKitMiddleware({
+  cors: { origin: "https://your-app.com" },
 })
-export const GET = handler
-export const POST = handler`}</code>
+
+export function middleware(request: NextRequest) {
+  return withNotifyKit(request)
+}
+
+export const config = { matcher: "/api/notifykit/:path*" }`}</code>
       </pre>
       <pre>
         <code>{`// app/layout.tsx

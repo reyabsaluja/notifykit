@@ -1,3 +1,4 @@
 export { createRouteHandler, type RouteHandlerOptions, type RouteHandlers, } from "./route.js";
 export { createServerActions, type NotifyKitServerActions, type ServerActionsIdentity, type ServerActionsOptions, } from "./server-actions.js";
+export { createNotifyKitMiddleware, withNotifyKitHeaders, type NotifyKitMiddlewareOptions, } from "./middleware.js";
 //# sourceMappingURL=index.d.ts.map

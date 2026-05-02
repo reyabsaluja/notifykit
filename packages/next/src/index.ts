@@ -10,3 +10,9 @@ export {
   type ServerActionsIdentity,
   type ServerActionsOptions,
 } from "./server-actions.js";
+
+export {
+  createNotifyKitMiddleware,
+  withNotifyKitHeaders,
+  type NotifyKitMiddlewareOptions,
+} from "./middleware.js";
