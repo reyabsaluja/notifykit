@@ -45,25 +45,237 @@ function makeItem(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("client realtime event merging", () => {
-  test("inbox.created adds item and increments unread count", async () => {
+function sseResponse(events: Array<{ type: string; [k: string]: unknown }>) {
+  const encoder = new TextEncoder();
+  const chunks = events.map(
+    (e) => encoder.encode(`data: ${JSON.stringify(e)}\n\n`),
+  );
+  let i = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i < chunks.length) {
+        controller.enqueue(chunks[i++]);
+      } else {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+function mockFetchWithSSE(
+  routes: Record<string, unknown>,
+  sseEvents: Array<{ type: string; [k: string]: unknown }>,
+) {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const method = init?.method ?? "GET";
+    const parsed = new URL(url, "http://localhost");
+    const path = parsed.pathname.replace(/^\/api\/notifykit/, "");
+
+    if (path === "/inbox/stream" && init?.headers) {
+      return sseResponse(sseEvents);
+    }
+
+    const key = `${method} ${path}`;
+    const body = routes[key];
+    if (body === undefined) {
+      return new Response(JSON.stringify({ error: "Not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+}
+
+function waitForState(
+  client: ReturnType<typeof createNotifyKitClient>,
+  predicate: () => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (predicate()) return resolve();
+    const timer = setTimeout(
+      () => reject(new Error("waitForState timed out")),
+      timeoutMs,
+    );
+    const unsub = client.subscribe(() => {
+      if (predicate()) {
+        clearTimeout(timer);
+        unsub();
+        resolve();
+      }
+    });
+  });
+}
+
+describe("SSE event ingestion", () => {
+  test("inbox.created via SSE adds item and increments unread", async () => {
+    const newItem = makeItem({ id: "inb_new" });
     const client = createNotifyKitClient({
-      fetch: mockFetch({
-        "GET /inbox": { data: [] },
-      }),
+      fetch: mockFetchWithSSE(
+        { "GET /inbox": { data: [] } },
+        [{ type: "inbox.created", item: newItem }],
+      ),
+      realtime: true,
     });
 
     await client.inbox.list();
-    expect(client.getState().inbox.items).toHaveLength(0);
+    client.connect();
+
+    await waitForState(client, () => client.getState().inbox.items.length === 1);
+    expect(client.getState().inbox.items[0].id).toBe("inb_new");
+    expect(client.getState().inbox.unreadCount).toBe(1);
+
+    client.disconnect();
+  });
+
+  test("inbox.updated via SSE marks item read", async () => {
+    const item = makeItem({ id: "inb_1" });
+    const updatedItem = makeItem({ id: "inb_1", readAt: "2026-04-30T12:01:00.000Z" });
+    const client = createNotifyKitClient({
+      fetch: mockFetchWithSSE(
+        { "GET /inbox": { data: [item] } },
+        [{ type: "inbox.updated", item: updatedItem }],
+      ),
+      realtime: true,
+    });
+
+    await client.inbox.list();
+    expect(client.getState().inbox.unreadCount).toBe(1);
+    client.connect();
+
+    await waitForState(client, () => client.getState().inbox.unreadCount === 0);
+    expect(client.getState().inbox.items[0].readAt).not.toBeNull();
+
+    client.disconnect();
+  });
+
+  test("inbox.archived via SSE removes item from list", async () => {
+    const item = makeItem({ id: "inb_1" });
+    const archivedItem = makeItem({ id: "inb_1", archivedAt: "2026-04-30T12:01:00.000Z" });
+    const client = createNotifyKitClient({
+      fetch: mockFetchWithSSE(
+        { "GET /inbox": { data: [item] } },
+        [{ type: "inbox.archived", item: archivedItem }],
+      ),
+      realtime: true,
+    });
+
+    await client.inbox.list();
+    expect(client.getState().inbox.items).toHaveLength(1);
+    client.connect();
+
+    await waitForState(client, () => client.getState().inbox.items.length === 0);
     expect(client.getState().inbox.unreadCount).toBe(0);
 
-    // Simulate SSE data by calling the internal handler via state subscription
-    // We test the public contract: after events, state should be correct
-    // Instead of mocking SSE, we'll use the connect/disconnect + subscribe pattern
+    client.disconnect();
+  });
 
-    // Since we can't easily trigger SSE in unit tests, we test the state transitions
-    // by loading initial data and verifying the client tracks state correctly
-    const client2 = createNotifyKitClient({
+  test("inbox.unarchived via SSE re-adds item to list", async () => {
+    const unarchivedItem = makeItem({ id: "inb_1" });
+    const client = createNotifyKitClient({
+      fetch: mockFetchWithSSE(
+        { "GET /inbox": { data: [] } },
+        [{ type: "inbox.unarchived", item: unarchivedItem }],
+      ),
+      realtime: true,
+    });
+
+    await client.inbox.list();
+    client.connect();
+
+    await waitForState(client, () => client.getState().inbox.items.length === 1);
+    expect(client.getState().inbox.items[0].id).toBe("inb_1");
+    expect(client.getState().inbox.unreadCount).toBe(1);
+
+    client.disconnect();
+  });
+
+  test("inbox.deleted via SSE removes item", async () => {
+    const item = makeItem({ id: "inb_1" });
+    const client = createNotifyKitClient({
+      fetch: mockFetchWithSSE(
+        { "GET /inbox": { data: [item] } },
+        [{ type: "inbox.deleted", itemId: "inb_1" }],
+      ),
+      realtime: true,
+    });
+
+    await client.inbox.list();
+    client.connect();
+
+    await waitForState(client, () => client.getState().inbox.items.length === 0);
+    expect(client.getState().inbox.unreadCount).toBe(0);
+
+    client.disconnect();
+  });
+
+  test("inbox.all_read via SSE marks everything read", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetchWithSSE(
+        { "GET /inbox": { data: [makeItem({ id: "inb_1" }), makeItem({ id: "inb_2" })] } },
+        [{ type: "inbox.all_read" }],
+      ),
+      realtime: true,
+    });
+
+    await client.inbox.list();
+    expect(client.getState().inbox.unreadCount).toBe(2);
+    client.connect();
+
+    await waitForState(client, () => client.getState().inbox.unreadCount === 0);
+    expect(client.getState().inbox.items.every((it) => it.readAt !== null)).toBe(true);
+
+    client.disconnect();
+  });
+
+  test("SSE sends custom headers", async () => {
+    let capturedHeaders: Record<string, string> = {};
+    const client = createNotifyKitClient({
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+        const hdrs = init?.headers as Record<string, string> | undefined;
+        if (hdrs?.accept === "text/event-stream") {
+          capturedHeaders = { ...hdrs };
+          return sseResponse([]);
+        }
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as unknown as typeof fetch,
+      realtime: true,
+      headers: { Authorization: "Bearer test-token" },
+    });
+
+    await client.inbox.list();
+    client.connect();
+
+    await waitForState(
+      client,
+      () => capturedHeaders["Authorization"] !== undefined,
+    );
+    expect(capturedHeaders["Authorization"]).toBe("Bearer test-token");
+
+    client.disconnect();
+  });
+});
+
+describe("client optimistic mutations", () => {
+  test("inbox.created via list loads items and counts unread", async () => {
+    const client = createNotifyKitClient({
       fetch: mockFetch({
         "GET /inbox": {
           data: [makeItem({ id: "inb_1" }), makeItem({ id: "inb_2" })],
@@ -71,9 +283,9 @@ describe("client realtime event merging", () => {
       }),
     });
 
-    const items = await client2.inbox.list();
+    const items = await client.inbox.list();
     expect(items).toHaveLength(2);
-    expect(client2.getState().inbox.unreadCount).toBe(2);
+    expect(client.getState().inbox.unreadCount).toBe(2);
   });
 
   test("markRead decrements unread count", async () => {

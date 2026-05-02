@@ -17,12 +17,13 @@ export function createNotifyKitClient(options = {}) {
         for (const l of listeners)
             l();
     }
-    let eventSource = null;
+    let sseAbort = null;
     let rtStatus = "disconnected";
-    function handleRealtimeEvent(raw) {
+    let connectRefCount = 0;
+    function handleRealtimeData(data) {
         let event;
         try {
-            event = JSON.parse(raw.data);
+            event = JSON.parse(data);
         }
         catch {
             return;
@@ -62,6 +63,38 @@ export function createNotifyKitClient(options = {}) {
                 },
             });
         }
+        else if (event.type === "inbox.archived" && event.item) {
+            const item = reviveInboxItem(event.item);
+            const old = prev.items.find((it) => it.id === item.id);
+            const wasUnread = old && !old.readAt && !old.archivedAt;
+            const items = prev.items.filter((it) => it.id !== item.id);
+            setState({
+                ...state,
+                inbox: {
+                    ...prev,
+                    items,
+                    unreadCount: wasUnread
+                        ? Math.max(0, prev.unreadCount - 1)
+                        : prev.unreadCount,
+                },
+            });
+        }
+        else if (event.type === "inbox.unarchived" && event.item) {
+            const item = reviveInboxItem(event.item);
+            const exists = prev.items.some((it) => it.id === item.id);
+            if (!exists) {
+                const items = [item, ...prev.items];
+                const unread = !item.readAt ? 1 : 0;
+                setState({
+                    ...state,
+                    inbox: {
+                        ...prev,
+                        items,
+                        unreadCount: prev.unreadCount + unread,
+                    },
+                });
+            }
+        }
         else if (event.type === "inbox.deleted" && event.itemId) {
             const target = prev.items.find((it) => it.id === event.itemId);
             const wasUnread = target && !target.readAt && !target.archivedAt;
@@ -71,7 +104,9 @@ export function createNotifyKitClient(options = {}) {
                 inbox: {
                     ...prev,
                     items,
-                    unreadCount: wasUnread ? Math.max(0, prev.unreadCount - 1) : prev.unreadCount,
+                    unreadCount: wasUnread
+                        ? Math.max(0, prev.unreadCount - 1)
+                        : prev.unreadCount,
                 },
             });
         }
@@ -84,46 +119,90 @@ export function createNotifyKitClient(options = {}) {
             });
         }
     }
-    function connect() {
-        if (!realtimeEnabled || eventSource)
+    function setRtStatus(next) {
+        if (rtStatus === next)
             return;
-        if (typeof EventSource === "undefined")
-            return;
-        rtStatus = "connecting";
+        rtStatus = next;
         for (const l of listeners)
             l();
+    }
+    async function readSSEStream(signal) {
         const url = `${baseUrl}/inbox/stream`;
-        const es = new EventSource(url, { withCredentials: credentials !== "omit" });
-        eventSource = es;
-        es.onopen = () => {
-            rtStatus = "connected";
-            for (const l of listeners)
-                l();
-        };
-        es.onerror = () => {
-            if (es.readyState === EventSource.CLOSED) {
-                rtStatus = "disconnected";
-                eventSource = null;
+        const res = await fetchImpl(url, {
+            method: "GET",
+            credentials,
+            headers: {
+                accept: "text/event-stream",
+                ...extraHeaders,
+            },
+            signal,
+        });
+        if (!res.ok || !res.body) {
+            throw new Error(`SSE connect failed: ${res.status}`);
+        }
+        setRtStatus("connected");
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done)
+                break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split("\n\n");
+            buffer = parts.pop();
+            for (const part of parts) {
+                let data;
+                for (const line of part.split("\n")) {
+                    if (line.startsWith("data: ")) {
+                        data = line.slice(6);
+                    }
+                }
+                if (data)
+                    handleRealtimeData(data);
             }
-            else {
-                rtStatus = "connecting";
+        }
+    }
+    function openConnection() {
+        setRtStatus("connecting");
+        const controller = new AbortController();
+        sseAbort = controller;
+        (async () => {
+            let retryMs = 1000;
+            while (!controller.signal.aborted) {
+                try {
+                    await readSSEStream(controller.signal);
+                }
+                catch {
+                    if (controller.signal.aborted)
+                        break;
+                }
+                setRtStatus("connecting");
+                await new Promise((r) => setTimeout(r, retryMs));
+                retryMs = Math.min(retryMs * 2, 30_000);
             }
-            for (const l of listeners)
-                l();
-        };
-        es.addEventListener("inbox.created", handleRealtimeEvent);
-        es.addEventListener("inbox.updated", handleRealtimeEvent);
-        es.addEventListener("inbox.deleted", handleRealtimeEvent);
-        es.addEventListener("inbox.all_read", handleRealtimeEvent);
+        })();
+    }
+    function closeConnection() {
+        if (sseAbort) {
+            sseAbort.abort();
+            sseAbort = null;
+        }
+        setRtStatus("disconnected");
+    }
+    function connect() {
+        if (!realtimeEnabled)
+            return;
+        connectRefCount++;
+        if (connectRefCount === 1)
+            openConnection();
     }
     function disconnect() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
-        rtStatus = "disconnected";
-        for (const l of listeners)
-            l();
+        if (!realtimeEnabled)
+            return;
+        connectRefCount = Math.max(0, connectRefCount - 1);
+        if (connectRefCount === 0)
+            closeConnection();
     }
     async function request(method, path, body) {
         const res = await fetchImpl(`${baseUrl}${path}`, {
