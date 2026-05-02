@@ -116,11 +116,11 @@ export function createNotifyKitClient(
     for (const l of listeners) l();
   }
 
-  let eventSource: EventSource | null = null;
+  let sseAbort: AbortController | null = null;
   let rtStatus: RealtimeStatus = "disconnected";
   let connectRefCount = 0;
 
-  function handleRealtimeEvent(raw: MessageEvent) {
+  function handleRealtimeData(data: string) {
     let event: {
       type: string;
       item?: Record<string, unknown>;
@@ -128,7 +128,7 @@ export function createNotifyKitClient(
       count?: number;
     };
     try {
-      event = JSON.parse(raw.data as string);
+      event = JSON.parse(data);
     } catch {
       return;
     }
@@ -173,7 +173,9 @@ export function createNotifyKitClient(
         inbox: {
           ...prev,
           items,
-          unreadCount: wasUnread ? Math.max(0, prev.unreadCount - 1) : prev.unreadCount,
+          unreadCount: wasUnread
+            ? Math.max(0, prev.unreadCount - 1)
+            : prev.unreadCount,
         },
       });
     } else if (event.type === "inbox.all_read") {
@@ -194,31 +196,65 @@ export function createNotifyKitClient(
     for (const l of listeners) l();
   }
 
-  function openConnection() {
-    if (typeof EventSource === "undefined") return;
-    setRtStatus("connecting");
+  async function readSSEStream(signal: AbortSignal) {
     const url = `${baseUrl}/inbox/stream`;
-    const es = new EventSource(url, { withCredentials: credentials !== "omit" });
-    eventSource = es;
-    es.onopen = () => setRtStatus("connected");
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        setRtStatus("disconnected");
-        eventSource = null;
-      } else {
-        setRtStatus("connecting");
+    const res = await fetchImpl(url, {
+      method: "GET",
+      credentials,
+      headers: {
+        accept: "text/event-stream",
+        ...extraHeaders,
+      },
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      throw new Error(`SSE connect failed: ${res.status}`);
+    }
+    setRtStatus("connected");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop()!;
+      for (const part of parts) {
+        let data: string | undefined;
+        for (const line of part.split("\n")) {
+          if (line.startsWith("data: ")) {
+            data = line.slice(6);
+          }
+        }
+        if (data) handleRealtimeData(data);
       }
-    };
-    es.addEventListener("inbox.created", handleRealtimeEvent);
-    es.addEventListener("inbox.updated", handleRealtimeEvent);
-    es.addEventListener("inbox.deleted", handleRealtimeEvent);
-    es.addEventListener("inbox.all_read", handleRealtimeEvent);
+    }
+  }
+
+  function openConnection() {
+    setRtStatus("connecting");
+    const controller = new AbortController();
+    sseAbort = controller;
+    (async () => {
+      let retryMs = 1000;
+      while (!controller.signal.aborted) {
+        try {
+          await readSSEStream(controller.signal);
+        } catch {
+          if (controller.signal.aborted) break;
+        }
+        setRtStatus("connecting");
+        await new Promise((r) => setTimeout(r, retryMs));
+        retryMs = Math.min(retryMs * 2, 30_000);
+      }
+    })();
   }
 
   function closeConnection() {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
+    if (sseAbort) {
+      sseAbort.abort();
+      sseAbort = null;
     }
     setRtStatus("disconnected");
   }
