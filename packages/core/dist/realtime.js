@@ -1,11 +1,18 @@
+export function normalizeScope(scope) {
+    return {
+        ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),
+        ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+    };
+}
+function scopeKey(recipientId, scope) {
+    const s = normalizeScope(scope);
+    return `${recipientId}:${s.tenantId ?? ""}:${s.workspaceId ?? ""}`;
+}
 export function memoryRealtimeAdapter() {
     const subs = new Map();
-    function key(recipientId, scope) {
-        return `${recipientId}:${scope.tenantId ?? ""}:${scope.workspaceId ?? ""}`;
-    }
     return {
         publish(recipientId, scope, event) {
-            const k = key(recipientId, scope);
+            const k = scopeKey(recipientId, scope);
             const set = subs.get(k);
             if (!set)
                 return;
@@ -13,7 +20,7 @@ export function memoryRealtimeAdapter() {
                 fn(event);
         },
         subscribe(recipientId, scope, listener) {
-            const k = key(recipientId, scope);
+            const k = scopeKey(recipientId, scope);
             let set = subs.get(k);
             if (!set) {
                 set = new Set();

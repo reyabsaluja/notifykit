@@ -4,7 +4,7 @@ export { createNotifyKit } from "./create-notifykit.js";
 export { GLOBAL_PREFERENCE_KEY, categoryPreferenceKey, isSyntheticPreferenceKey, } from "./preference-keys.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
-export { memoryRealtimeAdapter } from "./realtime.js";
+export { memoryRealtimeAdapter, normalizeScope } from "./realtime.js";
 export { fakeEmailProvider, fakeWebhookProvider, verifyWebhookSignature, webhookProvider, } from "./providers.js";
 export { defaultRetryPolicy, inlineQueue, setTimeoutQueue, } from "./queues.js";
 export { signUnsubscribeToken, verifyUnsubscribeToken, type UnsubscribeTokenClaims, } from "./unsubscribe.js";
