@@ -22,6 +22,32 @@ export type PreferenceExplanation = {
     classification?: NotificationClassification;
     category?: string;
 };
+export type ChannelOutcome = "deliver" | "disabled" | "delayed" | "unavailable" | "rate_limited" | "digested";
+export type DeliveryExplanation = {
+    recipientId: string;
+    notificationId: string;
+    scope?: SecurityScope;
+    channels: Array<ChannelResolution & {
+        outcome: ChannelOutcome;
+    }>;
+    required: boolean;
+    classification?: NotificationClassification;
+    category?: string;
+    wouldRateLimit: boolean;
+    wouldDigest: boolean;
+    rateLimit: {
+        current: number;
+        max: number;
+        windowMs: number;
+    } | null;
+    digest: {
+        windowMs: number;
+    } | null;
+    quietHours: {
+        active: boolean;
+        resumesAt: Date | null;
+    } | null;
+};
 export type SecurityScope = {
     tenantId?: string;
     workspaceId?: string;

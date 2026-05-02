@@ -1,4 +1,4 @@
-function resolveChannel(channel, ctx) {
+export function resolveChannel(channel, ctx) {
     const trail = [];
     const appValue = ctx.appDefaults?.[channel] ?? true;
     trail.push({ layer: "app_default", value: appValue });

@@ -1,4 +1,4 @@
-import type { CategoryDefaults, ChannelPreferenceMap, NotificationDefinition, PayloadSchema, PreferenceExplanation, Recipient, RecipientPreference, SecurityScope } from "./types.js";
+import type { CategoryDefaults, ChannelPreferenceMap, ChannelResolution, ChannelType, NotificationDefinition, PayloadSchema, PreferenceExplanation, Recipient, RecipientPreference, SecurityScope } from "./types.js";
 export type ResolutionContext = {
     def: NotificationDefinition<string, PayloadSchema>;
     recipient: Recipient;
@@ -10,5 +10,6 @@ export type ResolutionContext = {
     userCategory?: RecipientPreference | null;
     userNotification?: RecipientPreference | null;
 };
+export declare function resolveChannel(channel: ChannelType, ctx: ResolutionContext): ChannelResolution;
 export declare function resolvePreferences(ctx: ResolutionContext): PreferenceExplanation;
 //# sourceMappingURL=resolve-preferences.d.ts.map

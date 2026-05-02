@@ -38,7 +38,13 @@ export type PreferenceExplanation = {
   category?: string;
 };
 
-export type ChannelOutcome = "deliver" | "disabled" | "delayed" | "unavailable";
+export type ChannelOutcome =
+  | "deliver"
+  | "disabled"
+  | "delayed"
+  | "unavailable"
+  | "rate_limited"
+  | "digested";
 
 export type DeliveryExplanation = {
   recipientId: string;

@@ -122,6 +122,89 @@ describe("fallback channel", () => {
     expect(items).toEqual([]);
   });
 
+  test("respects global inbox preference — skipped if user globally opted out", async () => {
+    const def = notification({
+      id: "reset",
+      payload: { link: "string" },
+      channels: [email({ subject: "Reset", body: "{{link}}" })],
+      fallback: inbox({ title: "Fallback" }),
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: alwaysFail },
+      retry: { maxAttempts: 1, delayMs: () => 0 },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.preferences.updateGlobal({
+      recipientId: "u1",
+      channels: { inbox: false },
+    });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "reset",
+      payload: { link: "/r/1" },
+    });
+    const items = await notify.inbox.list("u1");
+    expect(items).toEqual([]);
+  });
+
+  test("respects app-level defaults — skipped if app disables inbox", async () => {
+    const def = notification({
+      id: "reset",
+      payload: { link: "string" },
+      channels: [email({ subject: "Reset", body: "{{link}}" })],
+      fallback: inbox({ title: "Fallback" }),
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: alwaysFail },
+      retry: { maxAttempts: 1, delayMs: () => 0 },
+      defaults: { channels: { inbox: false } },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "reset",
+      payload: { link: "/r/1" },
+    });
+    const items = await notify.inbox.list("u1");
+    expect(items).toEqual([]);
+  });
+
+  test("required notification still gets fallback even when user opted out", async () => {
+    const def = notification({
+      id: "reset",
+      payload: { link: "string" },
+      channels: [email({ subject: "Reset", body: "{{link}}" })],
+      fallback: inbox({ title: "Fallback" }),
+      required: true,
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: alwaysFail },
+      retry: { maxAttempts: 1, delayMs: () => 0 },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "reset",
+      channels: { inbox: false },
+    });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "reset",
+      payload: { link: "/r/1" },
+    });
+    const items = await notify.inbox.list("u1");
+    expect(items).toHaveLength(1);
+  });
+
   test("fires for each failed email when multiple would-be deliveries are configured", async () => {
     // If the same notification had two email channels (unusual today — one
     // for primary, one for say a BCC), each failure should trigger its own

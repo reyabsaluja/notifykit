@@ -1,4 +1,4 @@
-import type { CategoryDefaults, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, PreferenceExplanation, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, SecurityScope, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
+import type { CategoryDefaults, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryExplanation, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, PreferenceExplanation, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, SecurityScope, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
 export type CreateNotifyKitInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     notifications: T;
     database: DatabaseAdapter;
@@ -76,6 +76,12 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
      * the recipient via `identify()`.
      */
     send(input: SendInput<T>): Promise<SendResult>;
+    /**
+     * Dry-run explanation of what `send()` would do for a given notification +
+     * recipient. Covers preference resolution, rate limits, digests, and quiet
+     * hours. Does not write any records or trigger delivery.
+     */
+    explain(input: SendInput<T>): Promise<DeliveryExplanation>;
     inbox: {
         /**
          * List inbox items. **Server-only** — the caller supplies the

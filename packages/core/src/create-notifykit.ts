@@ -33,7 +33,7 @@ import {
   categoryPreferenceKey,
   isSyntheticPreferenceKey,
 } from "./preference-keys.js";
-import { resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
+import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 
@@ -457,6 +457,39 @@ export function createNotifyKit<
     return `${scope.tenantId ?? ""}:${scope.workspaceId ?? ""}:`;
   }
 
+  async function buildResolutionCtx(
+    recipient: Recipient,
+    def: NotificationDefinition<string, PayloadSchema>,
+    scope: SecurityScope,
+  ): Promise<ResolutionContext> {
+    const [userGlobal, userCategory, userNotification, tenantChannels] =
+      await Promise.all([
+        database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
+        def.category
+          ? database.preferences.get(
+              recipient.id,
+              categoryPreferenceKey(def.category),
+              scope,
+            )
+          : Promise.resolve(null),
+        database.preferences.get(recipient.id, def.id, scope),
+        scope.tenantId && config.tenantDefaults
+          ? Promise.resolve(config.tenantDefaults(scope.tenantId))
+          : Promise.resolve(null),
+      ]);
+    return {
+      def,
+      recipient,
+      scope,
+      appDefaults: config.defaults?.channels,
+      categoryDefaults: config.defaults?.categories,
+      tenantChannels,
+      userGlobal,
+      userCategory,
+      userNotification,
+    };
+  }
+
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as {
       recipientId: string;
@@ -484,6 +517,26 @@ export function createNotifyKit<
       : validatePayload(def.payload, input.payload, def.id);
     const scope = resolveScope(input, recipient);
 
+    // Resolve preferences once, early. This determines which channels are
+    // allowed before we spend rate-limit budget or create digest entries.
+    const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
+    const prefResult = resolvePreferences(resolutionCtx);
+    const hasAnyAllowed = prefResult.channels.some((ch) => ch.allowed);
+
+    // If every channel is disabled by preferences, skip entirely — no
+    // rate-limit reservation, no digest buffer, no records.
+    if (!hasAnyAllowed) {
+      return {
+        notification: null,
+        inboxItems: [],
+        deliveries: [],
+        skippedChannels: prefResult.channels.map((ch) => ch.channel),
+        deferredChannels: [],
+        digested: false,
+        rateLimited: false,
+      };
+    }
+
     if (def.rateLimit) {
       const limit = def.rateLimit;
       const rateLimitScope = limit.scope ?? "recipient";
@@ -491,8 +544,6 @@ export function createNotifyKit<
         rateLimitScope === "global"
           ? `${scopeKey(scope)}${def.id}`
           : `${scopeKey(scope)}${recipient.id}:${def.id}`;
-      // Atomic admission: count + insert happen in one adapter call so two
-      // concurrent sends cannot both read N < max and both insert.
       const result = await database.rateLimits.reserve({
         key,
         max: limit.max,
@@ -539,9 +590,6 @@ export function createNotifyKit<
         windowMs: digest.windowMs,
       });
 
-      // Schedule a flush if there isn't already one for this key. We always
-      // aim at the bucket's original `flushAt` — appends don't extend the
-      // window (tumbling behavior, not sliding).
       if (!scheduledFlushes.has(key)) {
         const delay = Math.max(0, entry.flushAt.getTime() - Date.now());
         let resolveTask!: () => void;
@@ -573,14 +621,15 @@ export function createNotifyKit<
     }
 
     // Quiet hours: inbox still delivers immediately, email + webhook defer
-    // until the window ends. Schedule one row per (recipient, notification,
-    // payload); the flusher calls deliver() again with `onlyChannels` when
-    // it fires.
+    // until the window ends — but only if the channel is preference-allowed.
     const deferChannels: ChannelType[] = [];
     if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
       for (const ch of def.channels) {
         if (ch.type === "email" || ch.type === "webhook") {
-          deferChannels.push(ch.type);
+          const resolution = prefResult.channels.find((e) => e.channel === ch.type);
+          if (resolution?.allowed) {
+            deferChannels.push(ch.type);
+          }
         }
       }
     }
@@ -597,10 +646,10 @@ export function createNotifyKit<
         reason: "quiet_hours",
       });
       scheduleDeferredFlush(record.id, scheduledFor);
-      return deliver(recipient, def, payload, { deferChannels, scope });
+      return deliver(recipient, def, payload, { deferChannels, scope, prefResult });
     }
 
-    return deliver(recipient, def, payload, { scope });
+    return deliver(recipient, def, payload, { scope, prefResult });
   }
 
   async function explain(rawInput: SendInput<T>): Promise<DeliveryExplanation> {
@@ -625,33 +674,9 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
-    const [userGlobal, userCategory, userNotification, tenantChannels] =
-      await Promise.all([
-        database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
-        def.category
-          ? database.preferences.get(
-              recipient.id,
-              categoryPreferenceKey(def.category),
-              scope,
-            )
-          : Promise.resolve(null),
-        database.preferences.get(recipient.id, def.id, scope),
-        scope.tenantId && config.tenantDefaults
-          ? Promise.resolve(config.tenantDefaults(scope.tenantId))
-          : Promise.resolve(null),
-      ]);
-
-    const prefExplanation = resolvePreferences({
-      def,
-      recipient,
-      scope,
-      appDefaults: config.defaults?.channels,
-      categoryDefaults: config.defaults?.categories,
-      tenantChannels,
-      userGlobal,
-      userCategory,
-      userNotification,
-    });
+    const prefExplanation = resolvePreferences(
+      await buildResolutionCtx(recipient, def, scope),
+    );
 
     let wouldRateLimit = false;
     let rateLimitInfo: DeliveryExplanation["rateLimit"] = null;
@@ -692,6 +717,10 @@ export function createNotifyKit<
         outcome = ch.resolvedBy === "destination_unavailable"
           ? "unavailable"
           : "disabled";
+      } else if (wouldRateLimit) {
+        outcome = "rate_limited";
+      } else if (wouldDigest) {
+        outcome = "digested";
       } else if (
         quietHoursActive &&
         (ch.channel === "email" || ch.channel === "webhook")
@@ -838,6 +867,8 @@ export function createNotifyKit<
     existingNotification?: NotificationRecord;
     /** When false, skip channels whose type isn't in this set. */
     onlyChannels?: ChannelType[];
+    /** Pre-resolved preference result from send(). Avoids re-fetching. */
+    prefResult?: PreferenceExplanation;
   };
 
   async function deliver(
@@ -848,34 +879,8 @@ export function createNotifyKit<
   ): Promise<SendResult> {
     const scope = options.scope ?? resolveScope({}, recipient);
 
-    const [userGlobal, userCategory, userNotification, tenantChannels] =
-      await Promise.all([
-        database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
-        def.category
-          ? database.preferences.get(
-              recipient.id,
-              categoryPreferenceKey(def.category),
-              scope,
-            )
-          : Promise.resolve(null),
-        database.preferences.get(recipient.id, def.id, scope),
-        scope.tenantId && config.tenantDefaults
-          ? Promise.resolve(config.tenantDefaults(scope.tenantId))
-          : Promise.resolve(null),
-      ]);
-
-    const resolutionCtx: ResolutionContext = {
-      def,
-      recipient,
-      scope,
-      appDefaults: config.defaults?.channels,
-      categoryDefaults: config.defaults?.categories,
-      tenantChannels,
-      userGlobal,
-      userCategory,
-      userNotification,
-    };
-    const explanation = resolvePreferences(resolutionCtx);
+    const explanation = options.prefResult
+      ?? resolvePreferences(await buildResolutionCtx(recipient, def, scope));
     const isChannelAllowed = (type: ChannelType): boolean => {
       const entry = explanation.channels.find((e) => e.channel === type);
       return entry?.allowed ?? true;
@@ -1125,15 +1130,37 @@ export function createNotifyKit<
     }
 
     // Fallback channel: when a primary delivery terminally fails, drop an
-    // inbox item so the user still sees the message. Respects preferences.
+    // inbox item so the user still sees the message. Uses the full layered
+    // preference engine so app/category/tenant/global/required all apply.
     const def = byId.get(job.notificationId);
     if (def?.fallback) {
-      const preference = await database.preferences.get(
-        job.recipientId,
-        def.id,
-        { tenantId: job.tenantId, workspaceId: job.workspaceId },
-      );
-      const inboxAllowed = !preference || preference.channels.inbox !== false;
+      const fallbackScope: SecurityScope = {
+        tenantId: job.tenantId,
+        workspaceId: job.workspaceId,
+      };
+      const fallbackRecipient = await database.recipients.findById(job.recipientId);
+      const [fbGlobal, fbCategory, fbNotification, fbTenant] = await Promise.all([
+        database.preferences.get(job.recipientId, GLOBAL_PREFERENCE_KEY, fallbackScope),
+        def.category
+          ? database.preferences.get(job.recipientId, categoryPreferenceKey(def.category), fallbackScope)
+          : Promise.resolve(null),
+        database.preferences.get(job.recipientId, def.id, fallbackScope),
+        fallbackScope.tenantId && config.tenantDefaults
+          ? Promise.resolve(config.tenantDefaults(fallbackScope.tenantId))
+          : Promise.resolve(null),
+      ]);
+      const inboxResolution = resolveChannel("inbox", {
+        def,
+        recipient: fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
+        scope: fallbackScope,
+        appDefaults: config.defaults?.channels,
+        categoryDefaults: config.defaults?.categories,
+        tenantChannels: fbTenant,
+        userGlobal: fbGlobal,
+        userCategory: fbCategory,
+        userNotification: fbNotification,
+      });
+      const inboxAllowed = inboxResolution.allowed;
       if (inboxAllowed) {
         const fallback = def.fallback;
         const item = await database.inbox.create({
@@ -1316,38 +1343,9 @@ export function createNotifyKit<
           );
         }
         const scope = resolveScope(input, recipient);
-
-        const [userGlobal, userCategory, userNotification, tenantChannels] =
-          await Promise.all([
-            database.preferences.get(
-              recipient.id,
-              GLOBAL_PREFERENCE_KEY,
-              scope,
-            ),
-            def.category
-              ? database.preferences.get(
-                  recipient.id,
-                  categoryPreferenceKey(def.category),
-                  scope,
-                )
-              : Promise.resolve(null),
-            database.preferences.get(recipient.id, def.id, scope),
-            scope.tenantId && config.tenantDefaults
-              ? Promise.resolve(config.tenantDefaults(scope.tenantId))
-              : Promise.resolve(null),
-          ]);
-
-        return resolvePreferences({
-          def,
-          recipient,
-          scope,
-          appDefaults: config.defaults?.channels,
-          categoryDefaults: config.defaults?.categories,
-          tenantChannels,
-          userGlobal,
-          userCategory,
-          userNotification,
-        });
+        return resolvePreferences(
+          await buildResolutionCtx(recipient, def, scope),
+        );
       },
     },
     async drain() {

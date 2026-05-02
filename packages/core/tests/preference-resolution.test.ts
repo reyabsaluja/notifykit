@@ -11,7 +11,7 @@ import {
   categoryPreferenceKey,
   isSyntheticPreferenceKey,
 } from "../src/index.js";
-import type { DeliveryExplanation, PreferenceExplanation } from "../src/index.js";
+import type { ChannelOutcome, DeliveryExplanation, PreferenceExplanation } from "../src/index.js";
 
 const inbox = channel.inbox();
 const email = channel.email();
@@ -969,6 +969,9 @@ describe("notify.explain() — delivery-level explanation", () => {
     expect(r2.wouldRateLimit).toBe(true);
     expect(r2.rateLimit!.current).toBe(2);
     expect(r2.rateLimit!.max).toBe(2);
+
+    const inboxCh = r2.channels.find((c) => c.channel === "inbox")!;
+    expect(inboxCh.outcome).toBe("rate_limited" as ChannelOutcome);
   });
 
   test("explain shows digest info", async () => {
@@ -996,6 +999,9 @@ describe("notify.explain() — delivery-level explanation", () => {
     });
     expect(result.wouldDigest).toBe(true);
     expect(result.digest).toEqual({ windowMs: 30_000 });
+
+    const inboxCh = result.channels.find((c) => c.channel === "inbox")!;
+    expect(inboxCh.outcome).toBe("digested" as ChannelOutcome);
   });
 
   test("explain shows quiet hours with delayed outcome", async () => {
@@ -1038,6 +1044,126 @@ describe("notify.explain() — delivery-level explanation", () => {
 
     const emailCh = result.channels.find((c) => c.channel === "email")!;
     expect(emailCh.outcome).toBe("delayed");
+  });
+
+  test("fully opted-out recipient does not consume rate-limit budget", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [
+        email({ subject: "{{msg}}", body: "{{msg}}" }),
+      ],
+      rateLimit: { max: 2, windowMs: 60_000 },
+    });
+    const provider = fakeEmailProvider();
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "alert",
+      channels: { email: false },
+    });
+
+    await notify.send({ recipientId: "u1", notificationId: "alert", payload: { msg: "1" } });
+    await notify.send({ recipientId: "u1", notificationId: "alert", payload: { msg: "2" } });
+    await notify.send({ recipientId: "u1", notificationId: "alert", payload: { msg: "3" } });
+
+    const count = await db.rateLimits.count({ key: `u1:alert`, windowMs: 60_000 });
+    expect(count).toBe(0);
+    expect(provider.sent).toHaveLength(0);
+
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "alert",
+      channels: { email: true },
+    });
+    const r = await notify.send({ recipientId: "u1", notificationId: "alert", payload: { msg: "4" } });
+    expect(r.rateLimited).toBe(false);
+    expect(provider.sent).toHaveLength(1);
+  });
+
+  test("fully opted-out recipient does not create digest entries", async () => {
+    const def = notification({
+      id: "activity",
+      payload: { msg: "string" },
+      channels: [
+        email({ subject: "{{msg}}", body: "{{msg}}" }),
+      ],
+      digest: {
+        windowMs: 30_000,
+        render: ({ count }) => ({ msg: `${count} items` }),
+      },
+    });
+    const provider = fakeEmailProvider();
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "activity",
+      channels: { email: false },
+    });
+
+    const r = await notify.send({
+      recipientId: "u1",
+      notificationId: "activity",
+      payload: { msg: "hi" },
+    });
+    expect(r.digested).toBe(false);
+    expect(r.skippedChannels).toContain("email");
+
+    const digests = await db.digests.list();
+    expect(digests).toHaveLength(0);
+  });
+
+  test("quiet hours does not defer a preference-disabled channel", async () => {
+    const now = new Date();
+    const startH = now.getHours();
+    const endH = (startH + 2) % 24;
+    const fmt = (h: number) => `${String(h).padStart(2, "0")}:00`;
+
+    const def = notification({
+      id: "update",
+      payload: { msg: "string" },
+      channels: [
+        inbox({ title: "{{msg}}" }),
+        email({ subject: "{{msg}}", body: "{{msg}}" }),
+      ],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: { start: fmt(startH), end: fmt(endH), timezone: "UTC" },
+    });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "update",
+      channels: { email: false },
+    });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "update",
+      payload: { msg: "hi" },
+    });
+    expect(result.skippedChannels).toContain("email");
+    expect(result.deferredChannels).not.toContain("email");
+    expect(provider.sent).toHaveLength(0);
   });
 
   test("explain shows disabled outcome from user preference", async () => {
@@ -1181,7 +1307,7 @@ describe("notify.explain() — delivery-level explanation", () => {
 
     const emailCh = result.channels.find((c) => c.channel === "email")!;
     expect(emailCh.allowed).toBe(true);
-    expect(emailCh.outcome).toBe("delayed");
+    expect(emailCh.outcome).toBe("digested" as ChannelOutcome);
   });
 });
 

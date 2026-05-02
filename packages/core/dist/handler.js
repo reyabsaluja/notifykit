@@ -263,6 +263,25 @@ export function createHandler(notify, options) {
                     });
                     return withCors(json({ data: explanation }));
                 }
+                case "explain": {
+                    const notificationId = url.searchParams.get("notificationId");
+                    if (!notificationId) {
+                        return withCors(json({ error: "Missing 'notificationId' query parameter" }, 400));
+                    }
+                    const payload = {};
+                    for (const [key, value] of url.searchParams.entries()) {
+                        if (key !== "notificationId")
+                            payload[key] = value;
+                    }
+                    const result = await notify.explain({
+                        recipientId: context.recipientId,
+                        tenantId: context.tenantId,
+                        workspaceId: context.workspaceId,
+                        notificationId,
+                        payload,
+                    });
+                    return withCors(json({ data: result }));
+                }
                 case "deliveries.list": {
                     const allowed = await isAuthorized(options, context, "deliveries.list");
                     if (!allowed) {
@@ -327,6 +346,11 @@ function matchRoute(method, sub) {
         if (method === "POST") {
             return { kind: "inbox.markRead", id: decodeURIComponent(markRead[1]) };
         }
+        return { kind: "not_found" };
+    }
+    if (trimmed === "/explain") {
+        if (method === "GET")
+            return { kind: "explain" };
         return { kind: "not_found" };
     }
     if (trimmed === "/preferences/explain") {

@@ -1,7 +1,7 @@
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
 import { GLOBAL_PREFERENCE_KEY, categoryPreferenceKey, isSyntheticPreferenceKey, } from "./preference-keys.js";
-import { resolvePreferences } from "./resolve-preferences.js";
+import { resolveChannel, resolvePreferences } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 export function createNotifyKit(config) {
@@ -175,6 +175,29 @@ export function createNotifyKit(config) {
             return "";
         return `${scope.tenantId ?? ""}:${scope.workspaceId ?? ""}:`;
     }
+    async function buildResolutionCtx(recipient, def, scope) {
+        const [userGlobal, userCategory, userNotification, tenantChannels] = await Promise.all([
+            database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
+            def.category
+                ? database.preferences.get(recipient.id, categoryPreferenceKey(def.category), scope)
+                : Promise.resolve(null),
+            database.preferences.get(recipient.id, def.id, scope),
+            scope.tenantId && config.tenantDefaults
+                ? Promise.resolve(config.tenantDefaults(scope.tenantId))
+                : Promise.resolve(null),
+        ]);
+        return {
+            def,
+            recipient,
+            scope,
+            appDefaults: config.defaults?.channels,
+            categoryDefaults: config.defaults?.categories,
+            tenantChannels,
+            userGlobal,
+            userCategory,
+            userNotification,
+        };
+    }
     async function send(rawInput) {
         const input = rawInput;
         const def = byId.get(input.notificationId);
@@ -189,14 +212,30 @@ export function createNotifyKit(config) {
             ? def.validate(input.payload)
             : validatePayload(def.payload, input.payload, def.id);
         const scope = resolveScope(input, recipient);
+        // Resolve preferences once, early. This determines which channels are
+        // allowed before we spend rate-limit budget or create digest entries.
+        const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
+        const prefResult = resolvePreferences(resolutionCtx);
+        const hasAnyAllowed = prefResult.channels.some((ch) => ch.allowed);
+        // If every channel is disabled by preferences, skip entirely — no
+        // rate-limit reservation, no digest buffer, no records.
+        if (!hasAnyAllowed) {
+            return {
+                notification: null,
+                inboxItems: [],
+                deliveries: [],
+                skippedChannels: prefResult.channels.map((ch) => ch.channel),
+                deferredChannels: [],
+                digested: false,
+                rateLimited: false,
+            };
+        }
         if (def.rateLimit) {
             const limit = def.rateLimit;
             const rateLimitScope = limit.scope ?? "recipient";
             const key = rateLimitScope === "global"
                 ? `${scopeKey(scope)}${def.id}`
                 : `${scopeKey(scope)}${recipient.id}:${def.id}`;
-            // Atomic admission: count + insert happen in one adapter call so two
-            // concurrent sends cannot both read N < max and both insert.
             const result = await database.rateLimits.reserve({
                 key,
                 max: limit.max,
@@ -239,9 +278,6 @@ export function createNotifyKit(config) {
                 payload,
                 windowMs: digest.windowMs,
             });
-            // Schedule a flush if there isn't already one for this key. We always
-            // aim at the bucket's original `flushAt` — appends don't extend the
-            // window (tumbling behavior, not sliding).
             if (!scheduledFlushes.has(key)) {
                 const delay = Math.max(0, entry.flushAt.getTime() - Date.now());
                 let resolveTask;
@@ -272,14 +308,15 @@ export function createNotifyKit(config) {
             };
         }
         // Quiet hours: inbox still delivers immediately, email + webhook defer
-        // until the window ends. Schedule one row per (recipient, notification,
-        // payload); the flusher calls deliver() again with `onlyChannels` when
-        // it fires.
+        // until the window ends — but only if the channel is preference-allowed.
         const deferChannels = [];
         if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
             for (const ch of def.channels) {
                 if (ch.type === "email" || ch.type === "webhook") {
-                    deferChannels.push(ch.type);
+                    const resolution = prefResult.channels.find((e) => e.channel === ch.type);
+                    if (resolution?.allowed) {
+                        deferChannels.push(ch.type);
+                    }
                 }
             }
         }
@@ -295,9 +332,87 @@ export function createNotifyKit(config) {
                 reason: "quiet_hours",
             });
             scheduleDeferredFlush(record.id, scheduledFor);
-            return deliver(recipient, def, payload, { deferChannels, scope });
+            return deliver(recipient, def, payload, { deferChannels, scope, prefResult });
         }
-        return deliver(recipient, def, payload, { scope });
+        return deliver(recipient, def, payload, { scope, prefResult });
+    }
+    async function explain(rawInput) {
+        const input = rawInput;
+        const def = byId.get(input.notificationId);
+        if (!def) {
+            throw new NotifyKitError(`Unknown notification id: "${input.notificationId}".`);
+        }
+        const recipient = await database.recipients.findById(input.recipientId);
+        if (!recipient) {
+            throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
+        }
+        const scope = resolveScope(input, recipient);
+        const prefExplanation = resolvePreferences(await buildResolutionCtx(recipient, def, scope));
+        let wouldRateLimit = false;
+        let rateLimitInfo = null;
+        if (def.rateLimit) {
+            const limit = def.rateLimit;
+            const rateLimitScope = limit.scope ?? "recipient";
+            const key = rateLimitScope === "global"
+                ? `${scopeKey(scope)}${def.id}`
+                : `${scopeKey(scope)}${recipient.id}:${def.id}`;
+            const current = await database.rateLimits.count({
+                key,
+                windowMs: limit.windowMs,
+            });
+            wouldRateLimit = current >= limit.max;
+            rateLimitInfo = { current, max: limit.max, windowMs: limit.windowMs };
+        }
+        const wouldDigest = !!def.digest;
+        const digestInfo = def.digest
+            ? { windowMs: def.digest.windowMs }
+            : null;
+        let quietHoursActive = false;
+        let quietHoursResumesAt = null;
+        let quietHoursInfo = null;
+        if (recipient.quietHours) {
+            quietHoursActive = isWithinQuietHours(recipient.quietHours);
+            quietHoursResumesAt = quietHoursActive
+                ? nextQuietHoursEnd(recipient.quietHours)
+                : null;
+            quietHoursInfo = { active: quietHoursActive, resumesAt: quietHoursResumesAt };
+        }
+        const channels = prefExplanation.channels.map((ch) => {
+            let outcome;
+            if (!ch.allowed) {
+                outcome = ch.resolvedBy === "destination_unavailable"
+                    ? "unavailable"
+                    : "disabled";
+            }
+            else if (wouldRateLimit) {
+                outcome = "rate_limited";
+            }
+            else if (wouldDigest) {
+                outcome = "digested";
+            }
+            else if (quietHoursActive &&
+                (ch.channel === "email" || ch.channel === "webhook")) {
+                outcome = "delayed";
+            }
+            else {
+                outcome = "deliver";
+            }
+            return { ...ch, outcome };
+        });
+        return {
+            recipientId: recipient.id,
+            notificationId: def.id,
+            scope,
+            channels,
+            required: def.required ?? false,
+            classification: def.classification,
+            category: def.category,
+            wouldRateLimit,
+            wouldDigest,
+            rateLimit: rateLimitInfo,
+            digest: digestInfo,
+            quietHours: quietHoursInfo,
+        };
     }
     function scheduleDeferredFlush(id, scheduledFor) {
         if (scheduledSendTimers.has(id))
@@ -397,28 +512,8 @@ export function createNotifyKit(config) {
     }
     async function deliver(recipient, def, payload, options = {}) {
         const scope = options.scope ?? resolveScope({}, recipient);
-        const [userGlobal, userCategory, userNotification, tenantChannels] = await Promise.all([
-            database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
-            def.category
-                ? database.preferences.get(recipient.id, categoryPreferenceKey(def.category), scope)
-                : Promise.resolve(null),
-            database.preferences.get(recipient.id, def.id, scope),
-            scope.tenantId && config.tenantDefaults
-                ? Promise.resolve(config.tenantDefaults(scope.tenantId))
-                : Promise.resolve(null),
-        ]);
-        const resolutionCtx = {
-            def,
-            recipient,
-            scope,
-            appDefaults: config.defaults?.channels,
-            categoryDefaults: config.defaults?.categories,
-            tenantChannels,
-            userGlobal,
-            userCategory,
-            userNotification,
-        };
-        const explanation = resolvePreferences(resolutionCtx);
+        const explanation = options.prefResult
+            ?? resolvePreferences(await buildResolutionCtx(recipient, def, scope));
         const isChannelAllowed = (type) => {
             const entry = explanation.channels.find((e) => e.channel === type);
             return entry?.allowed ?? true;
@@ -647,11 +742,37 @@ export function createNotifyKit(config) {
             });
         }
         // Fallback channel: when a primary delivery terminally fails, drop an
-        // inbox item so the user still sees the message. Respects preferences.
+        // inbox item so the user still sees the message. Uses the full layered
+        // preference engine so app/category/tenant/global/required all apply.
         const def = byId.get(job.notificationId);
         if (def?.fallback) {
-            const preference = await database.preferences.get(job.recipientId, def.id, { tenantId: job.tenantId, workspaceId: job.workspaceId });
-            const inboxAllowed = !preference || preference.channels.inbox !== false;
+            const fallbackScope = {
+                tenantId: job.tenantId,
+                workspaceId: job.workspaceId,
+            };
+            const fallbackRecipient = await database.recipients.findById(job.recipientId);
+            const [fbGlobal, fbCategory, fbNotification, fbTenant] = await Promise.all([
+                database.preferences.get(job.recipientId, GLOBAL_PREFERENCE_KEY, fallbackScope),
+                def.category
+                    ? database.preferences.get(job.recipientId, categoryPreferenceKey(def.category), fallbackScope)
+                    : Promise.resolve(null),
+                database.preferences.get(job.recipientId, def.id, fallbackScope),
+                fallbackScope.tenantId && config.tenantDefaults
+                    ? Promise.resolve(config.tenantDefaults(fallbackScope.tenantId))
+                    : Promise.resolve(null),
+            ]);
+            const inboxResolution = resolveChannel("inbox", {
+                def,
+                recipient: fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
+                scope: fallbackScope,
+                appDefaults: config.defaults?.channels,
+                categoryDefaults: config.defaults?.categories,
+                tenantChannels: fbTenant,
+                userGlobal: fbGlobal,
+                userCategory: fbCategory,
+                userNotification: fbNotification,
+            });
+            const inboxAllowed = inboxResolution.allowed;
             if (inboxAllowed) {
                 const fallback = def.fallback;
                 const item = await database.inbox.create({
@@ -733,6 +854,7 @@ export function createNotifyKit(config) {
             return database.recipients.upsert(input);
         },
         send,
+        explain,
         inbox: {
             list(recipientId, scope) {
                 return database.inbox.listByRecipient(recipientId, scope);
@@ -799,27 +921,7 @@ export function createNotifyKit(config) {
                     throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
                 }
                 const scope = resolveScope(input, recipient);
-                const [userGlobal, userCategory, userNotification, tenantChannels] = await Promise.all([
-                    database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
-                    def.category
-                        ? database.preferences.get(recipient.id, categoryPreferenceKey(def.category), scope)
-                        : Promise.resolve(null),
-                    database.preferences.get(recipient.id, def.id, scope),
-                    scope.tenantId && config.tenantDefaults
-                        ? Promise.resolve(config.tenantDefaults(scope.tenantId))
-                        : Promise.resolve(null),
-                ]);
-                return resolvePreferences({
-                    def,
-                    recipient,
-                    scope,
-                    appDefaults: config.defaults?.channels,
-                    categoryDefaults: config.defaults?.categories,
-                    tenantChannels,
-                    userGlobal,
-                    userCategory,
-                    userNotification,
-                });
+                return resolvePreferences(await buildResolutionCtx(recipient, def, scope));
             },
         },
         async drain() {

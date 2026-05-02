@@ -24,7 +24,7 @@ export type ResolutionContext = {
   userNotification?: RecipientPreference | null;
 };
 
-function resolveChannel(
+export function resolveChannel(
   channel: ChannelType,
   ctx: ResolutionContext,
 ): ChannelResolution {
