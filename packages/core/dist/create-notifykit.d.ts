@@ -53,17 +53,40 @@ export type SendResult = {
 };
 export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     upsertRecipient(input: UpsertRecipientInput): Promise<Recipient>;
+    /**
+     * Send a notification. **Server-only** — the caller is trusted. The
+     * `recipientId` is used as provided, with no additional auth check.
+     * Client-facing code should go through `createHandler()` which resolves
+     * the recipient via `identify()`.
+     */
     send(input: SendInput<T>): Promise<SendResult>;
     inbox: {
+        /**
+         * List inbox items. **Server-only** — the caller supplies the
+         * `recipientId` and optional `scope` directly. In client-facing code
+         * use the handler's `GET /inbox` route, which derives the recipient
+         * from `identify()`.
+         */
         list(recipientId: string, scope?: SecurityScope): Promise<InboxItem[]>;
         markRead(inboxItemId: string): Promise<InboxItem | null>;
         markReadForRecipient(inboxItemId: string, recipientId: string, scope?: SecurityScope): Promise<MarkReadForRecipientResult>;
     };
     deliveries: {
+        /**
+         * List delivery records. **Server-only** — the caller is trusted to
+         * supply `recipientId` and `scope`. Never expose this to end-users
+         * without authorization; use the handler's `GET /deliveries` route
+         * which requires the `deliveries.list` permission.
+         */
         list(recipientId?: string, scope?: SecurityScope): Promise<DeliveryRecord[]>;
     };
     preferences: {
         get(input: GetPreferenceInput<T>): Promise<RecipientPreference | null>;
+        /**
+         * List preferences. **Server-only** — the caller supplies the
+         * `recipientId` and optional `scope` directly. In client-facing code
+         * use the handler's `GET /preferences` route.
+         */
         list(recipientId: string, scope?: SecurityScope): Promise<RecipientPreference[]>;
         update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
     };
@@ -102,6 +125,12 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
     recoverScheduledSends(): Promise<void>;
     /** Registered notification definitions. Read-only, for introspection. */
     readonly definitions: T;
+    /**
+     * Redact sensitive payload fields for a given notification. Returns a copy
+     * with fields listed in the definition's `redact` array replaced by
+     * `"[REDACTED]"`. If no redaction is configured, returns the payload as-is.
+     */
+    redactPayload(notificationId: string, payload: Record<string, unknown>): Record<string, unknown>;
 };
 export declare function createNotifyKit<const T extends readonly NotificationDefinition<string, PayloadSchema>[]>(config: CreateNotifyKitInput<T>): NotifyKit<T>;
 //# sourceMappingURL=create-notifykit.d.ts.map

@@ -8,11 +8,11 @@ import type { NotifyKit } from "./create-notifykit.js";
 import { verifyUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, PayloadValidationError } from "./utils.js";
 
-export type HandlerPermission = "deliveries.list";
+export type HandlerPermission = "deliveries.list" | "admin";
 
 export type HandlerIdentity = SecurityScope & {
   recipientId: string;
-  permissions?: readonly (HandlerPermission | "admin")[];
+  permissions?: readonly HandlerPermission[];
 };
 
 export type HandlerContext = SecurityScope & {
@@ -29,6 +29,26 @@ export type Authorize = (
   context: HandlerContext,
   permission: HandlerPermission,
 ) => Promise<boolean> | boolean;
+
+/**
+ * Verifies an inbound provider webhook request's signature. Return `true` if
+ * the request is authentic, `false` to reject with 401. The raw body string
+ * is provided so the verifier can re-compute the HMAC. Headers are passed
+ * separately because the request body has already been consumed.
+ */
+export type WebhookVerifier = (
+  headers: Headers,
+  rawBody: string,
+) => Promise<boolean> | boolean;
+
+/**
+ * Callback to handle a verified inbound provider webhook payload. Use this
+ * to update delivery statuses, trigger follow-up workflows, etc.
+ */
+export type WebhookEventHandler = (
+  provider: string,
+  payload: unknown,
+) => Promise<void> | void;
 
 export type CreateHandlerOptions = {
   /**
@@ -53,6 +73,62 @@ export type CreateHandlerOptions = {
    * When omitted, the route returns 404.
    */
   unsubscribeSecret?: string;
+  /**
+   * When `true`, the `GET /notifications` route requires authentication via
+   * `identify()`. Defaults to `false` (public metadata). Set this when
+   * notification IDs or categories are considered internal.
+   */
+  protectNotifications?: boolean;
+  /**
+   * CORS origin to allow. When set, every response includes
+   * `Access-Control-Allow-Origin` and related headers. Accepts a single
+   * origin string (e.g. `"https://app.example.com"`) or `"*"`.
+   * When omitted, no CORS headers are sent.
+   *
+   * When the origin is not `"*"`, `Access-Control-Allow-Credentials: true`
+   * is included so that cross-origin requests with cookies or custom auth
+   * headers work. The preflight reflects the request's
+   * `Access-Control-Request-Headers` so that custom headers passed via
+   * `createNotifyKitClient({ headers })` are permitted.
+   */
+  cors?: string;
+  /**
+   * Per-identity sliding-window rate limit for authenticated handler routes.
+   * When set, each `recipientId` is allowed at most `max` requests within
+   * `windowMs` milliseconds. Exceeding the limit returns `429 Too Many
+   * Requests`. Unauthenticated routes (`/notifications`, `/unsubscribe`)
+   * are not rate-limited — apply IP-based throttling at your proxy layer
+   * for those.
+   */
+  requestRateLimit?: {
+    max: number;
+    windowMs: number;
+  };
+  /**
+   * Inbound provider webhook configuration. Maps provider names to a verifier
+   * function. When set, a `POST /webhooks/:provider` route is exposed. The
+   * verifier receives the request headers and raw body and must return `true` for
+   * authentic requests. Verified payloads are passed to `onWebhookEvent`.
+   *
+   * ```ts
+   * createHandler(notify, {
+   *   identify: getIdentity,
+   *   webhooks: {
+   *     resend: (headers, body) => verifyResendSignature(headers, body, secret),
+   *   },
+   *   onWebhookEvent: async (provider, payload) => {
+   *     // update delivery status, etc.
+   *   },
+   * })
+   * ```
+   */
+  webhooks?: Record<string, WebhookVerifier>;
+  /**
+   * Called after an inbound provider webhook is verified. Receives the
+   * provider name and the parsed JSON payload. Only invoked when
+   * `webhooks` is configured and the verifier returns `true`.
+   */
+  onWebhookEvent?: WebhookEventHandler;
 };
 
 export type Handler = (request: Request) => Promise<Response>;
@@ -66,6 +142,7 @@ type Route =
   | { kind: "notifications.list" }
   | { kind: "unsubscribe.get" }
   | { kind: "unsubscribe.post" }
+  | { kind: "webhooks.post"; provider: string }
   | { kind: "not_found" };
 
 export function createHandler<
@@ -73,44 +150,109 @@ export function createHandler<
 >(notify: NotifyKit<T>, options: CreateHandlerOptions): Handler {
   const basePath = normalizeBasePath(options.basePath ?? "/api/notifykit");
   const unsubscribeSecret = options.unsubscribeSecret;
+  const corsOrigin = options.cors ?? null;
+  const requestRateLimit = options.requestRateLimit ?? null;
+  const rateLimitBuckets = new Map<string, number[]>();
+
+  /** Returns true when the caller should be rejected with 429. */
+  function checkRateLimit(recipientId: string): boolean {
+    if (!requestRateLimit) return false;
+    const now = Date.now();
+    const cutoff = now - requestRateLimit.windowMs;
+    let timestamps = rateLimitBuckets.get(recipientId);
+    if (timestamps) {
+      while (timestamps.length > 0 && timestamps[0]! < cutoff) {
+        timestamps.shift();
+      }
+      if (timestamps.length === 0) {
+        rateLimitBuckets.delete(recipientId);
+        timestamps = undefined;
+      }
+    }
+    if (timestamps && timestamps.length >= requestRateLimit.max) {
+      return true;
+    }
+    if (!timestamps) {
+      timestamps = [];
+      rateLimitBuckets.set(recipientId, timestamps);
+    }
+    timestamps.push(now);
+    return false;
+  }
+
+  function withCors(response: Response, request?: Request): Response {
+    if (!corsOrigin) return response;
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", corsOrigin);
+    headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    const requestedHeaders = request?.headers.get("Access-Control-Request-Headers");
+    headers.set(
+      "Access-Control-Allow-Headers",
+      requestedHeaders || "Content-Type, Authorization",
+    );
+    headers.set("Access-Control-Max-Age", "86400");
+    if (corsOrigin !== "*") {
+      headers.set("Access-Control-Allow-Credentials", "true");
+      headers.set("Vary", "Origin");
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
 
   return async function handler(request: Request): Promise<Response> {
+    if (corsOrigin && request.method === "OPTIONS") {
+      return withCors(new Response(null, { status: 204 }), request);
+    }
+
     const url = new URL(request.url);
     const path = url.pathname;
 
     if (!path.startsWith(basePath)) {
-      return json({ error: "Not found" }, 404);
+      return withCors(json({ error: "Not found" }, 404));
     }
     const sub = path.slice(basePath.length) || "/";
 
     const route = matchRoute(request.method, sub);
     if (route.kind === "not_found") {
-      return json({ error: "Not found" }, 404);
+      return withCors(json({ error: "Not found" }, 404));
     }
 
-    // notifications.list is public metadata — no auth required
     if (route.kind === "notifications.list") {
-      return json({ data: buildNotificationsIndex(notify) });
+      if (options.protectNotifications) {
+        const identity = normalizeIdentity(await options.identify(request));
+        if (!identity) {
+          return withCors(json({ error: "Unauthenticated" }, 401));
+        }
+        if (requestRateLimit) {
+          if (checkRateLimit(identity.recipientId)) {
+            return withCors(json({ error: "Too many requests" }, 429));
+          }
+        }
+      }
+      return withCors(json({ data: buildNotificationsIndex(notify) }));
     }
 
     // Unsubscribe routes use HMAC token as auth — bypass identify().
     if (route.kind === "unsubscribe.get" || route.kind === "unsubscribe.post") {
       if (!unsubscribeSecret) {
-        return json({ error: "Not found" }, 404);
+        return withCors(json({ error: "Not found" }, 404));
       }
       const token = await extractUnsubscribeToken(request, url);
       if (!token) {
-        return unsubscribeHtml(
+        return withCors(unsubscribeHtml(
           "This unsubscribe link is missing its token.",
           400,
-        );
+        ));
       }
       const claims = verifyUnsubscribeToken(token, unsubscribeSecret);
       if (!claims) {
-        return unsubscribeHtml(
+        return withCors(unsubscribeHtml(
           "This unsubscribe link is invalid or has been tampered with.",
           400,
-        );
+        ));
       }
       try {
         await notify.preferences.update({
@@ -122,29 +264,70 @@ export function createHandler<
         } as Parameters<typeof notify.preferences.update>[0]);
       } catch (err) {
         if (err instanceof NotifyKitError) {
-          return unsubscribeHtml(
+          return withCors(unsubscribeHtml(
             "This unsubscribe link refers to a notification or account that no longer exists.",
             404,
-          );
+          ));
         }
         throw err;
       }
       if (route.kind === "unsubscribe.post") {
-        // RFC 8058 one-click: return 200 with empty body. 204 is fine too
-        // but some mail-provider crawlers insist on 2xx text, so 200/"" is
-        // the safest choice.
-        return new Response("", { status: 200 });
+        return withCors(new Response("", { status: 200 }));
       }
-      return unsubscribeHtml(
+      return withCors(unsubscribeHtml(
         `You've been unsubscribed from "${escapeHtml(claims.notificationId)}" emails.`,
         200,
-      );
+      ));
+    }
+
+    if (route.kind === "webhooks.post") {
+      const verifier = options.webhooks?.[route.provider];
+      if (!verifier) {
+        return withCors(json({ error: "Not found" }, 404));
+      }
+      let rawBody: string;
+      try {
+        rawBody = await request.text();
+      } catch {
+        return withCors(json({ error: "Bad request" }, 400));
+      }
+      let verified: boolean;
+      try {
+        verified = await verifier(request.headers, rawBody);
+      } catch {
+        verified = false;
+      }
+      if (!verified) {
+        return withCors(json({ error: "Unauthorized" }, 401));
+      }
+      let payload: unknown;
+      try {
+        payload = JSON.parse(rawBody);
+      } catch {
+        payload = rawBody;
+      }
+      if (options.onWebhookEvent) {
+        try {
+          await options.onWebhookEvent(route.provider, payload);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Internal error";
+          return withCors(json({ error: message }, 500));
+        }
+      }
+      return withCors(json({ ok: true }));
     }
 
     const identity = normalizeIdentity(await options.identify(request));
     if (!identity) {
-      return json({ error: "Unauthenticated" }, 401);
+      return withCors(json({ error: "Unauthenticated" }, 401));
     }
+
+    if (requestRateLimit) {
+      if (checkRateLimit(identity.recipientId)) {
+        return withCors(json({ error: "Too many requests" }, 429));
+      }
+    }
+
     const context: HandlerContext = {
       recipientId: identity.recipientId,
       tenantId: identity.tenantId,
@@ -160,7 +343,7 @@ export function createHandler<
             context.recipientId,
             context,
           );
-          return json({ data: items });
+          return withCors(json({ data: items }));
         }
         case "inbox.markRead": {
           const result = await notify.inbox.markReadForRecipient(
@@ -169,41 +352,41 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return json({ error: "Inbox item not found" }, 404);
+            return withCors(json({ error: "Inbox item not found" }, 404));
           }
           if (result.status === "forbidden") {
-            return json({ error: "Forbidden" }, 403);
+            return withCors(json({ error: "Forbidden" }, 403));
           }
-          return json({ data: result.item });
+          return withCors(json({ data: result.item }));
         }
         case "preferences.list": {
           const prefs = await notify.preferences.list(
             context.recipientId,
             context,
           );
-          return json({ data: prefs });
+          return withCors(json({ data: prefs }));
         }
         case "preferences.update": {
           const body = await readJson(request);
           if (!body || typeof body !== "object") {
-            return json({ error: "Invalid JSON body" }, 400);
+            return withCors(json({ error: "Invalid JSON body" }, 400));
           }
           const { notificationId, channels } = body as {
             notificationId?: unknown;
             channels?: unknown;
           };
           if (typeof notificationId !== "string") {
-            return json(
+            return withCors(json(
               { error: "Missing or invalid 'notificationId'" },
               400,
-            );
+            ));
           }
           const validChannels = toChannelPreferenceMap(channels);
           if (!validChannels) {
-            return json(
+            return withCors(json(
               { error: "'channels' must be an object of { channel: boolean }" },
               400,
-            );
+            ));
           }
           const updated = await notify.preferences.update({
             recipientId: context.recipientId,
@@ -212,7 +395,7 @@ export function createHandler<
             notificationId,
             channels: validChannels,
           } as Parameters<typeof notify.preferences.update>[0]);
-          return json({ data: updated });
+          return withCors(json({ data: updated }));
         }
         case "deliveries.list": {
           const allowed = await isAuthorized(
@@ -221,22 +404,25 @@ export function createHandler<
             "deliveries.list",
           );
           if (!allowed) {
-            return json({ error: "Forbidden" }, 403);
+            return withCors(json({ error: "Forbidden" }, 403));
           }
-          const recipientId = url.searchParams.get("recipientId") ?? undefined;
+          const isAdmin = await isAdminIdentity(options, context);
+          const recipientId = isAdmin
+            ? (url.searchParams.get("recipientId") ?? undefined)
+            : context.recipientId;
           const deliveries = await notify.deliveries.list(recipientId, context);
-          return json({ data: deliveries.map(redactDelivery) });
+          return withCors(json({ data: deliveries.map(redactDelivery) }));
         }
       }
     } catch (err) {
       if (err instanceof PayloadValidationError) {
-        return json({ error: err.message }, 400);
+        return withCors(json({ error: err.message }, 400));
       }
       if (err instanceof NotifyKitError) {
-        return json({ error: err.message }, 400);
+        return withCors(json({ error: err.message }, 400));
       }
       const message = err instanceof Error ? err.message : "Internal error";
-      return json({ error: message }, 500);
+      return withCors(json({ error: message }, 500));
     }
   };
 }
@@ -276,9 +462,9 @@ function buildNotificationsIndex<
       channels: def.channels.map((c) => c.type),
       payload: { ...def.payload },
     };
-    if (def.description) entry.description = def.description;
-    if (def.category) entry.category = def.category;
-    if (def.version) entry.version = def.version;
+    if (def.description !== undefined) entry.description = def.description;
+    if (def.category !== undefined) entry.category = def.category;
+    if (def.version !== undefined) entry.version = def.version;
     return entry;
   });
 }
@@ -315,6 +501,13 @@ function matchRoute(method: string, sub: string): Route {
     if (method === "POST") return { kind: "unsubscribe.post" };
     return { kind: "not_found" };
   }
+  const webhookMatch = trimmed.match(/^\/webhooks\/([^/]+)$/);
+  if (webhookMatch && webhookMatch[1]) {
+    if (method === "POST") {
+      return { kind: "webhooks.post", provider: decodeURIComponent(webhookMatch[1]) };
+    }
+    return { kind: "not_found" };
+  }
   return { kind: "not_found" };
 }
 
@@ -323,7 +516,7 @@ function normalizeIdentity(
 ): HandlerIdentity | null {
   if (!value) return null;
   if (typeof value === "string") {
-    return { recipientId: value };
+    return value ? { recipientId: value } : null;
   }
   if (!value.recipientId) return null;
   return value;
@@ -339,6 +532,17 @@ async function isAuthorized(
   }
   const permissions = context.identity.permissions ?? [];
   return permissions.includes("admin") || permissions.includes(permission);
+}
+
+async function isAdminIdentity(
+  options: CreateHandlerOptions,
+  context: HandlerContext,
+): Promise<boolean> {
+  if (options.authorize) {
+    return await options.authorize(context, "admin");
+  }
+  const permissions = context.identity.permissions ?? [];
+  return permissions.includes("admin");
 }
 
 function normalizeBasePath(input: string): string {

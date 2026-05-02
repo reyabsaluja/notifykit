@@ -94,7 +94,10 @@ export default function SecurityPage() {
             <td>
               <code>identify()</code> + permission
             </td>
-            <td>tenant/workspace; sensitive fields redacted</td>
+            <td>
+              recipientId (own only) + tenant/workspace; admin can query others;
+              sensitive fields redacted
+            </td>
           </tr>
           <tr>
             <td>
@@ -109,6 +112,13 @@ export default function SecurityPage() {
             </td>
             <td>HMAC token</td>
             <td>Embedded in signed token</td>
+          </tr>
+          <tr>
+            <td>
+              <code>POST /webhooks/:provider</code>
+            </td>
+            <td>Provider signature verifier</td>
+            <td>&mdash; (provider-scoped)</td>
           </tr>
         </tbody>
       </table>
@@ -163,6 +173,25 @@ export default function SecurityPage() {
         full records because it runs in trusted code.
       </p>
 
+      <h2 id="payload-redaction">Payload field redaction</h2>
+      <p>
+        Notification definitions can declare a <code>redact</code> array listing
+        payload field names that contain sensitive data (PII, secrets, tokens).
+        Use <code>notify.redactPayload(notificationId, payload)</code> to
+        produce a copy with those fields replaced by{" "}
+        <code>&quot;[REDACTED]&quot;</code>. This is intended for delivery logs,
+        timeline views, studio surfaces, and analytics — the full payload is
+        still stored on the notification record for server-side rendering.
+      </p>
+      <pre>
+        <code>{`notification({
+  id: "password_changed",
+  payload: { email: "string", ip: "string" },
+  channels: [inbox({ title: "Password changed from {{ip}}" })],
+  redact: ["email", "ip"],  // ← fields to mask in logs
+})`}</code>
+      </pre>
+
       <h2 id="unsubscribe-links">Unsubscribe links</h2>
       <p>
         Unsubscribe links are HMAC-SHA256 signed tokens that bind a recipient,
@@ -170,6 +199,14 @@ export default function SecurityPage() {
         <code>identify()</code> because the cryptographic signature serves as
         authorization. Tokens use timing-safe comparison and cannot be forged
         without the secret.
+      </p>
+      <p>
+        <strong>No expiry by design.</strong> Per RFC 8058, email unsubscribe
+        links must continue to work indefinitely. This means a leaked token
+        permanently grants the ability to toggle email preferences for the
+        bound recipient + notification pair. Rotate the{" "}
+        <code>unsubscribe.secret</code> if you believe tokens have been
+        compromised — this invalidates all existing links.
       </p>
       <ul>
         <li>
@@ -197,6 +234,95 @@ export default function SecurityPage() {
         Inbox and preference operations rely entirely on the server handler to
         resolve the user via <code>identify()</code>. This makes it impossible
         for client code to read or modify another user&rsquo;s data.
+      </p>
+
+      <h2 id="notifications-visibility">Notification metadata visibility</h2>
+      <p>
+        By default, <code>GET /notifications</code> is public — it returns
+        notification IDs, channels, and payload schemas without authentication.
+        If your notification IDs or categories are sensitive, set{" "}
+        <code>protectNotifications: true</code> to require{" "}
+        <code>identify()</code> for this route:
+      </p>
+      <pre>
+        <code>{`createHandler(notify, {
+  identify: getIdentity,
+  protectNotifications: true,  // now requires auth
+})`}</code>
+      </pre>
+
+      <h2 id="cors">CORS</h2>
+      <p>
+        When the handler is served from a different origin than the client app,
+        set the <code>cors</code> option to include the appropriate{" "}
+        <code>Access-Control-Allow-Origin</code> headers on every response:
+      </p>
+      <pre>
+        <code>{`createHandler(notify, {
+  identify: getIdentity,
+  cors: "https://app.example.com",
+})`}</code>
+      </pre>
+
+      <h2 id="rate-limiting">Rate limiting</h2>
+      <p>
+        NotifyKit&rsquo;s built-in <code>rateLimit</code> controls the rate at
+        which <em>notifications are sent</em>. For request-level throttling on
+        handler routes, use the <code>requestRateLimit</code> option:
+      </p>
+      <pre>
+        <code>{`createHandler(notify, {
+  identify: getIdentity,
+  requestRateLimit: {
+    max: 60,        // max requests per window per identity
+    windowMs: 60_000, // sliding window in ms
+  },
+})`}</code>
+      </pre>
+      <p>
+        Each authenticated <code>recipientId</code> gets an independent
+        sliding-window counter. When the limit is exceeded, the handler returns{" "}
+        <code>429 Too Many Requests</code>. Unauthenticated routes (
+        <code>/notifications</code>, <code>/unsubscribe</code>) are not
+        throttled by this mechanism &mdash; apply IP-based rate limiting at your
+        reverse proxy or API gateway for those.
+      </p>
+
+      <h2 id="deliveries-admin-scoping">Delivery log scoping</h2>
+      <p>
+        Non-admin users with the <code>deliveries.list</code> permission can
+        only see their own delivery records. The{" "}
+        <code>?recipientId=</code> query parameter is ignored for non-admin
+        callers. Only identities with <code>permissions: [&quot;admin&quot;]</code>{" "}
+        can query other recipients&rsquo; deliveries within the same
+        tenant/workspace scope.
+      </p>
+
+      <h2 id="inbound-webhooks">Inbound provider webhooks</h2>
+      <p>
+        To receive delivery status callbacks from email providers (e.g. Resend,
+        SendGrid), configure the <code>webhooks</code> option with a verifier
+        per provider:
+      </p>
+      <pre>
+        <code>{`createHandler(notify, {
+  identify: getIdentity,
+  webhooks: {
+    resend: (headers, rawBody) =>
+      verifyResendSignature(headers, rawBody, RESEND_SIGNING_SECRET),
+  },
+  onWebhookEvent: async (provider, payload) => {
+    // Update delivery status, trigger follow-up workflows, etc.
+  },
+})`}</code>
+      </pre>
+      <p>
+        Each provider gets a <code>POST /webhooks/:provider</code> route. The
+        verifier receives the request <code>Headers</code> and raw body string;
+        it must return <code>true</code> for authentic requests. Unverified
+        requests receive <code>401</code>. Unknown provider names return{" "}
+        <code>404</code>. Webhook routes bypass <code>identify()</code> — the
+        cryptographic signature serves as authorization.
       </p>
 
       <p>

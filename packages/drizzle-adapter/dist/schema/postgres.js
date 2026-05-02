@@ -21,6 +21,10 @@ export const notifications = pgTable("notifykit_notifications", {
     workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payload: jsonb("payload").$type().notNull(),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN payload_schema JSONB; */
+    payloadSchema: jsonb("payload_schema").$type(),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER; */
+    definitionVersion: integer("definition_version"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
 }, (table) => ({
     recipientIdx: index("idx_notifykit_notifications_recipient").on(table.recipientId),

@@ -28,6 +28,8 @@ export async function createPgTables(
       workspace_id TEXT,
       notification_id TEXT NOT NULL,
       payload JSONB NOT NULL,
+      payload_schema JSONB,
+      definition_version INTEGER,
       created_at TIMESTAMPTZ NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_notifications_recipient

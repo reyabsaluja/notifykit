@@ -279,6 +279,42 @@ export declare const notifications: import("drizzle-orm/sqlite-core").SQLiteTabl
         }, {}, {
             $type: Record<string, unknown>;
         }>;
+        payloadSchema: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "payload_schema";
+            tableName: "notifykit_notifications";
+            dataType: "json";
+            columnType: "SQLiteTextJson";
+            data: Record<string, string>;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            $type: Record<string, string>;
+        }>;
+        definitionVersion: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "definition_version";
+            tableName: "notifykit_notifications";
+            dataType: "number";
+            columnType: "SQLiteInteger";
+            data: number;
+            driverParam: number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "created_at";
             tableName: "notifykit_notifications";
@@ -1794,6 +1830,42 @@ export declare const notifyKitSchema: {
             }, {}, {
                 $type: Record<string, unknown>;
             }>;
+            payloadSchema: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "payload_schema";
+                tableName: "notifykit_notifications";
+                dataType: "json";
+                columnType: "SQLiteTextJson";
+                data: Record<string, string>;
+                driverParam: string;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                $type: Record<string, string>;
+            }>;
+            definitionVersion: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+                name: "definition_version";
+                tableName: "notifykit_notifications";
+                dataType: "number";
+                columnType: "SQLiteInteger";
+                data: number;
+                driverParam: number;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
             createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
                 name: "created_at";
                 tableName: "notifykit_notifications";

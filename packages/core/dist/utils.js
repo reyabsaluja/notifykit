@@ -11,6 +11,16 @@ export function renderTemplate(template, payload) {
         return String(value);
     });
 }
+export function extractTemplateVars(template) {
+    const vars = [];
+    const re = /\{\{\s*([\w.$]+)\s*\}\}/g;
+    let m;
+    while ((m = re.exec(template)) !== null) {
+        if (m[1])
+            vars.push(m[1]);
+    }
+    return vars;
+}
 export class NotifyKitError extends Error {
     constructor(message) {
         super(message);
@@ -42,6 +52,18 @@ export function validatePayload(schema, payload, notificationId) {
             throw new PayloadValidationError(`Invalid payload for "${notificationId}": expected "${key}" to be ${expected}, got ${actual}.`);
         }
         result[key] = value;
+    }
+    return result;
+}
+const REDACTED = "[REDACTED]";
+export function redactPayload(payload, redactFields) {
+    if (redactFields.length === 0)
+        return payload;
+    const result = { ...payload };
+    for (const field of redactFields) {
+        if (field in result) {
+            result[field] = REDACTED;
+        }
     }
     return result;
 }

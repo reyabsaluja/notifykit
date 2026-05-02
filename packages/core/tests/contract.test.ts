@@ -3,6 +3,7 @@ import {
   channel,
   createNotifyKit,
   fakeEmailProvider,
+  fakeWebhookProvider,
   memoryAdapter,
   notification,
   redactPayload,
@@ -10,6 +11,7 @@ import {
 
 const inbox = channel.inbox();
 const email = channel.email();
+const webhook = channel.webhook();
 
 describe("definition metadata", () => {
   test("notification() accepts description, category, version, redact", () => {
@@ -164,7 +166,7 @@ describe("payload redaction", () => {
     expect(result).toBe(payload);
   });
 
-  test("redactPayload for unknown notification returns payload as-is", () => {
+  test("redactPayload for unknown notification throws", () => {
     const def = notification({
       id: "known",
       payload: { msg: "string" },
@@ -175,7 +177,52 @@ describe("payload redaction", () => {
       database: memoryAdapter(),
     });
     const payload = { msg: "hi" };
-    expect(notify.redactPayload("unknown_id", payload)).toBe(payload);
+    expect(() => notify.redactPayload("unknown_id", payload)).toThrow(
+      /Unknown notification id/,
+    );
+  });
+
+  test("hooks receive redactedPayload with sensitive fields masked", async () => {
+    const db = memoryAdapter();
+    const captured: {
+      createdPayload?: Record<string, unknown>;
+      sentPayload?: Record<string, unknown>;
+    } = {};
+    const def = notification({
+      id: "pw_change",
+      payload: { email: "string", ip: "string" },
+      channels: [
+        channel.email()({ subject: "Changed", body: "From {{ip}}" }),
+      ],
+      redact: ["email"],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: fakeEmailProvider() },
+      on: {
+        "notification.created": ({ redactedPayload }) => {
+          captured.createdPayload = redactedPayload;
+        },
+        "delivery.sent": ({ redactedPayload }) => {
+          captured.sentPayload = redactedPayload;
+        },
+      },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "pw_change",
+      payload: { email: "secret@x.com", ip: "1.2.3.4" },
+    });
+    expect(captured.createdPayload).toEqual({
+      email: "[REDACTED]",
+      ip: "1.2.3.4",
+    });
+    expect(captured.sentPayload).toEqual({
+      email: "[REDACTED]",
+      ip: "1.2.3.4",
+    });
   });
 });
 
@@ -195,19 +242,25 @@ describe("startup validation", () => {
     ).toThrow(/no channels/i);
   });
 
-  test("rejects email channel without email provider", () => {
-    expect(() =>
-      createNotifyKit({
-        notifications: [
-          notification({
-            id: "needs_email",
-            payload: { msg: "string" },
-            channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
-          }),
-        ] as const,
-        database: memoryAdapter(),
+  test("rejects email channel at send-time without email provider", async () => {
+    const notify = createNotifyKit({
+      notifications: [
+        notification({
+          id: "needs_email",
+          payload: { msg: "string" },
+          channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+        }),
+      ] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await expect(
+      notify.send({
+        recipientId: "u1",
+        notificationId: "needs_email",
+        payload: { msg: "hi" },
       }),
-    ).toThrow(/no email provider/i);
+    ).rejects.toThrow(/no email provider/i);
   });
 
   test("rejects template variable not in payload schema", () => {
@@ -389,5 +442,147 @@ describe("custom validate function", () => {
         payload: { msg: "anything" },
       }),
     ).rejects.toThrow("Custom validation failed");
+  });
+
+  test("custom validate runs during digest flush", async () => {
+    let validateCount = 0;
+    const def = notification({
+      id: "digest_val",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      digest: {
+        windowMs: 60_000,
+        render: ({ payloads }) => ({
+          msg: payloads.map((p) => p.msg).join(", "),
+        }),
+      },
+      validate: (payload) => {
+        validateCount++;
+        const p = payload as { msg: unknown };
+        if (typeof p.msg !== "string") throw new Error("msg must be string");
+        return { msg: String(p.msg).toUpperCase() };
+      },
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "digest_val",
+      payload: { msg: "hello" },
+    });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "digest_val",
+      payload: { msg: "world" },
+    });
+
+    const preFlushCount = validateCount;
+    await notify.flushDigests();
+
+    expect(validateCount).toBeGreaterThan(preFlushCount);
+    expect(db._state.inboxItems).toHaveLength(1);
+    expect(db._state.inboxItems[0]!.title).toBe("HELLO, WORLD");
+  });
+
+  test("custom validate runs only at send time, not again during scheduled-send flush", async () => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const start = `${pad((now.getUTCHours() + 23) % 24)}:${pad(now.getUTCMinutes())}`;
+    const end = `${pad((now.getUTCHours() + 1) % 24)}:${pad(now.getUTCMinutes())}`;
+
+    let validateCount = 0;
+    const def = notification({
+      id: "quiet_val",
+      payload: { msg: "string" },
+      channels: [
+        inbox({ title: "{{msg}}" }),
+        email({ subject: "{{msg}}", body: "{{msg}}" }),
+      ],
+      validate: (payload) => {
+        validateCount++;
+        const p = payload as { msg: unknown };
+        if (typeof p.msg !== "string") throw new Error("msg must be string");
+        return { msg: String(p.msg).toUpperCase() };
+      },
+    });
+    const provider = fakeEmailProvider();
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: { start, end, timezone: "UTC" },
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "quiet_val",
+      payload: { msg: "hello" },
+    });
+
+    expect(db._state.scheduledSends).toHaveLength(1);
+    const preFlushCount = validateCount;
+
+    await notify.flushScheduledSends();
+
+    // Custom validate must NOT be called again — the payload was already
+    // transformed at send() time. Re-running a non-idempotent transform
+    // would corrupt the data.
+    expect(validateCount).toBe(preFlushCount);
+    expect(provider.sent).toHaveLength(1);
+    expect(provider.sent[0]!.subject).toBe("HELLO");
+  });
+});
+
+describe("startup validation — webhook header templates", () => {
+  test("rejects template variable in webhook headers not in payload schema", () => {
+    expect(() =>
+      createNotifyKit({
+        notifications: [
+          notification({
+            id: "bad_header",
+            payload: { name: "string" },
+            channels: [
+              webhook({
+                url: "https://hook.example",
+                headers: { "x-key": "{{typo}}" },
+              }),
+            ],
+          }),
+        ] as const,
+        database: memoryAdapter(),
+        providers: { webhook: fakeWebhookProvider() },
+      }),
+    ).toThrow(/typo.*payload schema/i);
+  });
+
+  test("passes when webhook header variables exist in schema", () => {
+    expect(() =>
+      createNotifyKit({
+        notifications: [
+          notification({
+            id: "good_header",
+            payload: { name: "string" },
+            channels: [
+              webhook({
+                url: "https://hook.example",
+                headers: { "x-name": "{{name}}" },
+              }),
+            ],
+          }),
+        ] as const,
+        database: memoryAdapter(),
+        providers: { webhook: fakeWebhookProvider() },
+      }),
+    ).not.toThrow();
   });
 });

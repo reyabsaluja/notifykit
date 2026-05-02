@@ -1,4 +1,4 @@
-import { createNotifyKit, fakeEmailProvider, memoryAdapter, } from "notifykit";
+import { createNotifyKit, fakeEmailProvider, fakeWebhookProvider, memoryAdapter, } from "notifykit";
 import { loadConfig } from "../config.js";
 export async function runSend(options) {
     const { config } = await loadConfig(options.cwd, options.config);
@@ -7,6 +7,7 @@ export async function runSend(options) {
         database: memoryAdapter(),
         providers: {
             email: config.providers?.email ?? fakeEmailProvider(),
+            webhook: fakeWebhookProvider(),
         },
     });
     await notify.upsertRecipient({

@@ -1,4 +1,4 @@
-import { createHandler, createNotifyKit, fakeEmailProvider, memoryAdapter, } from "notifykit";
+import { createHandler, createNotifyKit, fakeEmailProvider, fakeWebhookProvider, memoryAdapter, } from "notifykit";
 import { loadConfig } from "../config.js";
 export async function runServe(options) {
     const { config, path } = await loadConfig(options.cwd, options.config);
@@ -8,6 +8,7 @@ export async function runServe(options) {
         database: memoryAdapter(),
         providers: {
             email: config.providers?.email ?? fakeEmailProvider(),
+            webhook: fakeWebhookProvider(),
         },
         on: {
             "notification.created": ({ notification }) => {
@@ -17,10 +18,10 @@ export async function runServe(options) {
                 console.log(`[event] inbox.created  "${inboxItem.title}"`);
             },
             "delivery.sent": ({ delivery }) => {
-                console.log(`[event] delivery.sent  ${delivery.to} via ${delivery.provider}`);
+                console.log(`[event] delivery.sent  ${delivery.channel} via ${delivery.provider} (${delivery.recipientId})`);
             },
             "delivery.failed": ({ delivery, error }) => {
-                console.log(`[event] delivery.failed  ${delivery.to}: ${error.message}`);
+                console.log(`[event] delivery.failed  ${delivery.channel} via ${delivery.provider} (${delivery.recipientId}): ${error.message}`);
             },
         },
     });
@@ -30,6 +31,8 @@ export async function runServe(options) {
         name: options.devUser,
     });
     const handler = createHandler(notify, {
+        // DEV ONLY — trusts a raw header. Never use this pattern in production;
+        // resolve identity from a verified session or JWT instead.
         identify: (req) => req.headers.get("x-user-id") ?? options.devUser,
         basePath: options.basePath,
     });
@@ -39,6 +42,7 @@ export async function runServe(options) {
         fetch: handler,
     });
     console.log(`\nNotifyKit dev server: http://localhost:${server.port}${basePath}`);
+    console.log(`⚠ Dev-only auth: identity comes from x-user-id header. Do NOT use this in production.`);
     console.log(`Dev recipient: "${options.devUser}" (override via x-user-id header)`);
     console.log(`Routes:`);
     console.log(`  GET  ${basePath}/notifications`);

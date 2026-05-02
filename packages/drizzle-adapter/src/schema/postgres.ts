@@ -37,7 +37,9 @@ export const notifications = pgTable(
     workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN payload_schema JSONB; */
     payloadSchema: jsonb("payload_schema").$type<Record<string, string>>(),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER; */
     definitionVersion: integer("definition_version"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },

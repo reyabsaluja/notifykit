@@ -126,7 +126,7 @@ export type NotificationDefinition<
   /**
    * Monotonically increasing version number for this definition. Stored on
    * every notification record so historical sends can be debugged/rendered
-   * even after the definition changes. Defaults to 1.
+   * even after the definition changes. Optional — omit to leave unversioned.
    */
   version?: number;
   /**
@@ -135,7 +135,7 @@ export type NotificationDefinition<
    * delivery logs, timeline, studio, and analytics surfaces. The full
    * payload is still stored on the notification record for server-side use.
    */
-  redact?: readonly (keyof S)[];
+  redact?: readonly string[];
   /**
    * Custom validation function for payloads. When set, this runs *instead*
    * of the built-in primitive schema validation. Use this to plug in Zod,
@@ -517,6 +517,8 @@ export type DatabaseAdapter = {
 export type Hooks = {
   "notification.created"?: (ctx: {
     notification: NotificationRecord;
+    /** Payload with sensitive fields replaced by `"[REDACTED]"` per the definition's `redact` list. */
+    redactedPayload: Record<string, unknown>;
   }) => void | Promise<void>;
   "notification.rate_limited"?: (ctx: {
     notificationId: string;
@@ -524,10 +526,16 @@ export type Hooks = {
     limit: RateLimitConfig;
   }) => void | Promise<void>;
   "inbox.created"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
-  "delivery.sent"?: (ctx: { delivery: DeliveryRecord }) => void | Promise<void>;
+  "delivery.sent"?: (ctx: {
+    delivery: DeliveryRecord;
+    /** Payload with sensitive fields replaced by `"[REDACTED]"` per the definition's `redact` list. */
+    redactedPayload: Record<string, unknown>;
+  }) => void | Promise<void>;
   "delivery.failed"?: (ctx: {
     delivery: DeliveryRecord;
     error: Error;
+    /** Payload with sensitive fields replaced by `"[REDACTED]"` per the definition's `redact` list. */
+    redactedPayload: Record<string, unknown>;
   }) => void | Promise<void>;
 };
 

@@ -20,7 +20,7 @@ export type UsePreferencesResult = {
         notificationId: string;
         channels: ChannelPreferenceMap;
     }): Promise<RecipientPreference>;
-    isEnabled(notificationId: string, channel: "inbox" | "email"): boolean;
+    isEnabled(notificationId: string, channel: "inbox" | "email" | "webhook"): boolean;
 };
 export declare function usePreferences(options?: {
     autoLoad?: boolean;

@@ -23,6 +23,11 @@ export const notifications = sqliteTable("notifykit_notifications", {
     payload: text("payload", { mode: "json" })
         .$type()
         .notNull(),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN payload_schema TEXT; (json) */
+    payloadSchema: text("payload_schema", { mode: "json" })
+        .$type(),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER; */
+    definitionVersion: integer("definition_version"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 export const inboxItems = sqliteTable("notifykit_inbox_items", {

@@ -4,6 +4,9 @@ export type NotificationMetadata = {
     id: string;
     channels: string[];
     payload: Record<string, string>;
+    description?: string;
+    category?: string;
+    version?: number;
 };
 export type ClientState = {
     inbox: {

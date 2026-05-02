@@ -1,6 +1,7 @@
 import {
   createNotifyKit,
   fakeEmailProvider,
+  fakeWebhookProvider,
   memoryAdapter,
 } from "notifykit";
 import { loadConfig } from "../config.js";
@@ -22,6 +23,7 @@ export async function runSend(options: SendOptions): Promise<number> {
     database: memoryAdapter(),
     providers: {
       email: config.providers?.email ?? fakeEmailProvider(),
+      webhook: fakeWebhookProvider(),
     },
   });
 

@@ -43,4 +43,13 @@ export type FakeWebhookProvider = WebhookProvider & {
     clear(): void;
 };
 export declare function fakeWebhookProvider(options?: FakeWebhookProviderOptions): FakeWebhookProvider;
+/**
+ * Verify the HMAC-SHA256 signature on an incoming webhook request body.
+ *
+ * Use this in your webhook ingestion endpoint to confirm that a request
+ * was actually sent by NotifyKit (or anyone holding the shared secret).
+ *
+ * @returns `true` if the signature is present and valid; `false` otherwise.
+ */
+export declare function verifyWebhookSignature(body: string, signatureHeader: string | null | undefined, secret: string): boolean;
 //# sourceMappingURL=providers.d.ts.map

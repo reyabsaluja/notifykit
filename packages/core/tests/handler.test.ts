@@ -356,18 +356,18 @@ describe("createHandler", () => {
   });
 
   test("GET /deliveries can be allowed through the authorize hook", async () => {
-    let sawPermission: string | null = null;
+    const sawPermissions: string[] = [];
     const handler = createHandler(ctx.notify, {
       identify: () => ({ recipientId: "user_1" }),
       authorize: (_ctx, permission) => {
-        sawPermission = permission;
+        sawPermissions.push(permission);
         return true;
       },
     });
 
     const res = await handler(new Request(`${BASE}/deliveries`));
     expect(res.status).toBe(200);
-    expect(sawPermission).toBe("deliveries.list");
+    expect(sawPermissions).toContain("deliveries.list");
   });
 
   test("POST /preferences rejects unknown notification id as 400", async () => {

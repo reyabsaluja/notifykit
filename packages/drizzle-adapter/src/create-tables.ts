@@ -28,6 +28,8 @@ export async function createSqliteTables(
       workspace_id TEXT,
       notification_id TEXT NOT NULL,
       payload TEXT NOT NULL,
+      payload_schema TEXT,
+      definition_version INTEGER,
       created_at INTEGER NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_notifications_recipient

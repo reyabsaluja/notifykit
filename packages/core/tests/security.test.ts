@@ -455,3 +455,1073 @@ describe("permission enforcement", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("SDK-level cross-tenant isolation", () => {
+  test("inbox.list with scope only returns matching tenant's items", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "tenant_a",
+      email: "alice@x.com",
+    });
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    // Manually insert an item under a different tenant for the same recipient
+    await database.inbox.create({
+      notificationRecordId: "ntf_b",
+      recipientId: "alice",
+      tenantId: "tenant_b",
+      notificationId: "comment_mentioned",
+      title: "From tenant B",
+    });
+
+    const tenantA = await notify.inbox.list("alice", { tenantId: "tenant_a" });
+    const tenantB = await notify.inbox.list("alice", { tenantId: "tenant_b" });
+    expect(tenantA.every((i) => i.tenantId === "tenant_a")).toBe(true);
+    expect(tenantB.every((i) => i.tenantId === "tenant_b")).toBe(true);
+    expect(tenantB).toHaveLength(1);
+    expect(tenantB[0]!.title).toBe("From tenant B");
+  });
+
+  test("deliveries.list with scope only returns matching tenant's deliveries", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "tenant_a",
+      email: "alice@x.com",
+    });
+    await notify.upsertRecipient({
+      id: "bob",
+      tenantId: "tenant_b",
+      email: "bob@x.com",
+    });
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+
+    const tenantA = await notify.deliveries.list(undefined, {
+      tenantId: "tenant_a",
+    });
+    for (const d of tenantA) {
+      expect(d.tenantId).toBe("tenant_a");
+    }
+    expect(tenantA.length).toBeGreaterThan(0);
+
+    const tenantB = await notify.deliveries.list(undefined, {
+      tenantId: "tenant_b",
+    });
+    for (const d of tenantB) {
+      expect(d.tenantId).toBe("tenant_b");
+    }
+
+    // Cross-tenant: requesting tenant_a deliveries must not include tenant_b
+    const aliceIdInB = await notify.deliveries.list("alice", {
+      tenantId: "tenant_b",
+    });
+    expect(aliceIdInB).toHaveLength(0);
+  });
+
+  test("preferences.list with scope only returns matching tenant's preferences", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "tenant_a",
+      email: "alice@x.com",
+    });
+    await notify.preferences.update({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+
+    const tenantA = await notify.preferences.list("alice", {
+      tenantId: "tenant_a",
+    });
+    expect(tenantA).toHaveLength(1);
+    expect(tenantA[0]!.channels).toEqual({ email: false });
+
+    const tenantB = await notify.preferences.list("alice", {
+      tenantId: "tenant_b",
+    });
+    expect(tenantB).toHaveLength(0);
+  });
+});
+
+describe("cross-workspace isolation", () => {
+  let database: MemoryAdapter;
+  let notify: NotifyKit<readonly [typeof commentMentioned]>;
+
+  beforeEach(async () => {
+    database = memoryAdapter();
+    notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      workspaceId: "ws_a",
+      email: "alice@x.com",
+    });
+    await notify.upsertRecipient({
+      id: "bob",
+      workspaceId: "ws_b",
+      email: "bob@x.com",
+    });
+  });
+
+  test("inbox list only returns items from the identified workspace", async () => {
+    await database.inbox.create({
+      notificationRecordId: "ntf_a",
+      recipientId: "alice",
+      workspaceId: "ws_a",
+      notificationId: "comment_mentioned",
+      title: "From workspace A",
+    });
+    await database.inbox.create({
+      notificationRecordId: "ntf_b",
+      recipientId: "alice",
+      workspaceId: "ws_b",
+      notificationId: "comment_mentioned",
+      title: "From workspace B",
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", workspaceId: "ws_a" }),
+    });
+
+    const res = await handler(new Request(`${BASE}/inbox`));
+    const body = (await res.json()) as {
+      data: Array<{ title: string; workspaceId?: string }>;
+    };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]!.title).toBe("From workspace A");
+  });
+
+  test("markRead on another workspace's item returns forbidden", async () => {
+    const otherWsItem = await database.inbox.create({
+      notificationRecordId: "ntf_b",
+      recipientId: "alice",
+      workspaceId: "ws_b",
+      notificationId: "comment_mentioned",
+      title: "From workspace B",
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", workspaceId: "ws_a" }),
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/inbox/${otherWsItem.id}/read`, { method: "POST" }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("preferences list is scoped to the identified workspace", async () => {
+    await database.preferences.upsert({
+      recipientId: "alice",
+      workspaceId: "ws_a",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+    await database.preferences.upsert({
+      recipientId: "alice",
+      workspaceId: "ws_b",
+      notificationId: "comment_mentioned",
+      channels: { inbox: false },
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", workspaceId: "ws_a" }),
+    });
+    const res = await handler(new Request(`${BASE}/preferences`));
+    const body = (await res.json()) as {
+      data: Array<{ channels: Record<string, boolean>; workspaceId?: string }>;
+    };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]!.channels).toEqual({ email: false });
+  });
+
+  test("preference update is scoped to the identified workspace", async () => {
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", workspaceId: "ws_a" }),
+    });
+
+    await handler(
+      new Request(`${BASE}/preferences`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "ws_b",
+          notificationId: "comment_mentioned",
+          channels: { email: false },
+        }),
+      }),
+    );
+
+    const wsAPref = await notify.preferences.get({
+      recipientId: "alice",
+      workspaceId: "ws_a",
+      notificationId: "comment_mentioned",
+    });
+    expect(wsAPref?.channels).toEqual({ email: false });
+
+    const wsBPref = await database.preferences.get(
+      "alice",
+      "comment_mentioned",
+      { workspaceId: "ws_b" },
+    );
+    expect(wsBPref).toBeNull();
+  });
+
+  test("deliveries list is scoped to the identified workspace", async () => {
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({
+        recipientId: "alice",
+        workspaceId: "ws_a",
+        permissions: ["deliveries.list" as const],
+      }),
+    });
+
+    const res = await handler(new Request(`${BASE}/deliveries`));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ recipientId: string; workspaceId?: string }>;
+    };
+    for (const d of body.data) {
+      expect(d.workspaceId).toBe("ws_a");
+    }
+  });
+});
+
+describe("protectNotifications option", () => {
+  test("GET /notifications returns 401 when protectNotifications is true and identify returns null", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      protectNotifications: true,
+    });
+
+    const res = await handler(new Request(`${BASE}/notifications`));
+    expect(res.status).toBe(401);
+  });
+
+  test("GET /notifications returns 200 when protectNotifications is true and identify succeeds", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      protectNotifications: true,
+    });
+
+    const res = await handler(new Request(`${BASE}/notifications`));
+    expect(res.status).toBe(200);
+  });
+
+  test("GET /notifications is public by default", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, { identify: () => null });
+
+    const res = await handler(new Request(`${BASE}/notifications`));
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("CORS support", () => {
+  test("responses include CORS headers and credentials when cors is a specific origin", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      cors: "https://app.example.com",
+    });
+
+    const res = await handler(new Request(`${BASE}/notifications`));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://app.example.com",
+    );
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+    expect(res.headers.get("Vary")).toBe("Origin");
+  });
+
+  test("wildcard cors omits credentials header", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      cors: "*",
+    });
+
+    const res = await handler(new Request(`${BASE}/notifications`));
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
+
+  test("OPTIONS preflight reflects Access-Control-Request-Headers", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      cors: "https://app.example.com",
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/inbox`, {
+        method: "OPTIONS",
+        headers: {
+          "Access-Control-Request-Headers": "Content-Type, X-Custom-Auth",
+        },
+      }),
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Headers")).toBe(
+      "Content-Type, X-Custom-Auth",
+    );
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+    expect(res.headers.get("Access-Control-Allow-Methods")).toBe(
+      "GET, POST, OPTIONS",
+    );
+  });
+
+  test("preflight falls back to default headers when request omits header list", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      cors: "*",
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/inbox`, { method: "OPTIONS" }),
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(res.headers.get("Access-Control-Allow-Headers")).toBe(
+      "Content-Type, Authorization",
+    );
+  });
+
+  test("no CORS headers when cors option is omitted", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, { identify: () => null });
+
+    const res = await handler(new Request(`${BASE}/notifications`));
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+});
+
+describe("empty-string recipientId rejection", () => {
+  test("identify returning empty string is treated as unauthenticated", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, { identify: () => "" });
+
+    const res = await handler(new Request(`${BASE}/inbox`));
+    expect(res.status).toBe(401);
+  });
+
+  test("identify returning object with empty recipientId is treated as unauthenticated", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "" }),
+    });
+
+    const res = await handler(new Request(`${BASE}/inbox`));
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("deliveries.list admin vs non-admin scoping", () => {
+  test("non-admin with deliveries.list sees only own deliveries", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "t1",
+      email: "alice@x.com",
+    });
+    await notify.upsertRecipient({
+      id: "bob",
+      tenantId: "t1",
+      email: "bob@x.com",
+    });
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({
+        recipientId: "alice",
+        tenantId: "t1",
+        permissions: ["deliveries.list" as const],
+      }),
+    });
+
+    const res = await handler(new Request(`${BASE}/deliveries`));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ recipientId: string }> };
+    for (const d of body.data) {
+      expect(d.recipientId).toBe("alice");
+    }
+  });
+
+  test("non-admin cannot use recipientId param to query other users", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "t1",
+      email: "alice@x.com",
+    });
+    await notify.upsertRecipient({
+      id: "bob",
+      tenantId: "t1",
+      email: "bob@x.com",
+    });
+    await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({
+        recipientId: "alice",
+        tenantId: "t1",
+        permissions: ["deliveries.list" as const],
+      }),
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/deliveries?recipientId=bob`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ recipientId: string }> };
+    for (const d of body.data) {
+      expect(d.recipientId).toBe("alice");
+    }
+  });
+
+  test("admin can use recipientId param to query other users", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "t1",
+      email: "alice@x.com",
+    });
+    await notify.upsertRecipient({
+      id: "bob",
+      tenantId: "t1",
+      email: "bob@x.com",
+    });
+    await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({
+        recipientId: "alice",
+        tenantId: "t1",
+        permissions: ["admin" as const],
+      }),
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/deliveries?recipientId=bob`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ recipientId: string }> };
+    expect(body.data.length).toBeGreaterThan(0);
+    for (const d of body.data) {
+      expect(d.recipientId).toBe("bob");
+    }
+  });
+});
+
+describe("request rate limiting", () => {
+  test("returns 429 when request limit is exceeded", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice" });
+
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      requestRateLimit: { max: 3, windowMs: 60_000 },
+    });
+
+    for (let i = 0; i < 3; i++) {
+      const res = await handler(new Request(`${BASE}/inbox`));
+      expect(res.status).toBe(200);
+    }
+
+    const blocked = await handler(new Request(`${BASE}/inbox`));
+    expect(blocked.status).toBe(429);
+    const body = (await blocked.json()) as { error: string };
+    expect(body.error).toBe("Too many requests");
+  });
+
+  test("rate limit is per-identity (different users have independent limits)", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice" });
+    await notify.upsertRecipient({ id: "bob" });
+
+    let currentUser = "alice";
+    const handler = createHandler(notify, {
+      identify: () => currentUser,
+      requestRateLimit: { max: 2, windowMs: 60_000 },
+    });
+
+    await handler(new Request(`${BASE}/inbox`));
+    await handler(new Request(`${BASE}/inbox`));
+    const aliceBlocked = await handler(new Request(`${BASE}/inbox`));
+    expect(aliceBlocked.status).toBe(429);
+
+    currentUser = "bob";
+    const bobOk = await handler(new Request(`${BASE}/inbox`));
+    expect(bobOk.status).toBe(200);
+  });
+
+  test("rate limit does not apply to unauthenticated routes", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      requestRateLimit: { max: 1, windowMs: 60_000 },
+    });
+
+    const res1 = await handler(new Request(`${BASE}/notifications`));
+    const res2 = await handler(new Request(`${BASE}/notifications`));
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+  });
+
+  test("rate limit applies to protected /notifications when protectNotifications is true", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice" });
+
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      protectNotifications: true,
+      requestRateLimit: { max: 2, windowMs: 60_000 },
+    });
+
+    const res1 = await handler(new Request(`${BASE}/notifications`));
+    const res2 = await handler(new Request(`${BASE}/notifications`));
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    const blocked = await handler(new Request(`${BASE}/notifications`));
+    expect(blocked.status).toBe(429);
+  });
+});
+
+describe("resolveScope error message opacity", () => {
+  test("tenant mismatch error does not reveal the actual tenant", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "secret_tenant",
+      email: "alice@x.com",
+    });
+
+    try {
+      await notify.send({
+        recipientId: "alice",
+        tenantId: "wrong_tenant",
+        notificationId: "comment_mentioned",
+        payload: makePayload(),
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      const message = (err as Error).message;
+      expect(message).not.toContain("secret_tenant");
+      expect(message).not.toContain("wrong_tenant");
+      expect(message).toContain("does not belong to the specified tenant");
+    }
+  });
+});
+
+describe("inbound provider webhook route", () => {
+  test("POST /webhooks/:provider returns 404 when no webhooks configured", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, { identify: () => "alice" });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/resend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "email.delivered" }),
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("POST /webhooks/:provider returns 401 when verifier rejects", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      webhooks: {
+        resend: () => false,
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/resend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "email.delivered" }),
+      }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("POST /webhooks/:provider succeeds when verifier accepts", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const events: Array<{ provider: string; payload: unknown }> = [];
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      webhooks: {
+        resend: (_headers, body) => body.includes("email.delivered"),
+      },
+      onWebhookEvent: (provider, payload) => {
+        events.push({ provider, payload });
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/resend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "email.delivered", id: "msg_123" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.provider).toBe("resend");
+    expect((events[0]!.payload as Record<string, unknown>).type).toBe(
+      "email.delivered",
+    );
+  });
+
+  test("POST /webhooks/:provider returns 404 for unknown provider", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      webhooks: {
+        resend: () => true,
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/unknown`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("webhook route bypasses identify — no auth required", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const events: unknown[] = [];
+    const handler = createHandler(notify, {
+      identify: () => null,
+      webhooks: {
+        resend: () => true,
+      },
+      onWebhookEvent: (_provider, payload) => {
+        events.push(payload);
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/resend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ event: "bounce" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(events).toHaveLength(1);
+  });
+
+  test("onWebhookEvent error returns 500 without crashing", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      webhooks: {
+        resend: () => true,
+      },
+      onWebhookEvent: () => {
+        throw new Error("handler blew up");
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/resend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "email.bounced" }),
+      }),
+    );
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("handler blew up");
+  });
+
+  test("verifier that throws returns 401 instead of crashing", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      webhooks: {
+        resend: () => {
+          throw new Error("missing signature header");
+        },
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/resend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "email.delivered" }),
+      }),
+    );
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("Unauthorized");
+  });
+
+  test("verifier receives headers (not full Request) and raw body", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    let receivedHeaders: Headers | null = null;
+    let receivedBody: string | null = null;
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      webhooks: {
+        resend: (headers, body) => {
+          receivedHeaders = headers;
+          receivedBody = body;
+          return headers.get("x-webhook-secret") === "s3cret";
+        },
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/resend`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-webhook-secret": "s3cret",
+        },
+        body: JSON.stringify({ event: "delivered" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(receivedHeaders).toBeInstanceOf(Headers);
+    expect(receivedHeaders!.get("x-webhook-secret")).toBe("s3cret");
+    expect(receivedBody).toBe(JSON.stringify({ event: "delivered" }));
+  });
+});
+
+describe("authorize hook + admin scoping on deliveries", () => {
+  test("authorize granting admin allows recipientId param for non-admin identity", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "support-agent",
+      tenantId: "t1",
+      email: "support@x.com",
+    });
+    await notify.upsertRecipient({
+      id: "bob",
+      tenantId: "t1",
+      email: "bob@x.com",
+    });
+    await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({
+        recipientId: "support-agent",
+        tenantId: "t1",
+      }),
+      authorize: (_ctx, permission) => {
+        return permission === "deliveries.list" || permission === "admin";
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/deliveries?recipientId=bob`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ recipientId: string }> };
+    expect(body.data.length).toBeGreaterThan(0);
+    for (const d of body.data) {
+      expect(d.recipientId).toBe("bob");
+    }
+  });
+
+  test("authorize granting deliveries.list but not admin restricts to own deliveries", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "support-agent",
+      tenantId: "t1",
+      email: "support@x.com",
+    });
+    await notify.upsertRecipient({
+      id: "bob",
+      tenantId: "t1",
+      email: "bob@x.com",
+    });
+    await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({
+        recipientId: "support-agent",
+        tenantId: "t1",
+      }),
+      authorize: (_ctx, permission) => {
+        return permission === "deliveries.list";
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/deliveries?recipientId=bob`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ recipientId: string }> };
+    for (const d of body.data) {
+      expect(d.recipientId).toBe("support-agent");
+    }
+  });
+
+  test("authorize denying admin falls back correctly even with admin in permissions", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "t1",
+      email: "alice@x.com",
+    });
+    await notify.upsertRecipient({
+      id: "bob",
+      tenantId: "t1",
+      email: "bob@x.com",
+    });
+    await notify.send({
+      recipientId: "bob",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({
+        recipientId: "alice",
+        tenantId: "t1",
+        permissions: ["admin" as const],
+      }),
+      authorize: (_ctx, permission) => {
+        if (permission === "admin") return false;
+        return permission === "deliveries.list";
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/deliveries?recipientId=bob`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ recipientId: string }> };
+    for (const d of body.data) {
+      expect(d.recipientId).toBe("alice");
+    }
+  });
+});

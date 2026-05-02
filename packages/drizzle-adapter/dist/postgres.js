@@ -124,9 +124,17 @@ export function drizzlePostgresAdapter(db) {
                     workspaceId: input.workspaceId,
                     notificationId: input.notificationId,
                     payload: input.payload,
+                    payloadSchema: input.payloadSchema,
+                    definitionVersion: input.definitionVersion,
                     createdAt: new Date(),
                 };
-                await db.insert(notifications).values(record);
+                await db.insert(notifications).values({
+                    ...record,
+                    tenantId: record.tenantId ?? null,
+                    workspaceId: record.workspaceId ?? null,
+                    payloadSchema: record.payloadSchema ?? null,
+                    definitionVersion: record.definitionVersion ?? null,
+                });
                 return record;
             },
         },

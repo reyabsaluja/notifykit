@@ -259,6 +259,42 @@ export declare const notifications: import("drizzle-orm/pg-core").PgTableWithCol
         }, {}, {
             $type: Record<string, unknown>;
         }>;
+        payloadSchema: import("drizzle-orm/pg-core").PgColumn<{
+            name: "payload_schema";
+            tableName: "notifykit_notifications";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: Record<string, string>;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            $type: Record<string, string>;
+        }>;
+        definitionVersion: import("drizzle-orm/pg-core").PgColumn<{
+            name: "definition_version";
+            tableName: "notifykit_notifications";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "notifykit_notifications";
@@ -1668,6 +1704,42 @@ export declare const notifyKitPgSchema: {
             }, {}, {
                 $type: Record<string, unknown>;
             }>;
+            payloadSchema: import("drizzle-orm/pg-core").PgColumn<{
+                name: "payload_schema";
+                tableName: "notifykit_notifications";
+                dataType: "json";
+                columnType: "PgJsonb";
+                data: Record<string, string>;
+                driverParam: unknown;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {
+                $type: Record<string, string>;
+            }>;
+            definitionVersion: import("drizzle-orm/pg-core").PgColumn<{
+                name: "definition_version";
+                tableName: "notifykit_notifications";
+                dataType: "number";
+                columnType: "PgInteger";
+                data: number;
+                driverParam: string | number;
+                notNull: false;
+                hasDefault: false;
+                isPrimaryKey: false;
+                isAutoincrement: false;
+                hasRuntimeDefault: false;
+                enumValues: undefined;
+                baseColumn: never;
+                identity: undefined;
+                generated: undefined;
+            }, {}, {}>;
             createdAt: import("drizzle-orm/pg-core").PgColumn<{
                 name: "created_at";
                 tableName: "notifykit_notifications";

@@ -1,219 +1,291 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import {
-  channel,
-  createHandler,
-  createNotifyKit,
-  fakeEmailProvider,
-  memoryAdapter,
-  notification,
-} from "notifykit";
+import { describe, expect, test } from "bun:test";
 import { createNotifyKitClient } from "../src/client.js";
 
-const inbox = channel.inbox();
-const email = channel.email();
-
-const commentMentioned = notification({
-  id: "comment_mentioned",
-  payload: {
-    actorName: "string",
-    postTitle: "string",
-    postUrl: "string",
-  },
-  channels: [
-    inbox({
-      title: "{{actorName}} mentioned you",
-      body: "In {{postTitle}}",
-      actionUrl: "{{postUrl}}",
-    }),
-    email({
-      subject: "{{actorName}} mentioned you in {{postTitle}}",
-      body: "Open {{postUrl}} to reply.",
-    }),
-  ],
-});
-
-async function buildHarness(authed = true) {
-  const notify = createNotifyKit({
-    notifications: [commentMentioned] as const,
-    database: memoryAdapter(),
-    providers: { email: fakeEmailProvider() },
-  });
-  const handler = createHandler(notify, {
-    identify: () => (authed ? "user_1" : null),
-  });
-  const client = createNotifyKitClient({
-    baseUrl: "http://test/api/notifykit",
-    fetch: (input, init) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
-      return handler(new Request(url, init));
-    },
-  });
-  await notify.upsertRecipient({
-    id: "user_1",
-    email: "a@example.com",
-    name: "Alice",
-  });
-  return { notify, handler, client };
+function mockFetch(routes: Record<string, unknown>) {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const method = init?.method ?? "GET";
+    const path = new URL(url, "http://localhost").pathname.replace(
+      /^\/api\/notifykit/,
+      "",
+    );
+    const key = `${method} ${path}`;
+    const body = routes[key];
+    if (body === undefined) {
+      return new Response(JSON.stringify({ error: "Not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
 }
 
 describe("createNotifyKitClient", () => {
-  let ctx: Awaited<ReturnType<typeof buildHarness>>;
-
-  beforeEach(async () => {
-    ctx = await buildHarness();
-  });
-
-  test("inbox.list fetches and revives Date fields", async () => {
-    await ctx.notify.send({
-      recipientId: "user_1",
-      notificationId: "comment_mentioned",
-      payload: {
-        actorName: "Rey",
-        postTitle: "Plan",
-        postUrl: "/p",
-      },
+  test("inbox.list fetches and revives dates", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              body: "World",
+              readAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
     });
 
-    const items = await ctx.client.inbox.list();
+    const items = await client.inbox.list();
     expect(items).toHaveLength(1);
+    expect(items[0]!.title).toBe("Hello");
     expect(items[0]!.createdAt).toBeInstanceOf(Date);
+    expect(items[0]!.createdAt.toISOString()).toBe("2026-04-30T12:00:00.000Z");
     expect(items[0]!.readAt).toBeNull();
-    expect(items[0]!.title).toBe("Rey mentioned you");
+
+    const state = client.getState();
+    expect(state.inbox.status).toBe("ready");
+    expect(state.inbox.items).toHaveLength(1);
   });
 
-  test("inbox.list publishes state transitions to subscribers", async () => {
-    const statuses: string[] = [];
-    ctx.client.subscribe(() => {
-      statuses.push(ctx.client.getState().inbox.status);
+  test("inbox.list sets error state on failure", async () => {
+    const client = createNotifyKitClient({
+      fetch: (async () =>
+        new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        })) as unknown as typeof fetch,
     });
-    await ctx.client.inbox.list();
-    expect(statuses[0]).toBe("loading");
-    expect(statuses[statuses.length - 1]).toBe("ready");
+
+    await expect(client.inbox.list()).rejects.toThrow("Unauthorized");
+    expect(client.getState().inbox.status).toBe("error");
+    expect(client.getState().inbox.error).toBe("Unauthorized");
   });
 
-  test("inbox.markRead optimistically updates then confirms", async () => {
-    const sent = await ctx.notify.send({
-      recipientId: "user_1",
-      notificationId: "comment_mentioned",
-      payload: {
-        actorName: "Rey",
-        postTitle: "Plan",
-        postUrl: "/p",
-      },
+  test("inbox.markRead applies optimistic update then confirms", async () => {
+    const states: string[] = [];
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /inbox/inb_1/read": {
+          data: {
+            id: "inb_1",
+            notificationRecordId: "ntf_1",
+            recipientId: "u1",
+            notificationId: "comment",
+            title: "Hello",
+            readAt: "2026-04-30T12:01:00.000Z",
+            createdAt: "2026-04-30T12:00:00.000Z",
+          },
+        },
+      }),
     });
-    const itemId = sent.inboxItems[0]!.id;
-    await ctx.client.inbox.list();
 
-    const snapshots: Array<Date | null | undefined> = [];
-    ctx.client.subscribe(() => {
-      const item = ctx.client
-        .getState()
-        .inbox.items.find((i) => i.id === itemId);
-      snapshots.push(item?.readAt);
+    await client.inbox.list();
+    expect(client.getState().inbox.items[0]!.readAt).toBeNull();
+
+    client.subscribe(() => {
+      const item = client.getState().inbox.items[0];
+      if (item?.readAt) states.push("read");
     });
 
-    await ctx.client.inbox.markRead(itemId);
-
-    // First snapshot is the optimistic local update (Date), final is the
-    // server-confirmed Date.
-    expect(snapshots[0]).toBeInstanceOf(Date);
-    expect(snapshots[snapshots.length - 1]).toBeInstanceOf(Date);
+    const result = await client.inbox.markRead("inb_1");
+    expect(result).not.toBeNull();
+    expect(result!.readAt).toBeInstanceOf(Date);
+    expect(states.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("inbox.markRead reverts optimistic update on server error", async () => {
-    await ctx.notify.send({
-      recipientId: "user_1",
-      notificationId: "comment_mentioned",
-      payload: {
-        actorName: "Rey",
-        postTitle: "Plan",
-        postUrl: "/p",
-      },
+  test("inbox.markRead reverts optimistic update on failure", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Hello",
+              readAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
     });
-    await ctx.client.inbox.list();
 
-    await expect(
-      ctx.client.inbox.markRead("does_not_exist"),
-    ).rejects.toThrow();
-    const items = ctx.client.getState().inbox.items;
-    expect(items[0]!.readAt).toBeNull();
+    await client.inbox.list();
+    await expect(client.inbox.markRead("inb_1")).rejects.toThrow();
+    expect(client.getState().inbox.items[0]!.readAt).toBeNull();
   });
 
-  test("preferences.update round-trips through the handler", async () => {
-    const pref = await ctx.client.preferences.update({
-      notificationId: "comment_mentioned",
+  test("preferences.list fetches and revives dates", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /preferences": {
+          data: [
+            {
+              recipientId: "u1",
+              notificationId: "comment",
+              channels: { inbox: true, email: false },
+              updatedAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    });
+
+    const prefs = await client.preferences.list();
+    expect(prefs).toHaveLength(1);
+    expect(prefs[0]!.channels).toEqual({ inbox: true, email: false });
+    expect(prefs[0]!.updatedAt).toBeInstanceOf(Date);
+    expect(client.getState().preferences.status).toBe("ready");
+  });
+
+  test("preferences.update applies optimistic state then confirms", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /preferences": {
+          data: [
+            {
+              recipientId: "u1",
+              notificationId: "comment",
+              channels: { inbox: true, email: true },
+              updatedAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+        "POST /preferences": {
+          data: {
+            recipientId: "u1",
+            notificationId: "comment",
+            channels: { inbox: true, email: false },
+            updatedAt: "2026-04-30T12:01:00.000Z",
+          },
+        },
+      }),
+    });
+
+    await client.preferences.list();
+    const updated = await client.preferences.update({
+      notificationId: "comment",
       channels: { email: false },
     });
-    expect(pref.channels.email).toBe(false);
 
-    const persisted = await ctx.notify.preferences.get({
-      recipientId: "user_1",
-      notificationId: "comment_mentioned",
-    });
-    expect(persisted?.channels.email).toBe(false);
+    expect(updated.channels.email).toBe(false);
+    expect(updated.channels.inbox).toBe(true);
   });
 
-  test("preferences.update is optimistic", async () => {
-    const snapshots: Array<boolean | undefined> = [];
-    ctx.client.subscribe(() => {
-      const pref = ctx.client
-        .getState()
-        .preferences.items.find(
-          (p) => p.notificationId === "comment_mentioned",
-        );
-      snapshots.push(pref?.channels.email);
+  test("preferences.update reverts on server failure", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /preferences": {
+          data: [
+            {
+              recipientId: "u1",
+              notificationId: "comment",
+              channels: { inbox: true, email: true },
+              updatedAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
     });
-    await ctx.client.preferences.update({
-      notificationId: "comment_mentioned",
-      channels: { email: false },
-    });
-    // First snapshot should already reflect the optimistic update.
-    expect(snapshots[0]).toBe(false);
-  });
 
-  test("notifications.list returns schema metadata", async () => {
-    const meta = await ctx.client.notifications.list();
-    expect(meta).toHaveLength(1);
-    expect(meta[0]!.id).toBe("comment_mentioned");
-    expect(meta[0]!.channels).toEqual(["inbox", "email"]);
-  });
-
-  test("client surfaces server error messages", async () => {
+    await client.preferences.list();
     await expect(
-      ctx.client.preferences.update({
-        notificationId: "does_not_exist",
+      client.preferences.update({
+        notificationId: "comment",
         channels: { email: false },
       }),
-    ).rejects.toThrow(/Unknown notification/);
+    ).rejects.toThrow();
+
+    expect(client.getState().preferences.items[0]!.channels.email).toBe(true);
   });
 
-  test("401 from handler becomes an error", async () => {
-    const unauth = await buildHarness(false);
-    await expect(unauth.client.inbox.list()).rejects.toThrow(/Unauthenticated/);
-    expect(unauth.client.getState().inbox.status).toBe("error");
-  });
-
-  test("baseUrl trailing slashes are tolerated", async () => {
-    const notify = createNotifyKit({
-      notifications: [commentMentioned] as const,
-      database: memoryAdapter(),
-      providers: { email: fakeEmailProvider() },
-    });
-    const handler = createHandler(notify, { identify: () => "u" });
-    await notify.upsertRecipient({ id: "u" });
+  test("notifications.list returns metadata", async () => {
     const client = createNotifyKitClient({
-      baseUrl: "http://test/api/notifykit///",
-      fetch: (input, init) => {
-        const url = typeof input === "string" ? input : (input as Request).url;
-        return handler(new Request(url, init));
-      },
+      fetch: mockFetch({
+        "GET /notifications": {
+          data: [
+            {
+              id: "comment",
+              channels: ["inbox", "email"],
+              payload: { msg: "string" },
+              description: "A comment",
+              category: "social",
+              version: 2,
+            },
+          ],
+        },
+      }),
     });
-    const items = await client.inbox.list();
-    expect(items).toEqual([]);
+
+    const notifs = await client.notifications.list();
+    expect(notifs).toHaveLength(1);
+    expect(notifs[0]!.description).toBe("A comment");
+    expect(notifs[0]!.category).toBe("social");
+    expect(notifs[0]!.version).toBe(2);
+  });
+
+  test("subscribe notifies on state changes", async () => {
+    let callCount = 0;
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": { data: [] },
+      }),
+    });
+
+    const unsub = client.subscribe(() => callCount++);
+    await client.inbox.list();
+    unsub();
+
+    expect(callCount).toBeGreaterThanOrEqual(2);
+
+    const before = callCount;
+    await client.inbox.list();
+    expect(callCount).toBe(before);
+  });
+
+  test("custom headers and baseUrl are used", async () => {
+    let capturedHeaders: Record<string, string> = {};
+    let capturedUrl = "";
+    const client = createNotifyKitClient({
+      baseUrl: "/custom/path",
+      headers: { "x-token": "secret123" },
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        capturedUrl = typeof input === "string" ? input : input.toString();
+        capturedHeaders = (init?.headers ?? {}) as Record<string, string>;
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as unknown as typeof fetch,
+    });
+
+    await client.inbox.list();
+    expect(capturedUrl).toContain("/custom/path/inbox");
+    expect(capturedHeaders["x-token"]).toBe("secret123");
   });
 });

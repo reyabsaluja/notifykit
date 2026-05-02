@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { createId } from "./utils.js";
 export function fakeEmailProvider(options = {}) {
     const sent = [];
@@ -99,5 +99,27 @@ export function fakeWebhookProvider(options = {}) {
             return { providerMessageId };
         },
     };
+}
+/**
+ * Verify the HMAC-SHA256 signature on an incoming webhook request body.
+ *
+ * Use this in your webhook ingestion endpoint to confirm that a request
+ * was actually sent by NotifyKit (or anyone holding the shared secret).
+ *
+ * @returns `true` if the signature is present and valid; `false` otherwise.
+ */
+export function verifyWebhookSignature(body, signatureHeader, secret) {
+    if (!signatureHeader)
+        return false;
+    const prefix = "sha256=";
+    if (!signatureHeader.startsWith(prefix))
+        return false;
+    const expected = createHmac("sha256", secret).update(body).digest("hex");
+    const received = signatureHeader.slice(prefix.length);
+    if (received.length !== expected.length)
+        return false;
+    if (!/^[0-9a-f]+$/.test(received))
+        return false;
+    return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
 }
 //# sourceMappingURL=providers.js.map

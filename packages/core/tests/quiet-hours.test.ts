@@ -248,4 +248,52 @@ describe("quiet hours in send()", () => {
     expect(result.inboxItems).toHaveLength(1);
     expect(db._state.scheduledSends).toEqual([]);
   });
+
+  test("deferred send does not double-transform a non-idempotent custom validator", async () => {
+    let validateCallCount = 0;
+    const transforming = notification({
+      id: "transform_notif",
+      payload: { count: "number" },
+      channels: [
+        inbox({ title: "Count: {{count}}" }),
+        email({ subject: "Count: {{count}}", body: "Count: {{count}}" }),
+      ],
+      validate: (payload) => {
+        validateCallCount++;
+        const p = payload as { count: number };
+        return { count: p.count + 1 };
+      },
+    });
+
+    const { qh } = kitWithQuietSelf("in");
+    const db = memoryAdapter();
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [transforming] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: qh,
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "transform_notif",
+      payload: { count: 0 },
+    });
+
+    expect(validateCallCount).toBe(1);
+    const inboxItems = await notify.inbox.list("u1");
+    expect(inboxItems[0]!.title).toBe("Count: 1");
+
+    await notify.flushScheduledSends();
+
+    // The custom validator must NOT have been called again during flush.
+    expect(validateCallCount).toBe(1);
+    expect(provider.sent).toHaveLength(1);
+    expect(provider.sent[0]!.subject).toBe("Count: 1");
+  });
 });

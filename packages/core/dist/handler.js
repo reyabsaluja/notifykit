@@ -3,33 +3,94 @@ import { NotifyKitError, PayloadValidationError } from "./utils.js";
 export function createHandler(notify, options) {
     const basePath = normalizeBasePath(options.basePath ?? "/api/notifykit");
     const unsubscribeSecret = options.unsubscribeSecret;
+    const corsOrigin = options.cors ?? null;
+    const requestRateLimit = options.requestRateLimit ?? null;
+    const rateLimitBuckets = new Map();
+    /** Returns true when the caller should be rejected with 429. */
+    function checkRateLimit(recipientId) {
+        if (!requestRateLimit)
+            return false;
+        const now = Date.now();
+        const cutoff = now - requestRateLimit.windowMs;
+        let timestamps = rateLimitBuckets.get(recipientId);
+        if (timestamps) {
+            while (timestamps.length > 0 && timestamps[0] < cutoff) {
+                timestamps.shift();
+            }
+            if (timestamps.length === 0) {
+                rateLimitBuckets.delete(recipientId);
+                timestamps = undefined;
+            }
+        }
+        if (timestamps && timestamps.length >= requestRateLimit.max) {
+            return true;
+        }
+        if (!timestamps) {
+            timestamps = [];
+            rateLimitBuckets.set(recipientId, timestamps);
+        }
+        timestamps.push(now);
+        return false;
+    }
+    function withCors(response, request) {
+        if (!corsOrigin)
+            return response;
+        const headers = new Headers(response.headers);
+        headers.set("Access-Control-Allow-Origin", corsOrigin);
+        headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        const requestedHeaders = request?.headers.get("Access-Control-Request-Headers");
+        headers.set("Access-Control-Allow-Headers", requestedHeaders || "Content-Type, Authorization");
+        headers.set("Access-Control-Max-Age", "86400");
+        if (corsOrigin !== "*") {
+            headers.set("Access-Control-Allow-Credentials", "true");
+            headers.set("Vary", "Origin");
+        }
+        return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+        });
+    }
     return async function handler(request) {
+        if (corsOrigin && request.method === "OPTIONS") {
+            return withCors(new Response(null, { status: 204 }), request);
+        }
         const url = new URL(request.url);
         const path = url.pathname;
         if (!path.startsWith(basePath)) {
-            return json({ error: "Not found" }, 404);
+            return withCors(json({ error: "Not found" }, 404));
         }
         const sub = path.slice(basePath.length) || "/";
         const route = matchRoute(request.method, sub);
         if (route.kind === "not_found") {
-            return json({ error: "Not found" }, 404);
+            return withCors(json({ error: "Not found" }, 404));
         }
-        // notifications.list is public metadata — no auth required
         if (route.kind === "notifications.list") {
-            return json({ data: buildNotificationsIndex(notify) });
+            if (options.protectNotifications) {
+                const identity = normalizeIdentity(await options.identify(request));
+                if (!identity) {
+                    return withCors(json({ error: "Unauthenticated" }, 401));
+                }
+                if (requestRateLimit) {
+                    if (checkRateLimit(identity.recipientId)) {
+                        return withCors(json({ error: "Too many requests" }, 429));
+                    }
+                }
+            }
+            return withCors(json({ data: buildNotificationsIndex(notify) }));
         }
         // Unsubscribe routes use HMAC token as auth — bypass identify().
         if (route.kind === "unsubscribe.get" || route.kind === "unsubscribe.post") {
             if (!unsubscribeSecret) {
-                return json({ error: "Not found" }, 404);
+                return withCors(json({ error: "Not found" }, 404));
             }
             const token = await extractUnsubscribeToken(request, url);
             if (!token) {
-                return unsubscribeHtml("This unsubscribe link is missing its token.", 400);
+                return withCors(unsubscribeHtml("This unsubscribe link is missing its token.", 400));
             }
             const claims = verifyUnsubscribeToken(token, unsubscribeSecret);
             if (!claims) {
-                return unsubscribeHtml("This unsubscribe link is invalid or has been tampered with.", 400);
+                return withCors(unsubscribeHtml("This unsubscribe link is invalid or has been tampered with.", 400));
             }
             try {
                 await notify.preferences.update({
@@ -42,21 +103,63 @@ export function createHandler(notify, options) {
             }
             catch (err) {
                 if (err instanceof NotifyKitError) {
-                    return unsubscribeHtml("This unsubscribe link refers to a notification or account that no longer exists.", 404);
+                    return withCors(unsubscribeHtml("This unsubscribe link refers to a notification or account that no longer exists.", 404));
                 }
                 throw err;
             }
             if (route.kind === "unsubscribe.post") {
-                // RFC 8058 one-click: return 200 with empty body. 204 is fine too
-                // but some mail-provider crawlers insist on 2xx text, so 200/"" is
-                // the safest choice.
-                return new Response("", { status: 200 });
+                return withCors(new Response("", { status: 200 }));
             }
-            return unsubscribeHtml(`You've been unsubscribed from "${escapeHtml(claims.notificationId)}" emails.`, 200);
+            return withCors(unsubscribeHtml(`You've been unsubscribed from "${escapeHtml(claims.notificationId)}" emails.`, 200));
+        }
+        if (route.kind === "webhooks.post") {
+            const verifier = options.webhooks?.[route.provider];
+            if (!verifier) {
+                return withCors(json({ error: "Not found" }, 404));
+            }
+            let rawBody;
+            try {
+                rawBody = await request.text();
+            }
+            catch {
+                return withCors(json({ error: "Bad request" }, 400));
+            }
+            let verified;
+            try {
+                verified = await verifier(request.headers, rawBody);
+            }
+            catch {
+                verified = false;
+            }
+            if (!verified) {
+                return withCors(json({ error: "Unauthorized" }, 401));
+            }
+            let payload;
+            try {
+                payload = JSON.parse(rawBody);
+            }
+            catch {
+                payload = rawBody;
+            }
+            if (options.onWebhookEvent) {
+                try {
+                    await options.onWebhookEvent(route.provider, payload);
+                }
+                catch (err) {
+                    const message = err instanceof Error ? err.message : "Internal error";
+                    return withCors(json({ error: message }, 500));
+                }
+            }
+            return withCors(json({ ok: true }));
         }
         const identity = normalizeIdentity(await options.identify(request));
         if (!identity) {
-            return json({ error: "Unauthenticated" }, 401);
+            return withCors(json({ error: "Unauthenticated" }, 401));
+        }
+        if (requestRateLimit) {
+            if (checkRateLimit(identity.recipientId)) {
+                return withCors(json({ error: "Too many requests" }, 429));
+            }
         }
         const context = {
             recipientId: identity.recipientId,
@@ -69,34 +172,34 @@ export function createHandler(notify, options) {
             switch (route.kind) {
                 case "inbox.list": {
                     const items = await notify.inbox.list(context.recipientId, context);
-                    return json({ data: items });
+                    return withCors(json({ data: items }));
                 }
                 case "inbox.markRead": {
                     const result = await notify.inbox.markReadForRecipient(route.id, context.recipientId, context);
                     if (result.status === "not_found") {
-                        return json({ error: "Inbox item not found" }, 404);
+                        return withCors(json({ error: "Inbox item not found" }, 404));
                     }
                     if (result.status === "forbidden") {
-                        return json({ error: "Forbidden" }, 403);
+                        return withCors(json({ error: "Forbidden" }, 403));
                     }
-                    return json({ data: result.item });
+                    return withCors(json({ data: result.item }));
                 }
                 case "preferences.list": {
                     const prefs = await notify.preferences.list(context.recipientId, context);
-                    return json({ data: prefs });
+                    return withCors(json({ data: prefs }));
                 }
                 case "preferences.update": {
                     const body = await readJson(request);
                     if (!body || typeof body !== "object") {
-                        return json({ error: "Invalid JSON body" }, 400);
+                        return withCors(json({ error: "Invalid JSON body" }, 400));
                     }
                     const { notificationId, channels } = body;
                     if (typeof notificationId !== "string") {
-                        return json({ error: "Missing or invalid 'notificationId'" }, 400);
+                        return withCors(json({ error: "Missing or invalid 'notificationId'" }, 400));
                     }
                     const validChannels = toChannelPreferenceMap(channels);
                     if (!validChannels) {
-                        return json({ error: "'channels' must be an object of { channel: boolean }" }, 400);
+                        return withCors(json({ error: "'channels' must be an object of { channel: boolean }" }, 400));
                     }
                     const updated = await notify.preferences.update({
                         recipientId: context.recipientId,
@@ -105,37 +208,53 @@ export function createHandler(notify, options) {
                         notificationId,
                         channels: validChannels,
                     });
-                    return json({ data: updated });
+                    return withCors(json({ data: updated }));
                 }
                 case "deliveries.list": {
                     const allowed = await isAuthorized(options, context, "deliveries.list");
                     if (!allowed) {
-                        return json({ error: "Forbidden" }, 403);
+                        return withCors(json({ error: "Forbidden" }, 403));
                     }
-                    const recipientId = url.searchParams.get("recipientId") ?? undefined;
+                    const isAdmin = await isAdminIdentity(options, context);
+                    const recipientId = isAdmin
+                        ? (url.searchParams.get("recipientId") ?? undefined)
+                        : context.recipientId;
                     const deliveries = await notify.deliveries.list(recipientId, context);
-                    return json({ data: deliveries });
+                    return withCors(json({ data: deliveries.map(redactDelivery) }));
                 }
             }
         }
         catch (err) {
             if (err instanceof PayloadValidationError) {
-                return json({ error: err.message }, 400);
+                return withCors(json({ error: err.message }, 400));
             }
             if (err instanceof NotifyKitError) {
-                return json({ error: err.message }, 400);
+                return withCors(json({ error: err.message }, 400));
             }
             const message = err instanceof Error ? err.message : "Internal error";
-            return json({ error: message }, 500);
+            return withCors(json({ error: message }, 500));
         }
     };
 }
+function redactDelivery(record) {
+    const { body: _body, subject: _subject, to: _to, ...safe } = record;
+    return safe;
+}
 function buildNotificationsIndex(notify) {
-    return notify.definitions.map((def) => ({
-        id: def.id,
-        channels: def.channels.map((c) => c.type),
-        payload: { ...def.payload },
-    }));
+    return notify.definitions.map((def) => {
+        const entry = {
+            id: def.id,
+            channels: def.channels.map((c) => c.type),
+            payload: { ...def.payload },
+        };
+        if (def.description !== undefined)
+            entry.description = def.description;
+        if (def.category !== undefined)
+            entry.category = def.category;
+        if (def.version !== undefined)
+            entry.version = def.version;
+        return entry;
+    });
 }
 function matchRoute(method, sub) {
     const trimmed = sub.endsWith("/") && sub.length > 1 ? sub.slice(0, -1) : sub;
@@ -175,13 +294,20 @@ function matchRoute(method, sub) {
             return { kind: "unsubscribe.post" };
         return { kind: "not_found" };
     }
+    const webhookMatch = trimmed.match(/^\/webhooks\/([^/]+)$/);
+    if (webhookMatch && webhookMatch[1]) {
+        if (method === "POST") {
+            return { kind: "webhooks.post", provider: decodeURIComponent(webhookMatch[1]) };
+        }
+        return { kind: "not_found" };
+    }
     return { kind: "not_found" };
 }
 function normalizeIdentity(value) {
     if (!value)
         return null;
     if (typeof value === "string") {
-        return { recipientId: value };
+        return value ? { recipientId: value } : null;
     }
     if (!value.recipientId)
         return null;
@@ -193,6 +319,13 @@ async function isAuthorized(options, context, permission) {
     }
     const permissions = context.identity.permissions ?? [];
     return permissions.includes("admin") || permissions.includes(permission);
+}
+async function isAdminIdentity(options, context) {
+    if (options.authorize) {
+        return await options.authorize(context, "admin");
+    }
+    const permissions = context.identity.permissions ?? [];
+    return permissions.includes("admin");
 }
 function normalizeBasePath(input) {
     let p = input.startsWith("/") ? input : `/${input}`;

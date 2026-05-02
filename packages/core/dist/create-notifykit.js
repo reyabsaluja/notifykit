@@ -1,7 +1,7 @@
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 export function createNotifyKit(config) {
     const { notifications, database, providers, on } = config;
     const queue = config.queue ?? inlineQueue();
@@ -28,6 +28,68 @@ export function createNotifyKit(config) {
             throw new NotifyKitError(`Duplicate notification id: "${def.id}". Notification ids must be unique.`);
         }
         byId.set(def.id, def);
+        if (def.channels.length === 0) {
+            throw new NotifyKitError(`Notification "${def.id}" has no channels. Add at least one channel.`);
+        }
+        const schemaKeys = new Set(Object.keys(def.payload));
+        const builtInVars = new Set(["_unsubscribeUrl"]);
+        for (const ch of def.channels) {
+            const templates = [];
+            if (ch.type === "inbox") {
+                templates.push(ch.title);
+                if (ch.body)
+                    templates.push(ch.body);
+                if (ch.actionUrl)
+                    templates.push(ch.actionUrl);
+            }
+            else if (ch.type === "email") {
+                templates.push(ch.subject, ch.body);
+            }
+            else if (ch.type === "webhook") {
+                templates.push(ch.url);
+                if (ch.headers) {
+                    for (const v of Object.values(ch.headers))
+                        templates.push(v);
+                }
+            }
+            for (const tmpl of templates) {
+                const vars = extractTemplateVars(tmpl);
+                for (const v of vars) {
+                    if (!schemaKeys.has(v) && !builtInVars.has(v)) {
+                        throw new NotifyKitError(`Notification "${def.id}" references template variable "{{${v}}}" ` +
+                            `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}. ` +
+                            `Add "${v}" to the payload schema or fix the template.`);
+                    }
+                }
+            }
+        }
+        if (def.fallback) {
+            const templates = [def.fallback.title];
+            if (def.fallback.body)
+                templates.push(def.fallback.body);
+            if (def.fallback.actionUrl)
+                templates.push(def.fallback.actionUrl);
+            for (const tmpl of templates) {
+                const vars = extractTemplateVars(tmpl);
+                for (const v of vars) {
+                    if (!schemaKeys.has(v) && !builtInVars.has(v)) {
+                        throw new NotifyKitError(`Notification "${def.id}" fallback references template variable "{{${v}}}" ` +
+                            `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}.`);
+                    }
+                }
+            }
+        }
+        if (def.redact) {
+            for (const field of def.redact) {
+                if (!schemaKeys.has(String(field))) {
+                    throw new NotifyKitError(`Notification "${def.id}" redact list includes "${String(field)}" ` +
+                        `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}.`);
+                }
+            }
+        }
+        if (def.version !== undefined && (!Number.isInteger(def.version) || def.version < 1)) {
+            throw new NotifyKitError(`Notification "${def.id}" version must be a positive integer, got ${def.version}.`);
+        }
     }
     async function runHook(name, ...args) {
         const fn = on?.[name];
@@ -51,12 +113,12 @@ export function createNotifyKit(config) {
         const tenantId = input.tenantId ?? recipient.tenantId;
         const workspaceId = input.workspaceId ?? recipient.workspaceId;
         if (input.tenantId && recipient.tenantId && input.tenantId !== recipient.tenantId) {
-            throw new NotifyKitError(`Recipient "${recipient.id}" belongs to tenant "${recipient.tenantId}", not "${input.tenantId}".`);
+            throw new NotifyKitError(`Recipient "${recipient.id}" does not belong to the specified tenant.`);
         }
         if (input.workspaceId &&
             recipient.workspaceId &&
             input.workspaceId !== recipient.workspaceId) {
-            throw new NotifyKitError(`Recipient "${recipient.id}" belongs to workspace "${recipient.workspaceId}", not "${input.workspaceId}".`);
+            throw new NotifyKitError(`Recipient "${recipient.id}" does not belong to the specified workspace.`);
         }
         return compactScope({ tenantId, workspaceId });
     }
@@ -67,6 +129,11 @@ export function createNotifyKit(config) {
         if (scope.workspaceId)
             out.workspaceId = scope.workspaceId;
         return out;
+    }
+    function redactForDef(def, payload) {
+        if (!def.redact || def.redact.length === 0)
+            return payload;
+        return redactPayload(payload, def.redact);
     }
     function scopeKey(scope) {
         if (!scope.tenantId && !scope.workspaceId)
@@ -83,8 +150,19 @@ export function createNotifyKit(config) {
         if (!recipient) {
             throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
         }
-        const payload = validatePayload(def.payload, input.payload, def.id);
+        const payload = def.validate
+            ? def.validate(input.payload)
+            : validatePayload(def.payload, input.payload, def.id);
         const scope = resolveScope(input, recipient);
+        const requiredProviders = new Set(def.channels
+            .map((ch) => ch.type)
+            .filter((t) => t === "email" || t === "webhook"));
+        if (requiredProviders.has("email") && !providers?.email) {
+            throw new NotifyKitError(`Notification "${def.id}" has an email channel but no email provider is configured.`);
+        }
+        if (requiredProviders.has("webhook") && !providers?.webhook) {
+            throw new NotifyKitError(`Notification "${def.id}" has a webhook channel but no webhook provider is configured.`);
+        }
         if (def.rateLimit) {
             const limit = def.rateLimit;
             const rateLimitScope = limit.scope ?? "recipient";
@@ -239,8 +317,10 @@ export function createNotifyKit(config) {
                 return;
             }
             const scope = resolveScope(record, recipient);
-            // The payload was validated at send() time; still validate here so a
-            // buggy store path surfaces loudly rather than feeding junk downstream.
+            // The payload was already validated (and potentially transformed) by
+            // send() before being stored. Re-running a custom validator could
+            // apply a non-idempotent transform a second time, so we only run the
+            // built-in schema check here as a corruption guard.
             const payload = validatePayload(def.payload, record.payload, def.id);
             // The inbox item was written at send() time. Only fire the previously
             // deferred channels now. We create a fresh notification record for the
@@ -279,8 +359,9 @@ export function createNotifyKit(config) {
                 payloads: entry.payloads,
                 count: entry.payloads.length,
             });
-            // Re-validate the combined payload so a buggy render() surfaces loudly.
-            const validated = validatePayload(def.payload, combined, def.id);
+            const validated = def.validate
+                ? def.validate(combined)
+                : validatePayload(def.payload, combined, def.id);
             await deliver(recipient, def, validated, { scope });
         }
         catch (err) {
@@ -308,10 +389,13 @@ export function createNotifyKit(config) {
                 workspaceId: scope.workspaceId,
                 notificationId: def.id,
                 payload,
+                payloadSchema: { ...def.payload },
+                definitionVersion: def.version,
             }));
         if (!options.existingNotification) {
             await runHook("notification.created", {
                 notification: notificationRecord,
+                redactedPayload: redactForDef(def, notificationRecord.payload),
             });
         }
         const inboxItems = [];
@@ -492,7 +576,13 @@ export function createNotifyKit(config) {
                     error: undefined,
                 });
                 if (updated) {
-                    await runHook("delivery.sent", { delivery: updated });
+                    const jobDef = byId.get(job.notificationId);
+                    await runHook("delivery.sent", {
+                        delivery: updated,
+                        redactedPayload: jobDef
+                            ? redactForDef(jobDef, job.payload)
+                            : job.payload,
+                    });
                 }
                 return;
             }
@@ -510,9 +600,13 @@ export function createNotifyKit(config) {
             failedAt: new Date(),
         });
         if (failed) {
+            const failedDef = byId.get(job.notificationId);
             await runHook("delivery.failed", {
                 delivery: failed,
                 error: lastError ?? new Error("Delivery failed"),
+                redactedPayload: failedDef
+                    ? redactForDef(failedDef, job.payload)
+                    : job.payload,
             });
         }
         // Fallback channel: when a primary delivery terminally fails, drop an
@@ -676,6 +770,15 @@ export function createNotifyKit(config) {
             await runFlushScheduledSends({ force: false });
         },
         definitions: notifications,
+        redactPayload(notificationId, payload) {
+            const def = byId.get(notificationId);
+            if (!def) {
+                throw new NotifyKitError(`Unknown notification id: "${notificationId}". Cannot redact payload for an unregistered definition.`);
+            }
+            if (!def.redact || def.redact.length === 0)
+                return payload;
+            return redactPayload(payload, def.redact);
+        },
     };
 }
 //# sourceMappingURL=create-notifykit.js.map

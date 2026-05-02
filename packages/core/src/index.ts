@@ -6,6 +6,7 @@ export { memoryAdapter } from "./memory-adapter.js";
 export {
   fakeEmailProvider,
   fakeWebhookProvider,
+  verifyWebhookSignature,
   webhookProvider,
 } from "./providers.js";
 export {
@@ -21,11 +22,13 @@ export {
 export {
   NotifyKitError,
   PayloadValidationError,
+  extractTemplateVars,
   redactPayload,
   renderTemplate,
 } from "./utils.js";
 
 export type {
+  Authorize,
   CreateHandlerOptions,
   Handler,
   HandlerContext,
@@ -33,6 +36,8 @@ export type {
   HandlerPermission,
   Identify,
   RedactedDeliveryRecord,
+  WebhookEventHandler,
+  WebhookVerifier,
 } from "./handler.js";
 
 export type {

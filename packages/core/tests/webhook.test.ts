@@ -6,6 +6,7 @@ import {
   fakeWebhookProvider,
   memoryAdapter,
   notification,
+  verifyWebhookSignature,
   webhookProvider,
 } from "../src/index.js";
 import type { WebhookProvider } from "../src/index.js";
@@ -209,14 +210,20 @@ describe("channel.webhook()", () => {
     expect(webhookProv.sent).toHaveLength(1);
   });
 
-  test("throws at startup if provider missing", () => {
+  test("throws on send if provider missing", async () => {
     const def = buildWebhookDef();
-    expect(() =>
-      createNotifyKit({
-        notifications: [def] as const,
-        database: memoryAdapter(),
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    await expect(
+      notify.send({
+        recipientId: "u1",
+        notificationId: "comment_mentioned",
+        payload: basePayload,
       }),
-    ).toThrow(/no webhook provider/i);
+    ).rejects.toThrow(/no webhook provider/i);
   });
 
   test("quiet hours defer webhook alongside email", async () => {
@@ -325,5 +332,59 @@ describe("webhookProvider (default fetch-based)", () => {
         },
       }),
     ).rejects.toThrow(/HTTP 500/);
+  });
+});
+
+describe("verifyWebhookSignature", () => {
+  const secret = "test-secret";
+  const body = JSON.stringify({ notificationId: "n", recipientId: "r", payload: {}, sentAt: "2026-05-01T00:00:00.000Z" });
+  const validSig = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+
+  test("returns true for valid signature", () => {
+    expect(verifyWebhookSignature(body, validSig, secret)).toBe(true);
+  });
+
+  test("returns false for wrong secret", () => {
+    expect(verifyWebhookSignature(body, validSig, "wrong-secret")).toBe(false);
+  });
+
+  test("returns false for tampered body", () => {
+    expect(verifyWebhookSignature(body + "x", validSig, secret)).toBe(false);
+  });
+
+  test("returns false for null/undefined/empty header", () => {
+    expect(verifyWebhookSignature(body, null, secret)).toBe(false);
+    expect(verifyWebhookSignature(body, undefined, secret)).toBe(false);
+    expect(verifyWebhookSignature(body, "", secret)).toBe(false);
+  });
+
+  test("returns false for malformed header (missing sha256= prefix)", () => {
+    const hex = createHmac("sha256", secret).update(body).digest("hex");
+    expect(verifyWebhookSignature(body, hex, secret)).toBe(false);
+  });
+
+  test("round-trips with webhookProvider signing", async () => {
+    let capturedBody = "";
+    let capturedSig = "";
+    const fakeFetch: typeof fetch = (async (_input, init) => {
+      capturedBody = init?.body as string;
+      capturedSig = (init?.headers as Record<string, string>)["x-notifykit-signature"];
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    const provider = webhookProvider({ secret, fetch: fakeFetch });
+    await provider.send({
+      url: "https://example.com/hook",
+      headers: {},
+      payload: {
+        notificationId: "n",
+        recipientId: "r",
+        payload: { a: 1 },
+        sentAt: "2026-05-01T00:00:00.000Z",
+      },
+    });
+
+    expect(verifyWebhookSignature(capturedBody, capturedSig, secret)).toBe(true);
+    expect(verifyWebhookSignature(capturedBody, capturedSig, "wrong")).toBe(false);
   });
 });

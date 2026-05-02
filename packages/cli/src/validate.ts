@@ -30,6 +30,15 @@ export function validateNotifications(
     }
     seenIds.add(def.id);
 
+    if (def.channels.length === 0) {
+      issues.push({
+        notificationId: def.id,
+        channel: "-",
+        field: "channels",
+        message: `No channels configured. Add at least one channel.`,
+      });
+    }
+
     // `_unsubscribeUrl` is injected by the engine at render time for email
     // templates. It's valid to reference it even though it's not declared in
     // the payload schema.
@@ -70,6 +79,40 @@ export function validateNotifications(
           }
         }
       }
+    }
+
+    if (def.fallback) {
+      const label = "fallback";
+      collectIssues(def, label, "title", def.fallback.title, payloadKeys, issues);
+      if (def.fallback.body !== undefined) {
+        collectIssues(def, label, "body", def.fallback.body, payloadKeys, issues);
+      }
+      if (def.fallback.actionUrl !== undefined) {
+        collectIssues(def, label, "actionUrl", def.fallback.actionUrl, payloadKeys, issues);
+      }
+    }
+
+    if (def.redact) {
+      for (const field of def.redact) {
+        const key = String(field);
+        if (!payloadKeys.has(key) || key === "_unsubscribeUrl") {
+          issues.push({
+            notificationId: def.id,
+            channel: "-",
+            field: "redact",
+            message: `Redact list includes "${key}" but it is not in the payload schema.`,
+          });
+        }
+      }
+    }
+
+    if (def.version !== undefined && (!Number.isInteger(def.version) || def.version < 1)) {
+      issues.push({
+        notificationId: def.id,
+        channel: "-",
+        field: "version",
+        message: `Version must be a positive integer, got ${def.version}.`,
+      });
     }
   }
   return issues;

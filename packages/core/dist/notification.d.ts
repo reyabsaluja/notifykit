@@ -12,6 +12,11 @@ export type NotificationInput<Id extends string, S extends PayloadSchema> = {
     digest?: DigestConfig<S>;
     rateLimit?: RateLimitConfig;
     fallback?: InboxChannelConfig;
+    description?: string;
+    category?: string;
+    version?: number;
+    redact?: readonly (keyof S)[];
+    validate?: (payload: unknown) => Record<string, unknown>;
 };
 export declare function notification<Id extends string, S extends PayloadSchema>(def: NotificationInput<Id, S>): NotificationDefinition<Id, S>;
 //# sourceMappingURL=notification.d.ts.map
