@@ -40,10 +40,26 @@ export type CreateNotifyKitClientOptions = {
      * Extra headers merged into every request.
      */
     headers?: Record<string, string>;
+    /**
+     * Enable realtime updates via SSE. When `true`, calling `connect()`
+     * opens an EventSource to `/inbox/stream` and merges events into state.
+     */
+    realtime?: boolean;
 };
+export type RealtimeStatus = "disconnected" | "connecting" | "connected";
 export type NotifyKitClient = {
     getState(): ClientState;
     subscribe(listener: () => void): () => void;
+    /**
+     * Open an SSE connection to receive live inbox updates. No-op if already
+     * connected or if `realtime` was not enabled in options. The connection
+     * auto-reconnects on failure via EventSource semantics.
+     */
+    connect(): void;
+    /** Close the SSE connection. Safe to call when already disconnected. */
+    disconnect(): void;
+    /** Current SSE connection status. */
+    realtimeStatus(): RealtimeStatus;
     inbox: {
         list(options?: {
             archived?: boolean;

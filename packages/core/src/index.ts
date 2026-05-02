@@ -8,6 +8,7 @@ export {
 } from "./preference-keys.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
+export { memoryRealtimeAdapter } from "./realtime.js";
 export {
   fakeEmailProvider,
   fakeWebhookProvider,
@@ -61,6 +62,12 @@ export type {
 } from "./channel.js";
 
 export type { MemoryAdapter } from "./memory-adapter.js";
+
+export type {
+  RealtimeAdapter,
+  RealtimeEvent,
+  RealtimeListener,
+} from "./realtime.js";
 
 export type {
   FakeEmailProvider,

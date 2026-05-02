@@ -1,4 +1,5 @@
 import type { CategoryDefaults, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryExplanation, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxDeleteForRecipientResult, InboxItem, InboxItemForRecipientResult, InboxListFilter, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, PreferenceExplanation, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, SecurityScope, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
+import type { RealtimeAdapter } from "./realtime.js";
 export type CreateNotifyKitInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     notifications: T;
     database: DatabaseAdapter;
@@ -43,6 +44,12 @@ export type CreateNotifyKitInput<T extends readonly NotificationDefinition<strin
      * tenant, or `null` for no tenant-level overrides.
      */
     tenantDefaults?: (tenantId: string) => ChannelPreferenceMap | Promise<ChannelPreferenceMap | null> | null;
+    /**
+     * Pluggable realtime transport. When set, inbox mutations are published
+     * so that connected clients (SSE, WebSocket, etc.) receive live updates.
+     * Use `memoryRealtimeAdapter()` for single-process deployments.
+     */
+    realtime?: RealtimeAdapter;
 };
 export type SendResult = {
     notification: NotificationRecord | null;
@@ -183,6 +190,12 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
      * `"[REDACTED]"`. If no redaction is configured, returns the payload as-is.
      */
     redactPayload(notificationId: string, payload: Record<string, unknown>): Record<string, unknown>;
+    /**
+     * The realtime adapter passed to `createNotifyKit`, or `undefined` if none
+     * was provided. Exposed so the handler can subscribe clients and publish
+     * events from user-initiated mutations (mark-read, archive, etc.).
+     */
+    readonly realtime: RealtimeAdapter | undefined;
 };
 export declare function createNotifyKit<const T extends readonly NotificationDefinition<string, PayloadSchema>[]>(config: CreateNotifyKitInput<T>): NotifyKit<T>;
 //# sourceMappingURL=create-notifykit.d.ts.map

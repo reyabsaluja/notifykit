@@ -12,6 +12,7 @@ export function createNotifyKit(config) {
         delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
     };
     const unsubscribeConfig = config.unsubscribe ?? null;
+    const realtimeAdapter = config.realtime;
     function buildUnsubscribeUrl(recipient, notificationId, scope) {
         if (!unsubscribeConfig)
             return "";
@@ -568,6 +569,10 @@ export function createNotifyKit(config) {
                 });
                 inboxItems.push(item);
                 await runHook("inbox.created", { inboxItem: item });
+                realtimeAdapter?.publish(recipient.id, scope, {
+                    type: "inbox.created",
+                    item,
+                });
             }
             else if (ch.type === "email") {
                 // Startup validation guarantees providers.email exists for any
@@ -790,6 +795,10 @@ export function createNotifyKit(config) {
                         : undefined,
                 });
                 await runHook("inbox.created", { inboxItem: item });
+                realtimeAdapter?.publish(job.recipientId, fallbackScope, {
+                    type: "inbox.created",
+                    item,
+                });
             }
         }
     }
@@ -987,6 +996,7 @@ export function createNotifyKit(config) {
             await runFlushScheduledSends({ force: false });
         },
         definitions: notifications,
+        realtime: realtimeAdapter,
         redactPayload(notificationId, payload) {
             const def = byId.get(notificationId);
             if (!def) {

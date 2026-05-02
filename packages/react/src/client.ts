@@ -48,11 +48,28 @@ export type CreateNotifyKitClientOptions = {
    * Extra headers merged into every request.
    */
   headers?: Record<string, string>;
+  /**
+   * Enable realtime updates via SSE. When `true`, calling `connect()`
+   * opens an EventSource to `/inbox/stream` and merges events into state.
+   */
+  realtime?: boolean;
 };
+
+export type RealtimeStatus = "disconnected" | "connecting" | "connected";
 
 export type NotifyKitClient = {
   getState(): ClientState;
   subscribe(listener: () => void): () => void;
+  /**
+   * Open an SSE connection to receive live inbox updates. No-op if already
+   * connected or if `realtime` was not enabled in options. The connection
+   * auto-reconnects on failure via EventSource semantics.
+   */
+  connect(): void;
+  /** Close the SSE connection. Safe to call when already disconnected. */
+  disconnect(): void;
+  /** Current SSE connection status. */
+  realtimeStatus(): RealtimeStatus;
   inbox: {
     list(options?: { archived?: boolean }): Promise<InboxItem[]>;
     markRead(inboxItemId: string): Promise<InboxItem | null>;
@@ -86,6 +103,7 @@ export function createNotifyKitClient(
   }
   const credentials = options.credentials ?? "same-origin";
   const extraHeaders = options.headers ?? {};
+  const realtimeEnabled = options.realtime ?? false;
 
   let state: ClientState = {
     inbox: { items: [], unreadCount: 0, status: "idle", error: null },
@@ -95,6 +113,113 @@ export function createNotifyKitClient(
 
   function setState(next: ClientState) {
     state = next;
+    for (const l of listeners) l();
+  }
+
+  let eventSource: EventSource | null = null;
+  let rtStatus: RealtimeStatus = "disconnected";
+
+  function handleRealtimeEvent(raw: MessageEvent) {
+    let event: {
+      type: string;
+      item?: Record<string, unknown>;
+      itemId?: string;
+      count?: number;
+    };
+    try {
+      event = JSON.parse(raw.data as string);
+    } catch {
+      return;
+    }
+    const prev = state.inbox;
+
+    if (event.type === "inbox.created" && event.item) {
+      const item = reviveInboxItem(event.item);
+      const exists = prev.items.some((it) => it.id === item.id);
+      if (!exists) {
+        const items = [item, ...prev.items];
+        const unread = item.readAt ? 0 : 1;
+        setState({
+          ...state,
+          inbox: {
+            ...prev,
+            items,
+            unreadCount: prev.unreadCount + unread,
+          },
+        });
+      }
+    } else if (event.type === "inbox.updated" && event.item) {
+      const item = reviveInboxItem(event.item);
+      const old = prev.items.find((it) => it.id === item.id);
+      const items = prev.items.map((it) => (it.id === item.id ? item : it));
+      let delta = 0;
+      if (old && !old.readAt && item.readAt) delta = -1;
+      if (old && old.readAt && !item.readAt) delta = 1;
+      setState({
+        ...state,
+        inbox: {
+          ...prev,
+          items,
+          unreadCount: Math.max(0, prev.unreadCount + delta),
+        },
+      });
+    } else if (event.type === "inbox.deleted" && event.itemId) {
+      const target = prev.items.find((it) => it.id === event.itemId);
+      const wasUnread = target && !target.readAt && !target.archivedAt;
+      const items = prev.items.filter((it) => it.id !== event.itemId);
+      setState({
+        ...state,
+        inbox: {
+          ...prev,
+          items,
+          unreadCount: wasUnread ? Math.max(0, prev.unreadCount - 1) : prev.unreadCount,
+        },
+      });
+    } else if (event.type === "inbox.all_read") {
+      const now = new Date();
+      const items = prev.items.map((it) =>
+        !it.readAt ? { ...it, readAt: now } : it,
+      );
+      setState({
+        ...state,
+        inbox: { ...prev, items, unreadCount: 0 },
+      });
+    }
+  }
+
+  function connect() {
+    if (!realtimeEnabled || eventSource) return;
+    if (typeof EventSource === "undefined") return;
+    rtStatus = "connecting";
+    for (const l of listeners) l();
+    const url = `${baseUrl}/inbox/stream`;
+    const es = new EventSource(url, { withCredentials: credentials !== "omit" });
+    eventSource = es;
+    es.onopen = () => {
+      rtStatus = "connected";
+      for (const l of listeners) l();
+    };
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        rtStatus = "disconnected";
+        eventSource = null;
+      } else {
+        rtStatus = "connecting";
+      }
+      for (const l of listeners) l();
+    };
+    es.addEventListener("inbox.created", handleRealtimeEvent);
+    es.addEventListener("inbox.updated", handleRealtimeEvent);
+    es.addEventListener("inbox.deleted", handleRealtimeEvent);
+    es.addEventListener("inbox.all_read", handleRealtimeEvent);
+  }
+
+  function disconnect() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    rtStatus = "disconnected";
     for (const l of listeners) l();
   }
 
@@ -184,6 +309,12 @@ export function createNotifyKitClient(
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+
+    connect,
+    disconnect,
+    realtimeStatus() {
+      return rtStatus;
     },
 
     inbox: {

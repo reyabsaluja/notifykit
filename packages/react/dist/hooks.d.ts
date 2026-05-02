@@ -1,10 +1,11 @@
 import type { ChannelPreferenceMap, InboxItem, RecipientPreference } from "notifykit";
-import type { ClientStatus } from "./client.js";
+import type { ClientStatus, RealtimeStatus } from "./client.js";
 export type UseInboxResult = {
     items: InboxItem[];
     status: ClientStatus;
     error: string | null;
     unreadCount: number;
+    realtimeStatus: RealtimeStatus;
     refresh(): Promise<InboxItem[]>;
     markRead(inboxItemId: string): Promise<InboxItem | null>;
     markAllRead(): Promise<number>;

@@ -6,7 +6,7 @@ import type {
   InboxItem,
   RecipientPreference,
 } from "notifykit";
-import type { ClientState, ClientStatus } from "./client.js";
+import type { ClientState, ClientStatus, RealtimeStatus } from "./client.js";
 import { useNotifyKitClient } from "./provider.js";
 
 function useClientState<T>(select: (state: ClientState) => T): T {
@@ -23,6 +23,7 @@ export type UseInboxResult = {
   status: ClientStatus;
   error: string | null;
   unreadCount: number;
+  realtimeStatus: RealtimeStatus;
   refresh(): Promise<InboxItem[]>;
   markRead(inboxItemId: string): Promise<InboxItem | null>;
   markAllRead(): Promise<number>;
@@ -46,6 +47,17 @@ export function useInbox(options: { autoLoad?: boolean } = {}): UseInboxResult {
     }
   }, [autoLoad, client, status]);
 
+  useEffect(() => {
+    client.connect();
+    return () => client.disconnect();
+  }, [client]);
+
+  const realtimeStatus = useSyncExternalStore(
+    client.subscribe,
+    () => client.realtimeStatus(),
+    () => "disconnected" as RealtimeStatus,
+  );
+
   const refresh = useCallback(() => client.inbox.list(), [client]);
   const markRead = useCallback(
     (id: string) => client.inbox.markRead(id),
@@ -68,7 +80,7 @@ export function useInbox(options: { autoLoad?: boolean } = {}): UseInboxResult {
   const unreadCount = useClientState((s) => s.inbox.unreadCount);
 
   return {
-    items, status, error, unreadCount, refresh,
+    items, status, error, unreadCount, realtimeStatus, refresh,
     markRead, markAllRead, archive, unarchive, deleteItem,
   };
 }

@@ -18,6 +18,11 @@ export function useInbox(options = {}) {
             void client.inbox.list();
         }
     }, [autoLoad, client, status]);
+    useEffect(() => {
+        client.connect();
+        return () => client.disconnect();
+    }, [client]);
+    const realtimeStatus = useSyncExternalStore(client.subscribe, () => client.realtimeStatus(), () => "disconnected");
     const refresh = useCallback(() => client.inbox.list(), [client]);
     const markRead = useCallback((id) => client.inbox.markRead(id), [client]);
     const markAllRead = useCallback(() => client.inbox.markAllRead(), [client]);
@@ -26,7 +31,7 @@ export function useInbox(options = {}) {
     const deleteItem = useCallback((id) => client.inbox.deleteItem(id), [client]);
     const unreadCount = useClientState((s) => s.inbox.unreadCount);
     return {
-        items, status, error, unreadCount, refresh,
+        items, status, error, unreadCount, realtimeStatus, refresh,
         markRead, markAllRead, archive, unarchive, deleteItem,
     };
 }

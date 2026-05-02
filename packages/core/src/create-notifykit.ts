@@ -29,6 +29,7 @@ import type {
   UpsertRecipientInput,
   WebhookProvider,
 } from "./types.js";
+import type { RealtimeAdapter } from "./realtime.js";
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
 import {
@@ -88,6 +89,12 @@ export type CreateNotifyKitInput<
   tenantDefaults?: (
     tenantId: string,
   ) => ChannelPreferenceMap | Promise<ChannelPreferenceMap | null> | null;
+  /**
+   * Pluggable realtime transport. When set, inbox mutations are published
+   * so that connected clients (SSE, WebSocket, etc.) receive live updates.
+   * Use `memoryRealtimeAdapter()` for single-process deployments.
+   */
+  realtime?: RealtimeAdapter;
 };
 
 export type SendResult = {
@@ -249,6 +256,12 @@ export type NotifyKit<
     notificationId: string,
     payload: Record<string, unknown>,
   ): Record<string, unknown>;
+  /**
+   * The realtime adapter passed to `createNotifyKit`, or `undefined` if none
+   * was provided. Exposed so the handler can subscribe clients and publish
+   * events from user-initiated mutations (mark-read, archive, etc.).
+   */
+  readonly realtime: RealtimeAdapter | undefined;
 };
 
 export function createNotifyKit<
@@ -261,6 +274,7 @@ export function createNotifyKit<
     delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
   };
   const unsubscribeConfig = config.unsubscribe ?? null;
+  const realtimeAdapter = config.realtime;
 
   function buildUnsubscribeUrl(
     recipient: Recipient,
@@ -959,6 +973,10 @@ export function createNotifyKit<
         });
         inboxItems.push(item);
         await runHook("inbox.created", { inboxItem: item });
+        realtimeAdapter?.publish(recipient.id, scope, {
+          type: "inbox.created",
+          item,
+        });
       } else if (ch.type === "email") {
         // Startup validation guarantees providers.email exists for any
         // notification that declares an email channel.
@@ -1199,6 +1217,10 @@ export function createNotifyKit<
               : undefined,
         });
         await runHook("inbox.created", { inboxItem: item });
+        realtimeAdapter?.publish(job.recipientId, fallbackScope, {
+          type: "inbox.created",
+          item,
+        });
       }
     }
   }
@@ -1426,6 +1448,7 @@ export function createNotifyKit<
       await runFlushScheduledSends({ force: false });
     },
     definitions: notifications,
+    realtime: realtimeAdapter,
     redactPayload(notificationId, payload) {
       const def = byId.get(notificationId);
       if (!def) {

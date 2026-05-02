@@ -6,6 +6,7 @@ import type {
   SecurityScope,
 } from "./types.js";
 import type { NotifyKit } from "./create-notifykit.js";
+import type { RealtimeEvent } from "./realtime.js";
 import { verifyUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, PayloadValidationError } from "./utils.js";
 
@@ -136,6 +137,7 @@ export type Handler = (request: Request) => Promise<Response>;
 
 type Route =
   | { kind: "inbox.list" }
+  | { kind: "inbox.stream" }
   | { kind: "inbox.markRead"; id: string }
   | { kind: "inbox.unreadCount" }
   | { kind: "inbox.markAllRead" }
@@ -346,6 +348,55 @@ export function createHandler<
       request,
     };
 
+    if (route.kind === "inbox.stream") {
+      if (!notify.realtime) {
+        return withCors(json({ error: "Realtime not configured" }, 404));
+      }
+      const scope: SecurityScope = {
+        ...(context.tenantId ? { tenantId: context.tenantId } : {}),
+        ...(context.workspaceId ? { workspaceId: context.workspaceId } : {}),
+      };
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          const push = (data: string) => {
+            try {
+              controller.enqueue(encoder.encode(data));
+            } catch {
+              // stream closed
+            }
+          };
+          push(": connected\n\n");
+          const unsub = notify.realtime!.subscribe(
+            context.recipientId,
+            scope,
+            (event: RealtimeEvent) => {
+              push(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+            },
+          );
+          const heartbeat = setInterval(() => push(": heartbeat\n\n"), 30_000);
+          request.signal.addEventListener("abort", () => {
+            unsub();
+            clearInterval(heartbeat);
+            try { controller.close(); } catch { /* already closed */ }
+          });
+        },
+      });
+      const sseHeaders = new Headers({
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      if (corsOrigin) {
+        sseHeaders.set("Access-Control-Allow-Origin", corsOrigin);
+        if (corsOrigin !== "*") {
+          sseHeaders.set("Access-Control-Allow-Credentials", "true");
+          sseHeaders.set("Vary", "Origin");
+        }
+      }
+      return new Response(stream, { status: 200, headers: sseHeaders });
+    }
+
     try {
       switch (route.kind) {
         case "inbox.list": {
@@ -372,6 +423,10 @@ export function createHandler<
           if (result.status === "forbidden") {
             return withCors(json({ error: "Forbidden" }, 403));
           }
+          notify.realtime?.publish(context.recipientId, context, {
+            type: "inbox.updated",
+            item: result.item,
+          });
           return withCors(json({ data: result.item }));
         }
         case "inbox.unreadCount": {
@@ -386,6 +441,10 @@ export function createHandler<
             context.recipientId,
             context,
           );
+          notify.realtime?.publish(context.recipientId, context, {
+            type: "inbox.all_read",
+            count,
+          });
           return withCors(json({ data: { count } }));
         }
         case "inbox.archive": {
@@ -400,6 +459,10 @@ export function createHandler<
           if (result.status === "forbidden") {
             return withCors(json({ error: "Forbidden" }, 403));
           }
+          notify.realtime?.publish(context.recipientId, context, {
+            type: "inbox.updated",
+            item: result.item,
+          });
           return withCors(json({ data: result.item }));
         }
         case "inbox.unarchive": {
@@ -414,6 +477,10 @@ export function createHandler<
           if (result.status === "forbidden") {
             return withCors(json({ error: "Forbidden" }, 403));
           }
+          notify.realtime?.publish(context.recipientId, context, {
+            type: "inbox.updated",
+            item: result.item,
+          });
           return withCors(json({ data: result.item }));
         }
         case "inbox.delete": {
@@ -428,6 +495,10 @@ export function createHandler<
           if (result.status === "forbidden") {
             return withCors(json({ error: "Forbidden" }, 403));
           }
+          notify.realtime?.publish(context.recipientId, context, {
+            type: "inbox.deleted",
+            itemId: route.id,
+          });
           return withCors(json({ data: { deleted: true } }));
         }
         case "preferences.list": {
@@ -643,6 +714,10 @@ function matchRoute(method: string, sub: string): Route {
 
   if (trimmed === "/inbox" || trimmed === "/inbox/") {
     if (method === "GET") return { kind: "inbox.list" };
+    return { kind: "not_found" };
+  }
+  if (trimmed === "/inbox/stream") {
+    if (method === "GET") return { kind: "inbox.stream" };
     return { kind: "not_found" };
   }
   if (trimmed === "/inbox/unread-count") {

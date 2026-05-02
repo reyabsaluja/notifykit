@@ -5,6 +5,7 @@ export {
   type CreateNotifyKitClientOptions,
   type NotificationMetadata,
   type NotifyKitClient,
+  type RealtimeStatus,
 } from "./client.js";
 
 export {
