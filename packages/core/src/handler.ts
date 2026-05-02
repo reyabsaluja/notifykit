@@ -1,5 +1,6 @@
 import type {
   ChannelPreferenceMap,
+  NotificationClassification,
   NotificationDefinition,
   PayloadSchema,
   SecurityScope,
@@ -138,6 +139,10 @@ type Route =
   | { kind: "inbox.markRead"; id: string }
   | { kind: "preferences.list" }
   | { kind: "preferences.update" }
+  | { kind: "preferences.updateGlobal" }
+  | { kind: "preferences.updateCategory" }
+  | { kind: "preferences.explain" }
+  | { kind: "explain" }
   | { kind: "deliveries.list" }
   | { kind: "notifications.list" }
   | { kind: "unsubscribe.get" }
@@ -397,6 +402,95 @@ export function createHandler<
           } as Parameters<typeof notify.preferences.update>[0]);
           return withCors(json({ data: updated }));
         }
+        case "preferences.updateGlobal": {
+          const body = await readJson(request);
+          if (!body || typeof body !== "object") {
+            return withCors(json({ error: "Invalid JSON body" }, 400));
+          }
+          const { channels } = body as { channels?: unknown };
+          const validChannels = toChannelPreferenceMap(channels);
+          if (!validChannels) {
+            return withCors(json(
+              { error: "'channels' must be an object of { channel: boolean }" },
+              400,
+            ));
+          }
+          const result = await notify.preferences.updateGlobal({
+            recipientId: context.recipientId,
+            tenantId: context.tenantId,
+            workspaceId: context.workspaceId,
+            channels: validChannels,
+          });
+          return withCors(json({ data: result }));
+        }
+        case "preferences.updateCategory": {
+          const body = await readJson(request);
+          if (!body || typeof body !== "object") {
+            return withCors(json({ error: "Invalid JSON body" }, 400));
+          }
+          const { category, channels } = body as {
+            category?: unknown;
+            channels?: unknown;
+          };
+          if (typeof category !== "string") {
+            return withCors(json(
+              { error: "Missing or invalid 'category'" },
+              400,
+            ));
+          }
+          const validChannels = toChannelPreferenceMap(channels);
+          if (!validChannels) {
+            return withCors(json(
+              { error: "'channels' must be an object of { channel: boolean }" },
+              400,
+            ));
+          }
+          const result = await notify.preferences.updateCategory({
+            recipientId: context.recipientId,
+            tenantId: context.tenantId,
+            workspaceId: context.workspaceId,
+            category,
+            channels: validChannels,
+          });
+          return withCors(json({ data: result }));
+        }
+        case "preferences.explain": {
+          const notificationId = url.searchParams.get("notificationId");
+          if (!notificationId) {
+            return withCors(json(
+              { error: "Missing 'notificationId' query parameter" },
+              400,
+            ));
+          }
+          const explanation = await notify.preferences.explain({
+            recipientId: context.recipientId,
+            tenantId: context.tenantId,
+            workspaceId: context.workspaceId,
+            notificationId,
+          });
+          return withCors(json({ data: explanation }));
+        }
+        case "explain": {
+          const notificationId = url.searchParams.get("notificationId");
+          if (!notificationId) {
+            return withCors(json(
+              { error: "Missing 'notificationId' query parameter" },
+              400,
+            ));
+          }
+          const payload: Record<string, unknown> = {};
+          for (const [key, value] of url.searchParams.entries()) {
+            if (key !== "notificationId") payload[key] = value;
+          }
+          const result = await notify.explain({
+            recipientId: context.recipientId,
+            tenantId: context.tenantId,
+            workspaceId: context.workspaceId,
+            notificationId,
+            payload,
+          } as Parameters<typeof notify.explain>[0]);
+          return withCors(json({ data: result }));
+        }
         case "deliveries.list": {
           const allowed = await isAuthorized(
             options,
@@ -448,6 +542,9 @@ function buildNotificationsIndex<
   description?: string;
   category?: string;
   version?: number;
+  required?: boolean;
+  defaultChannels?: import("./types.js").ChannelPreferenceMap;
+  classification?: NotificationClassification;
 }> {
   return notify.definitions.map((def) => {
     const entry: {
@@ -457,6 +554,9 @@ function buildNotificationsIndex<
       description?: string;
       category?: string;
       version?: number;
+      required?: boolean;
+      defaultChannels?: import("./types.js").ChannelPreferenceMap;
+      classification?: NotificationClassification;
     } = {
       id: def.id,
       channels: def.channels.map((c) => c.type),
@@ -465,6 +565,9 @@ function buildNotificationsIndex<
     if (def.description !== undefined) entry.description = def.description;
     if (def.category !== undefined) entry.category = def.category;
     if (def.version !== undefined) entry.version = def.version;
+    if (def.required !== undefined) entry.required = def.required;
+    if (def.defaultChannels !== undefined) entry.defaultChannels = def.defaultChannels;
+    if (def.classification !== undefined) entry.classification = def.classification;
     return entry;
   });
 }
@@ -481,6 +584,22 @@ function matchRoute(method: string, sub: string): Route {
     if (method === "POST") {
       return { kind: "inbox.markRead", id: decodeURIComponent(markRead[1]) };
     }
+    return { kind: "not_found" };
+  }
+  if (trimmed === "/explain") {
+    if (method === "GET") return { kind: "explain" };
+    return { kind: "not_found" };
+  }
+  if (trimmed === "/preferences/explain") {
+    if (method === "GET") return { kind: "preferences.explain" };
+    return { kind: "not_found" };
+  }
+  if (trimmed === "/preferences/global") {
+    if (method === "POST") return { kind: "preferences.updateGlobal" };
+    return { kind: "not_found" };
+  }
+  if (trimmed === "/preferences/category") {
+    if (method === "POST") return { kind: "preferences.updateCategory" };
     return { kind: "not_found" };
   }
   if (trimmed === "/preferences") {

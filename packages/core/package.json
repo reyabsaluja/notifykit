@@ -9,6 +9,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./zod": {
+      "types": "./dist/zod.d.ts",
+      "import": "./dist/zod.js"
+    },
+    "./valibot": {
+      "types": "./dist/valibot.d.ts",
+      "import": "./dist/valibot.js"
+    },
+    "./arktype": {
+      "types": "./dist/arktype.d.ts",
+      "import": "./dist/arktype.js"
     }
   },
   "files": [
@@ -20,6 +32,25 @@
     "test": "bun test"
   },
   "devDependencies": {
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "zod": "^4.4.2",
+    "valibot": "^1.0.0",
+    "arktype": "^2.1.0"
+  },
+  "peerDependencies": {
+    "zod": "^3.20.0 || ^4.0.0",
+    "valibot": "^1.0.0",
+    "arktype": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    },
+    "valibot": {
+      "optional": true
+    },
+    "arktype": {
+      "optional": true
+    }
   }
 }

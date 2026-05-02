@@ -1,6 +1,11 @@
 export { channel } from "./channel.js";
 export { notification } from "./notification.js";
 export { createNotifyKit } from "./create-notifykit.js";
+export {
+  GLOBAL_PREFERENCE_KEY,
+  categoryPreferenceKey,
+  isSyntheticPreferenceKey,
+} from "./preference-keys.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
 export {
@@ -67,11 +72,17 @@ export type {
   WebhookProviderOptions,
 } from "./providers.js";
 
+export type { ResolutionContext } from "./resolve-preferences.js";
+
 export type {
+  CategoryDefaults,
   ChannelConfig,
+  ChannelOutcome,
   ChannelPreferenceMap,
+  ChannelResolution,
   ChannelType,
   DatabaseAdapter,
+  DeliveryExplanation,
   DeliveryChannel,
   DeliveryJob,
   DeliveryRecord,
@@ -86,10 +97,13 @@ export type {
   InboxItem,
   InferSchema,
   MarkReadForRecipientResult,
+  NotificationClassification,
   NotificationDefinition,
   NotificationIds,
   NotificationRecord,
   PayloadSchema,
+  PreferenceExplanation,
+  PreferenceResolutionLayer,
   PrimitiveSchema,
   QuietHours,
   Queue,

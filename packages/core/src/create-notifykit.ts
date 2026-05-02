@@ -1,6 +1,10 @@
 import type {
+  CategoryDefaults,
+  ChannelOutcome,
+  ChannelPreferenceMap,
   ChannelType,
   DatabaseAdapter,
+  DeliveryExplanation,
   DeliveryJob,
   DeliveryRecord,
   EmailProvider,
@@ -11,6 +15,7 @@ import type {
   NotificationDefinition,
   NotificationRecord,
   PayloadSchema,
+  PreferenceExplanation,
   Queue,
   Recipient,
   RecipientPreference,
@@ -23,6 +28,12 @@ import type {
 } from "./types.js";
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
+import {
+  GLOBAL_PREFERENCE_KEY,
+  categoryPreferenceKey,
+  isSyntheticPreferenceKey,
+} from "./preference-keys.js";
+import { resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 
@@ -56,6 +67,24 @@ export type CreateNotifyKitInput<
     /** Absolute URL (including scheme + host) the handler is mounted at, e.g. "https://app.com/api/notifykit". */
     baseUrl: string;
   };
+  /**
+   * App-level preference defaults. These are the lowest-priority layer in the
+   * resolution engine — any more specific preference overrides them.
+   */
+  defaults?: {
+    /** Default channel enable/disable state for all notifications. */
+    channels?: ChannelPreferenceMap;
+    /** Per-category default channel state. Keys must match a registered notification category. */
+    categories?: CategoryDefaults;
+  };
+  /**
+   * Tenant-level default channel overrides. Called with the tenant ID at
+   * resolution time. Return a channel map to override app defaults for that
+   * tenant, or `null` for no tenant-level overrides.
+   */
+  tenantDefaults?: (
+    tenantId: string,
+  ) => ChannelPreferenceMap | Promise<ChannelPreferenceMap | null> | null;
 };
 
 export type SendResult = {
@@ -93,6 +122,12 @@ export type NotifyKit<
    * the recipient via `identify()`.
    */
   send(input: SendInput<T>): Promise<SendResult>;
+  /**
+   * Dry-run explanation of what `send()` would do for a given notification +
+   * recipient. Covers preference resolution, rate limits, digests, and quiet
+   * hours. Does not write any records or trigger delivery.
+   */
+  explain(input: SendInput<T>): Promise<DeliveryExplanation>;
   inbox: {
     /**
      * List inbox items. **Server-only** — the caller supplies the
@@ -122,10 +157,36 @@ export type NotifyKit<
     /**
      * List preferences. **Server-only** — the caller supplies the
      * `recipientId` and optional `scope` directly. In client-facing code
-     * use the handler's `GET /preferences` route.
+     * use the handler's `GET /preferences` route. Synthetic keys
+     * (`__global__`, `__category:*__`) are excluded by default.
      */
     list(recipientId: string, scope?: SecurityScope): Promise<RecipientPreference[]>;
     update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
+    /** Update user's global channel preferences (applies across all notifications). */
+    updateGlobal(input: {
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      channels: ChannelPreferenceMap;
+    }): Promise<RecipientPreference>;
+    /** Update user's category-level channel preferences. */
+    updateCategory(input: {
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      category: string;
+      channels: ChannelPreferenceMap;
+    }): Promise<RecipientPreference>;
+    /**
+     * Explain why each channel is enabled or disabled for a specific
+     * notification + recipient combination. Returns the full resolution trail.
+     */
+    explain(input: {
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      notificationId: string;
+    }): Promise<PreferenceExplanation>;
   };
   /**
    * Resolves when outstanding digest flushes and all enqueued delivery jobs
@@ -275,6 +336,55 @@ export function createNotifyKit<
         `Notification "${def.id}" version must be a positive integer, got ${def.version}.`,
       );
     }
+
+    const channelTypes = new Set(def.channels.map((ch) => ch.type));
+    if (channelTypes.has("email") && !providers?.email) {
+      throw new NotifyKitError(
+        `Notification "${def.id}" has an email channel but no email provider is configured. ` +
+          `Pass a provider via createNotifyKit({ providers: { email: ... } }).`,
+      );
+    }
+    if (channelTypes.has("webhook") && !providers?.webhook) {
+      throw new NotifyKitError(
+        `Notification "${def.id}" has a webhook channel but no webhook provider is configured. ` +
+          `Pass a provider via createNotifyKit({ providers: { webhook: ... } }).`,
+      );
+    }
+    if (
+      def.classification &&
+      def.classification !== "transactional" &&
+      def.classification !== "product" &&
+      def.classification !== "marketing"
+    ) {
+      throw new NotifyKitError(
+        `Notification "${def.id}" has invalid classification "${def.classification}". ` +
+          `Must be "transactional", "product", or "marketing".`,
+      );
+    }
+    if (def.defaultChannels) {
+      for (const ch of Object.keys(def.defaultChannels)) {
+        if (!channelTypes.has(ch as ChannelType)) {
+          throw new NotifyKitError(
+            `Notification "${def.id}" defaultChannels references "${ch}" but the notification ` +
+              `only declares channels: ${[...channelTypes].join(", ")}.`,
+          );
+        }
+      }
+    }
+  }
+
+  if (config.defaults?.categories) {
+    const allCategories = new Set(
+      notifications.map((n) => n.category).filter(Boolean) as string[],
+    );
+    for (const cat of Object.keys(config.defaults.categories)) {
+      if (!allCategories.has(cat)) {
+        throw new NotifyKitError(
+          `Category default "${cat}" does not match any registered notification category. ` +
+            `Known categories: ${[...allCategories].join(", ") || "(none)"}.`,
+        );
+      }
+    }
   }
 
   async function runHook<K extends keyof Hooks>(
@@ -339,7 +449,7 @@ export function createNotifyKit<
     payload: Record<string, unknown>,
   ): Record<string, unknown> {
     if (!def.redact || def.redact.length === 0) return payload;
-    return redactPayload(payload, def.redact as readonly string[]);
+    return redactPayload(payload, def.redact);
   }
 
   function scopeKey(scope: SecurityScope): string {
@@ -373,22 +483,6 @@ export function createNotifyKit<
       ? def.validate(input.payload)
       : validatePayload(def.payload, input.payload, def.id);
     const scope = resolveScope(input, recipient);
-
-    const requiredProviders = new Set(
-      def.channels
-        .map((ch) => ch.type)
-        .filter((t): t is "email" | "webhook" => t === "email" || t === "webhook"),
-    );
-    if (requiredProviders.has("email") && !providers?.email) {
-      throw new NotifyKitError(
-        `Notification "${def.id}" has an email channel but no email provider is configured.`,
-      );
-    }
-    if (requiredProviders.has("webhook") && !providers?.webhook) {
-      throw new NotifyKitError(
-        `Notification "${def.id}" has a webhook channel but no webhook provider is configured.`,
-      );
-    }
 
     if (def.rateLimit) {
       const limit = def.rateLimit;
@@ -507,6 +601,122 @@ export function createNotifyKit<
     }
 
     return deliver(recipient, def, payload, { scope });
+  }
+
+  async function explain(rawInput: SendInput<T>): Promise<DeliveryExplanation> {
+    const input = rawInput as {
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      notificationId: string;
+      payload: unknown;
+    };
+    const def = byId.get(input.notificationId);
+    if (!def) {
+      throw new NotifyKitError(
+        `Unknown notification id: "${input.notificationId}".`,
+      );
+    }
+    const recipient = await database.recipients.findById(input.recipientId);
+    if (!recipient) {
+      throw new NotifyKitError(
+        `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+      );
+    }
+    const scope = resolveScope(input, recipient);
+
+    const [userGlobal, userCategory, userNotification, tenantChannels] =
+      await Promise.all([
+        database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
+        def.category
+          ? database.preferences.get(
+              recipient.id,
+              categoryPreferenceKey(def.category),
+              scope,
+            )
+          : Promise.resolve(null),
+        database.preferences.get(recipient.id, def.id, scope),
+        scope.tenantId && config.tenantDefaults
+          ? Promise.resolve(config.tenantDefaults(scope.tenantId))
+          : Promise.resolve(null),
+      ]);
+
+    const prefExplanation = resolvePreferences({
+      def,
+      recipient,
+      scope,
+      appDefaults: config.defaults?.channels,
+      categoryDefaults: config.defaults?.categories,
+      tenantChannels,
+      userGlobal,
+      userCategory,
+      userNotification,
+    });
+
+    let wouldRateLimit = false;
+    let rateLimitInfo: DeliveryExplanation["rateLimit"] = null;
+    if (def.rateLimit) {
+      const limit = def.rateLimit;
+      const rateLimitScope = limit.scope ?? "recipient";
+      const key =
+        rateLimitScope === "global"
+          ? `${scopeKey(scope)}${def.id}`
+          : `${scopeKey(scope)}${recipient.id}:${def.id}`;
+      const current = await database.rateLimits.count({
+        key,
+        windowMs: limit.windowMs,
+      });
+      wouldRateLimit = current >= limit.max;
+      rateLimitInfo = { current, max: limit.max, windowMs: limit.windowMs };
+    }
+
+    const wouldDigest = !!def.digest;
+    const digestInfo: DeliveryExplanation["digest"] = def.digest
+      ? { windowMs: def.digest.windowMs }
+      : null;
+
+    let quietHoursActive = false;
+    let quietHoursResumesAt: Date | null = null;
+    let quietHoursInfo: DeliveryExplanation["quietHours"] = null;
+    if (recipient.quietHours) {
+      quietHoursActive = isWithinQuietHours(recipient.quietHours);
+      quietHoursResumesAt = quietHoursActive
+        ? nextQuietHoursEnd(recipient.quietHours)
+        : null;
+      quietHoursInfo = { active: quietHoursActive, resumesAt: quietHoursResumesAt };
+    }
+
+    const channels = prefExplanation.channels.map((ch) => {
+      let outcome: ChannelOutcome;
+      if (!ch.allowed) {
+        outcome = ch.resolvedBy === "destination_unavailable"
+          ? "unavailable"
+          : "disabled";
+      } else if (
+        quietHoursActive &&
+        (ch.channel === "email" || ch.channel === "webhook")
+      ) {
+        outcome = "delayed";
+      } else {
+        outcome = "deliver";
+      }
+      return { ...ch, outcome };
+    });
+
+    return {
+      recipientId: recipient.id,
+      notificationId: def.id,
+      scope,
+      channels,
+      required: def.required ?? false,
+      classification: def.classification,
+      category: def.category,
+      wouldRateLimit,
+      wouldDigest,
+      rateLimit: rateLimitInfo,
+      digest: digestInfo,
+      quietHours: quietHoursInfo,
+    };
   }
 
   function scheduleDeferredFlush(id: string, scheduledFor: Date): void {
@@ -637,11 +847,38 @@ export function createNotifyKit<
     options: DeliverOptions = {},
   ): Promise<SendResult> {
     const scope = options.scope ?? resolveScope({}, recipient);
-    const preference = await database.preferences.get(recipient.id, def.id, scope);
+
+    const [userGlobal, userCategory, userNotification, tenantChannels] =
+      await Promise.all([
+        database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
+        def.category
+          ? database.preferences.get(
+              recipient.id,
+              categoryPreferenceKey(def.category),
+              scope,
+            )
+          : Promise.resolve(null),
+        database.preferences.get(recipient.id, def.id, scope),
+        scope.tenantId && config.tenantDefaults
+          ? Promise.resolve(config.tenantDefaults(scope.tenantId))
+          : Promise.resolve(null),
+      ]);
+
+    const resolutionCtx: ResolutionContext = {
+      def,
+      recipient,
+      scope,
+      appDefaults: config.defaults?.channels,
+      categoryDefaults: config.defaults?.categories,
+      tenantChannels,
+      userGlobal,
+      userCategory,
+      userNotification,
+    };
+    const explanation = resolvePreferences(resolutionCtx);
     const isChannelAllowed = (type: ChannelType): boolean => {
-      if (!preference) return true;
-      const value = preference.channels[type];
-      return value !== false;
+      const entry = explanation.channels.find((e) => e.channel === type);
+      return entry?.allowed ?? true;
     };
 
     const deferSet = new Set(options.deferChannels ?? []);
@@ -699,12 +936,9 @@ export function createNotifyKit<
         inboxItems.push(item);
         await runHook("inbox.created", { inboxItem: item });
       } else if (ch.type === "email") {
-        const provider = providers?.email;
-        if (!provider) {
-          throw new NotifyKitError(
-            `Notification "${def.id}" has an email channel but no email provider is configured.`,
-          );
-        }
+        // Startup validation guarantees providers.email exists for any
+        // notification that declares an email channel.
+        const provider = providers!.email!;
         if (!recipient.email) {
           throw new NotifyKitError(
             `Recipient "${recipient.id}" has no email address; cannot send email notification "${def.id}".`,
@@ -759,12 +993,9 @@ export function createNotifyKit<
         const latest = await database.deliveries.findById(delivery.id);
         deliveries.push(latest ?? delivery);
       } else if (ch.type === "webhook") {
-        const provider = providers?.webhook;
-        if (!provider) {
-          throw new NotifyKitError(
-            `Notification "${def.id}" has a webhook channel but no webhook provider is configured.`,
-          );
-        }
+        // Startup validation guarantees providers.webhook exists for any
+        // notification that declares a webhook channel.
+        const provider = providers!.webhook!;
 
         const url = renderTemplate(ch.url, payload);
         const headers: Record<string, string> = {};
@@ -830,20 +1061,14 @@ export function createNotifyKit<
       try {
         let result: { providerMessageId?: string };
         if (job.channel === "email") {
-          const provider = providers?.email;
-          if (!provider) {
-            throw new Error("No email provider configured");
-          }
+          const provider = providers!.email!;
           result = await provider.send({
             to: job.to,
             subject: job.subject,
             body: job.body,
           });
         } else {
-          const provider = providers?.webhook;
-          if (!provider) {
-            throw new Error("No webhook provider configured");
-          }
+          const provider = providers!.webhook!;
           result = await provider.send({
             url: job.url,
             headers: job.headers,
@@ -1008,6 +1233,7 @@ export function createNotifyKit<
       return database.recipients.upsert(input);
     },
     send,
+    explain,
     inbox: {
       list(recipientId, scope) {
         return database.inbox.listByRecipient(recipientId, scope);
@@ -1030,10 +1256,99 @@ export function createNotifyKit<
     },
     preferences: {
       get: getPreference,
-      list(recipientId, scope) {
-        return database.preferences.list(recipientId, scope);
+      async list(recipientId, scope) {
+        const all = await database.preferences.list(recipientId, scope);
+        return all.filter((p) => !isSyntheticPreferenceKey(p.notificationId));
       },
       update: updatePreference,
+      async updateGlobal(input) {
+        const recipient = await database.recipients.findById(input.recipientId);
+        if (!recipient) {
+          throw new NotifyKitError(
+            `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+          );
+        }
+        const scope = resolveScope(input, recipient);
+        return database.preferences.upsert({
+          recipientId: input.recipientId,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: GLOBAL_PREFERENCE_KEY,
+          channels: input.channels,
+        });
+      },
+      async updateCategory(input) {
+        const recipient = await database.recipients.findById(input.recipientId);
+        if (!recipient) {
+          throw new NotifyKitError(
+            `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+          );
+        }
+        const knownCategories = new Set(
+          notifications.map((n) => n.category).filter(Boolean) as string[],
+        );
+        if (!knownCategories.has(input.category)) {
+          throw new NotifyKitError(
+            `Unknown category: "${input.category}". ` +
+              `Known categories: ${[...knownCategories].join(", ") || "(none)"}.`,
+          );
+        }
+        const scope = resolveScope(input, recipient);
+        return database.preferences.upsert({
+          recipientId: input.recipientId,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: categoryPreferenceKey(input.category),
+          channels: input.channels,
+        });
+      },
+      async explain(input) {
+        const def = byId.get(input.notificationId);
+        if (!def) {
+          throw new NotifyKitError(
+            `Unknown notification id: "${input.notificationId}".`,
+          );
+        }
+        const recipient = await database.recipients.findById(input.recipientId);
+        if (!recipient) {
+          throw new NotifyKitError(
+            `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+          );
+        }
+        const scope = resolveScope(input, recipient);
+
+        const [userGlobal, userCategory, userNotification, tenantChannels] =
+          await Promise.all([
+            database.preferences.get(
+              recipient.id,
+              GLOBAL_PREFERENCE_KEY,
+              scope,
+            ),
+            def.category
+              ? database.preferences.get(
+                  recipient.id,
+                  categoryPreferenceKey(def.category),
+                  scope,
+                )
+              : Promise.resolve(null),
+            database.preferences.get(recipient.id, def.id, scope),
+            scope.tenantId && config.tenantDefaults
+              ? Promise.resolve(config.tenantDefaults(scope.tenantId))
+              : Promise.resolve(null),
+          ]);
+
+        return resolvePreferences({
+          def,
+          recipient,
+          scope,
+          appDefaults: config.defaults?.channels,
+          categoryDefaults: config.defaults?.categories,
+          tenantChannels,
+          userGlobal,
+          userCategory,
+          userNotification,
+        });
+      },
     },
     async drain() {
       while (pendingFlushes.size > 0) {
@@ -1090,7 +1405,7 @@ export function createNotifyKit<
         );
       }
       if (!def.redact || def.redact.length === 0) return payload;
-      return redactPayload(payload, def.redact as readonly string[]);
+      return redactPayload(payload, def.redact);
     },
   };
 }

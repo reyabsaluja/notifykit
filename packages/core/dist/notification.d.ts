@@ -1,4 +1,4 @@
-import type { ChannelConfig, DigestConfig, InboxChannelConfig, NotificationDefinition, PayloadSchema, RateLimitConfig } from "./types.js";
+import type { ChannelConfig, ChannelPreferenceMap, DigestConfig, InboxChannelConfig, NotificationClassification, NotificationDefinition, PayloadSchema, RateLimitConfig } from "./types.js";
 /**
  * User-facing notification input. The digest callbacks are strictly typed
  * against the payload schema for good DX; they're widened to `AnyDigestConfig`
@@ -17,6 +17,9 @@ export type NotificationInput<Id extends string, S extends PayloadSchema> = {
     version?: number;
     redact?: readonly (keyof S)[];
     validate?: (payload: unknown) => Record<string, unknown>;
+    required?: boolean;
+    defaultChannels?: ChannelPreferenceMap;
+    classification?: NotificationClassification;
 };
 export declare function notification<Id extends string, S extends PayloadSchema>(def: NotificationInput<Id, S>): NotificationDefinition<Id, S>;
 //# sourceMappingURL=notification.d.ts.map

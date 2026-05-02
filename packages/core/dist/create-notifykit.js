@@ -1,5 +1,7 @@
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
 import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
+import { GLOBAL_PREFERENCE_KEY, categoryPreferenceKey, isSyntheticPreferenceKey, } from "./preference-keys.js";
+import { resolvePreferences } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 export function createNotifyKit(config) {
@@ -90,6 +92,39 @@ export function createNotifyKit(config) {
         if (def.version !== undefined && (!Number.isInteger(def.version) || def.version < 1)) {
             throw new NotifyKitError(`Notification "${def.id}" version must be a positive integer, got ${def.version}.`);
         }
+        const channelTypes = new Set(def.channels.map((ch) => ch.type));
+        if (channelTypes.has("email") && !providers?.email) {
+            throw new NotifyKitError(`Notification "${def.id}" has an email channel but no email provider is configured. ` +
+                `Pass a provider via createNotifyKit({ providers: { email: ... } }).`);
+        }
+        if (channelTypes.has("webhook") && !providers?.webhook) {
+            throw new NotifyKitError(`Notification "${def.id}" has a webhook channel but no webhook provider is configured. ` +
+                `Pass a provider via createNotifyKit({ providers: { webhook: ... } }).`);
+        }
+        if (def.classification &&
+            def.classification !== "transactional" &&
+            def.classification !== "product" &&
+            def.classification !== "marketing") {
+            throw new NotifyKitError(`Notification "${def.id}" has invalid classification "${def.classification}". ` +
+                `Must be "transactional", "product", or "marketing".`);
+        }
+        if (def.defaultChannels) {
+            for (const ch of Object.keys(def.defaultChannels)) {
+                if (!channelTypes.has(ch)) {
+                    throw new NotifyKitError(`Notification "${def.id}" defaultChannels references "${ch}" but the notification ` +
+                        `only declares channels: ${[...channelTypes].join(", ")}.`);
+                }
+            }
+        }
+    }
+    if (config.defaults?.categories) {
+        const allCategories = new Set(notifications.map((n) => n.category).filter(Boolean));
+        for (const cat of Object.keys(config.defaults.categories)) {
+            if (!allCategories.has(cat)) {
+                throw new NotifyKitError(`Category default "${cat}" does not match any registered notification category. ` +
+                    `Known categories: ${[...allCategories].join(", ") || "(none)"}.`);
+            }
+        }
     }
     async function runHook(name, ...args) {
         const fn = on?.[name];
@@ -154,15 +189,6 @@ export function createNotifyKit(config) {
             ? def.validate(input.payload)
             : validatePayload(def.payload, input.payload, def.id);
         const scope = resolveScope(input, recipient);
-        const requiredProviders = new Set(def.channels
-            .map((ch) => ch.type)
-            .filter((t) => t === "email" || t === "webhook"));
-        if (requiredProviders.has("email") && !providers?.email) {
-            throw new NotifyKitError(`Notification "${def.id}" has an email channel but no email provider is configured.`);
-        }
-        if (requiredProviders.has("webhook") && !providers?.webhook) {
-            throw new NotifyKitError(`Notification "${def.id}" has a webhook channel but no webhook provider is configured.`);
-        }
         if (def.rateLimit) {
             const limit = def.rateLimit;
             const rateLimitScope = limit.scope ?? "recipient";
@@ -371,12 +397,31 @@ export function createNotifyKit(config) {
     }
     async function deliver(recipient, def, payload, options = {}) {
         const scope = options.scope ?? resolveScope({}, recipient);
-        const preference = await database.preferences.get(recipient.id, def.id, scope);
+        const [userGlobal, userCategory, userNotification, tenantChannels] = await Promise.all([
+            database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
+            def.category
+                ? database.preferences.get(recipient.id, categoryPreferenceKey(def.category), scope)
+                : Promise.resolve(null),
+            database.preferences.get(recipient.id, def.id, scope),
+            scope.tenantId && config.tenantDefaults
+                ? Promise.resolve(config.tenantDefaults(scope.tenantId))
+                : Promise.resolve(null),
+        ]);
+        const resolutionCtx = {
+            def,
+            recipient,
+            scope,
+            appDefaults: config.defaults?.channels,
+            categoryDefaults: config.defaults?.categories,
+            tenantChannels,
+            userGlobal,
+            userCategory,
+            userNotification,
+        };
+        const explanation = resolvePreferences(resolutionCtx);
         const isChannelAllowed = (type) => {
-            if (!preference)
-                return true;
-            const value = preference.channels[type];
-            return value !== false;
+            const entry = explanation.channels.find((e) => e.channel === type);
+            return entry?.allowed ?? true;
         };
         const deferSet = new Set(options.deferChannels ?? []);
         const onlySet = options.onlyChannels
@@ -430,10 +475,9 @@ export function createNotifyKit(config) {
                 await runHook("inbox.created", { inboxItem: item });
             }
             else if (ch.type === "email") {
-                const provider = providers?.email;
-                if (!provider) {
-                    throw new NotifyKitError(`Notification "${def.id}" has an email channel but no email provider is configured.`);
-                }
+                // Startup validation guarantees providers.email exists for any
+                // notification that declares an email channel.
+                const provider = providers.email;
                 if (!recipient.email) {
                     throw new NotifyKitError(`Recipient "${recipient.id}" has no email address; cannot send email notification "${def.id}".`);
                 }
@@ -478,10 +522,9 @@ export function createNotifyKit(config) {
                 deliveries.push(latest ?? delivery);
             }
             else if (ch.type === "webhook") {
-                const provider = providers?.webhook;
-                if (!provider) {
-                    throw new NotifyKitError(`Notification "${def.id}" has a webhook channel but no webhook provider is configured.`);
-                }
+                // Startup validation guarantees providers.webhook exists for any
+                // notification that declares a webhook channel.
+                const provider = providers.webhook;
                 const url = renderTemplate(ch.url, payload);
                 const headers = {};
                 if (ch.headers) {
@@ -540,10 +583,7 @@ export function createNotifyKit(config) {
             try {
                 let result;
                 if (job.channel === "email") {
-                    const provider = providers?.email;
-                    if (!provider) {
-                        throw new Error("No email provider configured");
-                    }
+                    const provider = providers.email;
                     result = await provider.send({
                         to: job.to,
                         subject: job.subject,
@@ -551,10 +591,7 @@ export function createNotifyKit(config) {
                     });
                 }
                 else {
-                    const provider = providers?.webhook;
-                    if (!provider) {
-                        throw new Error("No webhook provider configured");
-                    }
+                    const provider = providers.webhook;
                     result = await provider.send({
                         url: job.url,
                         headers: job.headers,
@@ -714,10 +751,76 @@ export function createNotifyKit(config) {
         },
         preferences: {
             get: getPreference,
-            list(recipientId, scope) {
-                return database.preferences.list(recipientId, scope);
+            async list(recipientId, scope) {
+                const all = await database.preferences.list(recipientId, scope);
+                return all.filter((p) => !isSyntheticPreferenceKey(p.notificationId));
             },
             update: updatePreference,
+            async updateGlobal(input) {
+                const recipient = await database.recipients.findById(input.recipientId);
+                if (!recipient) {
+                    throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
+                }
+                const scope = resolveScope(input, recipient);
+                return database.preferences.upsert({
+                    recipientId: input.recipientId,
+                    tenantId: scope.tenantId,
+                    workspaceId: scope.workspaceId,
+                    notificationId: GLOBAL_PREFERENCE_KEY,
+                    channels: input.channels,
+                });
+            },
+            async updateCategory(input) {
+                const recipient = await database.recipients.findById(input.recipientId);
+                if (!recipient) {
+                    throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
+                }
+                const knownCategories = new Set(notifications.map((n) => n.category).filter(Boolean));
+                if (!knownCategories.has(input.category)) {
+                    throw new NotifyKitError(`Unknown category: "${input.category}". ` +
+                        `Known categories: ${[...knownCategories].join(", ") || "(none)"}.`);
+                }
+                const scope = resolveScope(input, recipient);
+                return database.preferences.upsert({
+                    recipientId: input.recipientId,
+                    tenantId: scope.tenantId,
+                    workspaceId: scope.workspaceId,
+                    notificationId: categoryPreferenceKey(input.category),
+                    channels: input.channels,
+                });
+            },
+            async explain(input) {
+                const def = byId.get(input.notificationId);
+                if (!def) {
+                    throw new NotifyKitError(`Unknown notification id: "${input.notificationId}".`);
+                }
+                const recipient = await database.recipients.findById(input.recipientId);
+                if (!recipient) {
+                    throw new NotifyKitError(`Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`);
+                }
+                const scope = resolveScope(input, recipient);
+                const [userGlobal, userCategory, userNotification, tenantChannels] = await Promise.all([
+                    database.preferences.get(recipient.id, GLOBAL_PREFERENCE_KEY, scope),
+                    def.category
+                        ? database.preferences.get(recipient.id, categoryPreferenceKey(def.category), scope)
+                        : Promise.resolve(null),
+                    database.preferences.get(recipient.id, def.id, scope),
+                    scope.tenantId && config.tenantDefaults
+                        ? Promise.resolve(config.tenantDefaults(scope.tenantId))
+                        : Promise.resolve(null),
+                ]);
+                return resolvePreferences({
+                    def,
+                    recipient,
+                    scope,
+                    appDefaults: config.defaults?.channels,
+                    categoryDefaults: config.defaults?.categories,
+                    tenantChannels,
+                    userGlobal,
+                    userCategory,
+                    userNotification,
+                });
+            },
         },
         async drain() {
             while (pendingFlushes.size > 0) {

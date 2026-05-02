@@ -1,6 +1,7 @@
 export { channel } from "./channel.js";
 export { notification } from "./notification.js";
 export { createNotifyKit } from "./create-notifykit.js";
+export { GLOBAL_PREFERENCE_KEY, categoryPreferenceKey, isSyntheticPreferenceKey, } from "./preference-keys.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
 export { fakeEmailProvider, fakeWebhookProvider, verifyWebhookSignature, webhookProvider, } from "./providers.js";
@@ -12,5 +13,6 @@ export type { CreateNotifyKitInput, NotifyKit, SendResult, } from "./create-noti
 export type { EmailChannelFactory, EmailChannelInput, InboxChannelFactory, InboxChannelInput, WebhookChannelFactory, WebhookChannelInput, } from "./channel.js";
 export type { MemoryAdapter } from "./memory-adapter.js";
 export type { FakeEmailProvider, FakeEmailProviderOptions, FakeWebhookProvider, FakeWebhookProviderOptions, SentEmail, SentWebhook, WebhookProviderOptions, } from "./providers.js";
-export type { ChannelConfig, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryChannel, DeliveryJob, DeliveryRecord, DeliveryStatus, DigestBufferEntry, DigestConfig, EmailChannelConfig, EmailProvider, GetPreferenceInput, Hooks, InboxChannelConfig, InboxItem, InferSchema, MarkReadForRecipientResult, NotificationDefinition, NotificationIds, NotificationRecord, PayloadSchema, PrimitiveSchema, QuietHours, Queue, RateLimitConfig, RateLimitEvent, Recipient, RecipientPreference, RetryPolicy, ScheduledSend, ScheduledSendStatus, SecurityScope, SendInput, UpdatePreferenceInput, UpsertRecipientInput, WebhookChannelConfig, WebhookProvider, } from "./types.js";
+export type { ResolutionContext } from "./resolve-preferences.js";
+export type { CategoryDefaults, ChannelConfig, ChannelPreferenceMap, ChannelResolution, ChannelType, DatabaseAdapter, DeliveryChannel, DeliveryJob, DeliveryRecord, DeliveryStatus, DigestBufferEntry, DigestConfig, EmailChannelConfig, EmailProvider, GetPreferenceInput, Hooks, InboxChannelConfig, InboxItem, InferSchema, MarkReadForRecipientResult, NotificationClassification, NotificationDefinition, NotificationIds, NotificationRecord, PayloadSchema, PreferenceExplanation, PreferenceResolutionLayer, PrimitiveSchema, QuietHours, Queue, RateLimitConfig, RateLimitEvent, Recipient, RecipientPreference, RetryPolicy, ScheduledSend, ScheduledSendStatus, SecurityScope, SendInput, UpdatePreferenceInput, UpsertRecipientInput, WebhookChannelConfig, WebhookProvider, } from "./types.js";
 //# sourceMappingURL=index.d.ts.map

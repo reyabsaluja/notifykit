@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import {
   channel,
   createNotifyKit,
@@ -226,7 +226,44 @@ describe("payload redaction", () => {
   });
 });
 
+test("redact rejects fields not in payload schema at compile time", () => {
+  notification({
+    id: "type_test",
+    payload: { name: "string", count: "number" },
+    channels: [inbox({ title: "{{name}}" })],
+    // @ts-expect-error — "bad_field" is not a key of the payload schema
+    redact: ["bad_field"],
+  });
+
+  notification({
+    id: "type_test_ok",
+    payload: { name: "string", secret: "string" },
+    channels: [inbox({ title: "{{name}}" })],
+    redact: ["secret"], // valid — should not error
+  });
+});
+
 describe("startup validation", () => {
+  test("rejects duplicate notification IDs", () => {
+    expect(() =>
+      createNotifyKit({
+        notifications: [
+          notification({
+            id: "dup",
+            payload: { msg: "string" },
+            channels: [inbox({ title: "{{msg}}" })],
+          }),
+          notification({
+            id: "dup",
+            payload: { msg: "string" },
+            channels: [inbox({ title: "{{msg}}" })],
+          }),
+        ] as const,
+        database: memoryAdapter(),
+      }),
+    ).toThrow(/duplicate notification id.*dup/i);
+  });
+
   test("rejects notification with no channels", () => {
     expect(() =>
       createNotifyKit({
@@ -242,25 +279,34 @@ describe("startup validation", () => {
     ).toThrow(/no channels/i);
   });
 
-  test("rejects email channel at send-time without email provider", async () => {
-    const notify = createNotifyKit({
-      notifications: [
-        notification({
-          id: "needs_email",
-          payload: { msg: "string" },
-          channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
-        }),
-      ] as const,
-      database: memoryAdapter(),
-    });
-    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
-    await expect(
-      notify.send({
-        recipientId: "u1",
-        notificationId: "needs_email",
-        payload: { msg: "hi" },
+  test("rejects email channel without email provider at startup", () => {
+    expect(() =>
+      createNotifyKit({
+        notifications: [
+          notification({
+            id: "needs_email",
+            payload: { msg: "string" },
+            channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+          }),
+        ] as const,
+        database: memoryAdapter(),
       }),
-    ).rejects.toThrow(/no email provider/i);
+    ).toThrow(/no email provider/i);
+  });
+
+  test("rejects webhook channel without webhook provider at startup", () => {
+    expect(() =>
+      createNotifyKit({
+        notifications: [
+          notification({
+            id: "needs_webhook",
+            payload: { url: "string" },
+            channels: [webhook({ url: "https://hook.example" })],
+          }),
+        ] as const,
+        database: memoryAdapter(),
+      }),
+    ).toThrow(/no webhook provider/i);
   });
 
   test("rejects template variable not in payload schema", () => {
@@ -584,5 +630,278 @@ describe("startup validation — webhook header templates", () => {
         providers: { webhook: fakeWebhookProvider() },
       }),
     ).not.toThrow();
+  });
+});
+
+describe("zodPayload adapter", () => {
+  test("derives PayloadSchema and validate from a Zod object schema", async () => {
+    const { z } = await import("zod");
+    const { zodPayload } = await import("../src/zod.js");
+
+    const { payload, validate } = zodPayload(
+      z.object({ name: z.string(), count: z.number() }),
+    );
+    expect(payload).toEqual({ name: "string", count: "number" });
+    expect(validate({ name: "Alice", count: 5 })).toEqual({
+      name: "Alice",
+      count: 5,
+    });
+  });
+
+  test("validate throws on invalid input", async () => {
+    const { z } = await import("zod");
+    const { zodPayload } = await import("../src/zod.js");
+
+    const { validate } = zodPayload(
+      z.object({ name: z.string() }),
+    );
+    expect(() => validate({ name: 123 })).toThrow();
+  });
+
+  test("works end-to-end with notification() and createNotifyKit()", async () => {
+    const { z } = await import("zod");
+    const { zodPayload } = await import("../src/zod.js");
+
+    const { payload, validate } = zodPayload(
+      z.object({ name: z.string(), amount: z.number() }),
+    );
+    const def = notification({
+      id: "zod_test",
+      payload,
+      validate,
+      channels: [inbox({ title: "Hi {{name}}, ${{amount}}" })],
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "zod_test",
+      payload: { name: "Alice", amount: 42 },
+    });
+    expect(result.notification!.payload).toEqual({ name: "Alice", amount: 42 });
+    expect(result.inboxItems[0]!.title).toBe("Hi Alice, $42");
+  });
+
+  test("Zod validation rejects bad payload at send time", async () => {
+    const { z } = await import("zod");
+    const { zodPayload } = await import("../src/zod.js");
+
+    const { payload, validate } = zodPayload(
+      z.object({ name: z.string() }),
+    );
+    const def = notification({
+      id: "zod_reject",
+      payload,
+      validate,
+      channels: [inbox({ title: "{{name}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    await expect(
+      notify.send({
+        recipientId: "u1",
+        notificationId: "zod_reject",
+        payload: { name: 999 as unknown as string },
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("boolean fields are included in inferred schema", async () => {
+    const { z } = await import("zod");
+    const { zodPayload } = await import("../src/zod.js");
+
+    const { payload } = zodPayload(
+      z.object({ active: z.boolean(), name: z.string() }),
+    );
+    expect(payload).toEqual({ active: "boolean", name: "string" });
+  });
+
+  test("non-primitive Zod fields are omitted from PayloadSchema and warn", async () => {
+    const { z } = await import("zod");
+    const { zodPayload } = await import("../src/zod.js");
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { payload, validate } = zodPayload(
+      z.object({
+        name: z.string(),
+        tags: z.array(z.string()),
+      }),
+    );
+    expect(payload).toEqual({ name: "string" });
+    expect(validate({ name: "Alice", tags: ["a", "b"] })).toEqual({
+      name: "Alice",
+      tags: ["a", "b"],
+    });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]![0]).toMatch(/tags.*not mapped/i);
+    warnSpy.mockRestore();
+  });
+});
+
+describe("valibotPayload adapter", () => {
+  test("derives PayloadSchema and validate from a Valibot object schema", async () => {
+    const v = await import("valibot");
+    const { valibotPayload } = await import("../src/valibot.js");
+
+    const { payload, validate } = valibotPayload(
+      v.object({ name: v.string(), count: v.number() }),
+      (schema, data) => v.parse(schema, data) as Record<string, unknown>,
+    );
+    expect(payload).toEqual({ name: "string", count: "number" });
+    expect(validate({ name: "Alice", count: 5 })).toEqual({
+      name: "Alice",
+      count: 5,
+    });
+  });
+
+  test("validate throws on invalid input", async () => {
+    const v = await import("valibot");
+    const { valibotPayload } = await import("../src/valibot.js");
+
+    const { validate } = valibotPayload(
+      v.object({ name: v.string() }),
+      (schema, data) => v.parse(schema, data) as Record<string, unknown>,
+    );
+    expect(() => validate({ name: 123 })).toThrow();
+  });
+
+  test("boolean fields are included in inferred schema", async () => {
+    const v = await import("valibot");
+    const { valibotPayload } = await import("../src/valibot.js");
+
+    const { payload } = valibotPayload(
+      v.object({ active: v.boolean(), name: v.string() }),
+      (schema, data) => v.parse(schema, data) as Record<string, unknown>,
+    );
+    expect(payload).toEqual({ active: "boolean", name: "string" });
+  });
+
+  test("non-primitive fields are omitted and warn", async () => {
+    const v = await import("valibot");
+    const { valibotPayload } = await import("../src/valibot.js");
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { payload } = valibotPayload(
+      v.object({ name: v.string(), tags: v.array(v.string()) }),
+      (schema, data) => v.parse(schema, data) as Record<string, unknown>,
+    );
+    expect(payload).toEqual({ name: "string" });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]![0]).toMatch(/tags.*not mapped/i);
+    warnSpy.mockRestore();
+  });
+
+  test("works end-to-end with notification() and createNotifyKit()", async () => {
+    const v = await import("valibot");
+    const { valibotPayload } = await import("../src/valibot.js");
+
+    const { payload, validate } = valibotPayload(
+      v.object({ name: v.string(), amount: v.number() }),
+      (schema, data) => v.parse(schema, data) as Record<string, unknown>,
+    );
+    const def = notification({
+      id: "valibot_test",
+      payload,
+      validate,
+      channels: [inbox({ title: "Hi {{name}}, ${{amount}}" })],
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "valibot_test",
+      payload: { name: "Alice", amount: 42 },
+    });
+    expect(result.notification!.payload).toEqual({ name: "Alice", amount: 42 });
+    expect(result.inboxItems[0]!.title).toBe("Hi Alice, $42");
+  });
+});
+
+describe("arktypePayload adapter", () => {
+  test("derives PayloadSchema and validate from an ArkType object", async () => {
+    const { type } = await import("arktype");
+    const { arktypePayload } = await import("../src/arktype.js");
+
+    const { payload, validate } = arktypePayload(
+      type({ name: "string", count: "number" }),
+    );
+    expect(payload).toEqual({ name: "string", count: "number" });
+    expect(validate({ name: "Alice", count: 5 })).toEqual({
+      name: "Alice",
+      count: 5,
+    });
+  });
+
+  test("validate throws on invalid input", async () => {
+    const { type } = await import("arktype");
+    const { arktypePayload } = await import("../src/arktype.js");
+
+    const { validate } = arktypePayload(
+      type({ name: "string" }),
+    );
+    expect(() => validate({ name: 123 })).toThrow();
+  });
+
+  test("boolean fields are included in inferred schema", async () => {
+    const { type } = await import("arktype");
+    const { arktypePayload } = await import("../src/arktype.js");
+
+    const { payload } = arktypePayload(
+      type({ active: "boolean", name: "string" }),
+    );
+    expect(payload).toEqual({ active: "boolean", name: "string" });
+  });
+
+  test("constrained fields are omitted and warn", async () => {
+    const { type } = await import("arktype");
+    const { arktypePayload } = await import("../src/arktype.js");
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { payload } = arktypePayload(
+      type({ name: "string", age: "number > 0" }),
+    );
+    expect(payload).toEqual({ name: "string" });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]![0]).toMatch(/age.*not mapped/i);
+    warnSpy.mockRestore();
+  });
+
+  test("works end-to-end with notification() and createNotifyKit()", async () => {
+    const { type } = await import("arktype");
+    const { arktypePayload } = await import("../src/arktype.js");
+
+    const { payload, validate } = arktypePayload(
+      type({ name: "string", amount: "number" }),
+    );
+    const def = notification({
+      id: "arktype_test",
+      payload,
+      validate,
+      channels: [inbox({ title: "Hi {{name}}, ${{amount}}" })],
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "arktype_test",
+      payload: { name: "Alice", amount: 42 },
+    });
+    expect(result.notification!.payload).toEqual({ name: "Alice", amount: 42 });
+    expect(result.inboxItems[0]!.title).toBe("Hi Alice, $42");
   });
 });

@@ -1,6 +1,7 @@
 export { channel } from "./channel.js";
 export { notification } from "./notification.js";
 export { createNotifyKit } from "./create-notifykit.js";
+export { GLOBAL_PREFERENCE_KEY, categoryPreferenceKey, isSyntheticPreferenceKey, } from "./preference-keys.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
 export { fakeEmailProvider, fakeWebhookProvider, verifyWebhookSignature, webhookProvider, } from "./providers.js";

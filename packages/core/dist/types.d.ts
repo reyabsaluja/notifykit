@@ -1,5 +1,27 @@
 export type PrimitiveSchema = "string" | "number" | "boolean";
 export type PayloadSchema = Record<string, PrimitiveSchema>;
+export type NotificationClassification = "transactional" | "product" | "marketing";
+export type CategoryDefaults = Record<string, ChannelPreferenceMap>;
+export type PreferenceResolutionLayer = "app_default" | "notification_default" | "category_default" | "tenant_setting" | "user_global" | "user_category" | "user_notification" | "required_override" | "destination_unavailable";
+export type ChannelResolution = {
+    channel: ChannelType;
+    allowed: boolean;
+    resolvedBy: PreferenceResolutionLayer;
+    trail: Array<{
+        layer: PreferenceResolutionLayer;
+        value: boolean | undefined;
+    }>;
+    reason: string;
+};
+export type PreferenceExplanation = {
+    recipientId: string;
+    notificationId: string;
+    scope?: SecurityScope;
+    channels: ChannelResolution[];
+    required: boolean;
+    classification?: NotificationClassification;
+    category?: string;
+};
 export type SecurityScope = {
     tenantId?: string;
     workspaceId?: string;
@@ -112,7 +134,7 @@ export type NotificationDefinition<Id extends string = string, S extends Payload
      * delivery logs, timeline, studio, and analytics surfaces. The full
      * payload is still stored on the notification record for server-side use.
      */
-    redact?: readonly string[];
+    redact?: readonly (keyof S & string)[];
     /**
      * Custom validation function for payloads. When set, this runs *instead*
      * of the built-in primitive schema validation. Use this to plug in Zod,
@@ -120,6 +142,25 @@ export type NotificationDefinition<Id extends string = string, S extends Payload
      * invalid input and return the validated (potentially transformed) data.
      */
     validate?: (payload: unknown) => Record<string, unknown>;
+    /**
+     * When `true`, this notification cannot be disabled by user preferences.
+     * Use for transactional notifications like password resets, 2FA codes, or
+     * billing receipts. Required notifications still respect missing
+     * destinations (e.g. no email address) and safety constraints.
+     */
+    required?: boolean;
+    /**
+     * Default channel enable/disable state when no user preference exists.
+     * Overrides app-level defaults for this specific notification.
+     */
+    defaultChannels?: ChannelPreferenceMap;
+    /**
+     * Classification for grouping in preference UIs and applying policy.
+     * "transactional" — receipts, resets, legal notices.
+     * "product" — activity, comments, mentions.
+     * "marketing" — newsletters, promos, announcements.
+     */
+    classification?: NotificationClassification;
 };
 /**
  * Quiet hours define a daily window during which non-urgent channels defer.

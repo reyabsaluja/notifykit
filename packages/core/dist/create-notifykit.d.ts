@@ -1,4 +1,4 @@
-import type { ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, SecurityScope, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
+import type { CategoryDefaults, ChannelPreferenceMap, ChannelType, DatabaseAdapter, DeliveryRecord, EmailProvider, GetPreferenceInput, Hooks, InboxItem, MarkReadForRecipientResult, NotificationDefinition, NotificationRecord, PayloadSchema, PreferenceExplanation, Queue, Recipient, RecipientPreference, RetryPolicy, SendInput, SecurityScope, UpdatePreferenceInput, UpsertRecipientInput, WebhookProvider } from "./types.js";
 export type CreateNotifyKitInput<T extends readonly NotificationDefinition<string, PayloadSchema>[]> = {
     notifications: T;
     database: DatabaseAdapter;
@@ -27,6 +27,22 @@ export type CreateNotifyKitInput<T extends readonly NotificationDefinition<strin
         /** Absolute URL (including scheme + host) the handler is mounted at, e.g. "https://app.com/api/notifykit". */
         baseUrl: string;
     };
+    /**
+     * App-level preference defaults. These are the lowest-priority layer in the
+     * resolution engine — any more specific preference overrides them.
+     */
+    defaults?: {
+        /** Default channel enable/disable state for all notifications. */
+        channels?: ChannelPreferenceMap;
+        /** Per-category default channel state. Keys must match a registered notification category. */
+        categories?: CategoryDefaults;
+    };
+    /**
+     * Tenant-level default channel overrides. Called with the tenant ID at
+     * resolution time. Return a channel map to override app defaults for that
+     * tenant, or `null` for no tenant-level overrides.
+     */
+    tenantDefaults?: (tenantId: string) => ChannelPreferenceMap | Promise<ChannelPreferenceMap | null> | null;
 };
 export type SendResult = {
     notification: NotificationRecord | null;
@@ -85,10 +101,36 @@ export type NotifyKit<T extends readonly NotificationDefinition<string, PayloadS
         /**
          * List preferences. **Server-only** — the caller supplies the
          * `recipientId` and optional `scope` directly. In client-facing code
-         * use the handler's `GET /preferences` route.
+         * use the handler's `GET /preferences` route. Synthetic keys
+         * (`__global__`, `__category:*__`) are excluded by default.
          */
         list(recipientId: string, scope?: SecurityScope): Promise<RecipientPreference[]>;
         update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
+        /** Update user's global channel preferences (applies across all notifications). */
+        updateGlobal(input: {
+            recipientId: string;
+            tenantId?: string;
+            workspaceId?: string;
+            channels: ChannelPreferenceMap;
+        }): Promise<RecipientPreference>;
+        /** Update user's category-level channel preferences. */
+        updateCategory(input: {
+            recipientId: string;
+            tenantId?: string;
+            workspaceId?: string;
+            category: string;
+            channels: ChannelPreferenceMap;
+        }): Promise<RecipientPreference>;
+        /**
+         * Explain why each channel is enabled or disabled for a specific
+         * notification + recipient combination. Returns the full resolution trail.
+         */
+        explain(input: {
+            recipientId: string;
+            tenantId?: string;
+            workspaceId?: string;
+            notificationId: string;
+        }): Promise<PreferenceExplanation>;
     };
     /**
      * Resolves when outstanding digest flushes and all enqueued delivery jobs

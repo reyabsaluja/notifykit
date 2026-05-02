@@ -81,7 +81,7 @@ export type CreateHandlerOptions = {
     /**
      * Inbound provider webhook configuration. Maps provider names to a verifier
      * function. When set, a `POST /webhooks/:provider` route is exposed. The
-     * verifier receives the raw request and body and must return `true` for
+     * verifier receives the request headers and raw body and must return `true` for
      * authentic requests. Verified payloads are passed to `onWebhookEvent`.
      *
      * ```ts

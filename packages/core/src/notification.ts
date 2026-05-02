@@ -1,7 +1,9 @@
 import type {
   ChannelConfig,
+  ChannelPreferenceMap,
   DigestConfig,
   InboxChannelConfig,
+  NotificationClassification,
   NotificationDefinition,
   PayloadSchema,
   RateLimitConfig,
@@ -28,6 +30,9 @@ export type NotificationInput<
   version?: number;
   redact?: readonly (keyof S)[];
   validate?: (payload: unknown) => Record<string, unknown>;
+  required?: boolean;
+  defaultChannels?: ChannelPreferenceMap;
+  classification?: NotificationClassification;
 };
 
 export function notification<Id extends string, S extends PayloadSchema>(
