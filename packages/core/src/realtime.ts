@@ -17,22 +17,30 @@ export type RealtimeAdapter = {
   ): () => void;
 };
 
+export function normalizeScope(scope: SecurityScope): SecurityScope {
+  return {
+    ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),
+    ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+  };
+}
+
+function scopeKey(recipientId: string, scope: SecurityScope): string {
+  const s = normalizeScope(scope);
+  return `${recipientId}:${s.tenantId ?? ""}:${s.workspaceId ?? ""}`;
+}
+
 export function memoryRealtimeAdapter(): RealtimeAdapter {
   const subs = new Map<string, Set<RealtimeListener>>();
 
-  function key(recipientId: string, scope: SecurityScope): string {
-    return `${recipientId}:${scope.tenantId ?? ""}:${scope.workspaceId ?? ""}`;
-  }
-
   return {
     publish(recipientId, scope, event) {
-      const k = key(recipientId, scope);
+      const k = scopeKey(recipientId, scope);
       const set = subs.get(k);
       if (!set) return;
       for (const fn of set) fn(event);
     },
     subscribe(recipientId, scope, listener) {
-      const k = key(recipientId, scope);
+      const k = scopeKey(recipientId, scope);
       let set = subs.get(k);
       if (!set) {
         set = new Set();

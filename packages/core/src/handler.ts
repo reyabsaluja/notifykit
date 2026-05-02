@@ -7,6 +7,7 @@ import type {
 } from "./types.js";
 import type { NotifyKit } from "./create-notifykit.js";
 import type { RealtimeEvent } from "./realtime.js";
+import { normalizeScope } from "./realtime.js";
 import { verifyUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, PayloadValidationError } from "./utils.js";
 
@@ -352,10 +353,7 @@ export function createHandler<
       if (!notify.realtime) {
         return withCors(json({ error: "Realtime not configured" }, 404));
       }
-      const scope: SecurityScope = {
-        ...(context.tenantId ? { tenantId: context.tenantId } : {}),
-        ...(context.workspaceId ? { workspaceId: context.workspaceId } : {}),
-      };
+      const scope = normalizeScope(context);
       const stream = new ReadableStream({
         start(controller) {
           const encoder = new TextEncoder();

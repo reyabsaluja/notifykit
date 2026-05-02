@@ -8,7 +8,7 @@ export {
 } from "./preference-keys.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";
-export { memoryRealtimeAdapter } from "./realtime.js";
+export { memoryRealtimeAdapter, normalizeScope } from "./realtime.js";
 export {
   fakeEmailProvider,
   fakeWebhookProvider,
