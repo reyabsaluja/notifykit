@@ -464,15 +464,15 @@ export function createNotifyKitClient(
       },
 
       async markRead(inboxItemId: string): Promise<InboxItem | null> {
-        const target = state.inbox.items.find((it) => it.id === inboxItemId);
+        const prevItems = state.inbox.items;
+        const target = prevItems.find((it) => it.id === inboxItemId);
         const wasUnread = target && !target.readAt && !target.archivedAt;
-        const originalReadAt = target?.readAt ?? null;
         const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
           inbox: {
             ...state.inbox,
-            items: state.inbox.items.map((it) =>
+            items: prevItems.map((it) =>
               it.id === inboxItemId && !it.readAt
                 ? { ...it, readAt: new Date() }
                 : it,
@@ -503,9 +503,7 @@ export function createNotifyKitClient(
             ...state,
             inbox: {
               ...state.inbox,
-              items: state.inbox.items.map((it) =>
-                it.id === inboxItemId ? { ...it, readAt: originalReadAt } : it,
-              ),
+              items: prevItems,
               unreadCount: prevUnreadCount,
               error: err instanceof Error ? err.message : String(err),
             },
@@ -565,21 +563,18 @@ export function createNotifyKitClient(
       },
 
       async archive(inboxItemId: string): Promise<InboxItem | null> {
-        const target = state.inbox.items.find((it) => it.id === inboxItemId);
+        const prevItems = state.inbox.items;
+        const target = prevItems.find((it) => it.id === inboxItemId);
         const alreadyArchived = target?.archivedAt != null;
         const shouldDecrementCount = target && !target.readAt && !alreadyArchived;
-        const removedItem = !alreadyArchived ? target : null;
-        const removedIndex = !alreadyArchived
-          ? state.inbox.items.findIndex((it) => it.id === inboxItemId)
-          : -1;
         const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
           inbox: {
             ...state.inbox,
             items: alreadyArchived
-              ? state.inbox.items
-              : state.inbox.items.filter((it) => it.id !== inboxItemId),
+              ? prevItems
+              : prevItems.filter((it) => it.id !== inboxItemId),
             unreadCount: shouldDecrementCount
               ? Math.max(0, prevUnreadCount - 1)
               : prevUnreadCount,
@@ -592,48 +587,33 @@ export function createNotifyKitClient(
           );
           return raw ? reviveInboxItem(raw) : null;
         } catch (err) {
-          if (removedItem && removedIndex >= 0) {
-            const items = [...state.inbox.items];
-            items.splice(removedIndex, 0, removedItem);
-            setState({
-              ...state,
-              inbox: {
-                ...state.inbox,
-                items,
-                unreadCount: prevUnreadCount,
-                error: err instanceof Error ? err.message : String(err),
-              },
-            });
-          } else {
-            setState({
-              ...state,
-              inbox: {
-                ...state.inbox,
-                error: err instanceof Error ? err.message : String(err),
-              },
-            });
-          }
+          setState({
+            ...state,
+            inbox: {
+              ...state.inbox,
+              items: prevItems,
+              unreadCount: prevUnreadCount,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
           throw err;
         }
       },
 
       async unarchive(inboxItemId: string): Promise<InboxItem | null> {
-        const target = state.inbox.items.find((it) => it.id === inboxItemId);
+        const prevItems = state.inbox.items;
+        const target = prevItems.find((it) => it.id === inboxItemId);
         const alreadyUnarchived = target != null && target.archivedAt == null;
         const shouldIncrementCount =
           target && !target.readAt && !alreadyUnarchived;
-        const removedItem = !alreadyUnarchived ? target : null;
-        const removedIndex = !alreadyUnarchived
-          ? state.inbox.items.findIndex((it) => it.id === inboxItemId)
-          : -1;
         const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
           inbox: {
             ...state.inbox,
             items: alreadyUnarchived
-              ? state.inbox.items
-              : state.inbox.items.filter((it) => it.id !== inboxItemId),
+              ? prevItems
+              : prevItems.filter((it) => it.id !== inboxItemId),
             unreadCount: shouldIncrementCount
               ? prevUnreadCount + 1
               : prevUnreadCount,
@@ -646,41 +626,29 @@ export function createNotifyKitClient(
           );
           return raw ? reviveInboxItem(raw) : null;
         } catch (err) {
-          if (removedItem && removedIndex >= 0) {
-            const items = [...state.inbox.items];
-            items.splice(removedIndex, 0, removedItem);
-            setState({
-              ...state,
-              inbox: {
-                ...state.inbox,
-                items,
-                unreadCount: prevUnreadCount,
-                error: err instanceof Error ? err.message : String(err),
-              },
-            });
-          } else {
-            setState({
-              ...state,
-              inbox: {
-                ...state.inbox,
-                error: err instanceof Error ? err.message : String(err),
-              },
-            });
-          }
+          setState({
+            ...state,
+            inbox: {
+              ...state.inbox,
+              items: prevItems,
+              unreadCount: prevUnreadCount,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
           throw err;
         }
       },
 
       async deleteItem(inboxItemId: string): Promise<void> {
-        const target = state.inbox.items.find((it) => it.id === inboxItemId);
+        const prevItems = state.inbox.items;
+        const target = prevItems.find((it) => it.id === inboxItemId);
         const wasUnread = target && !target.readAt && !target.archivedAt;
-        const removedIndex = state.inbox.items.findIndex((it) => it.id === inboxItemId);
         const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
           inbox: {
             ...state.inbox,
-            items: state.inbox.items.filter((it) => it.id !== inboxItemId),
+            items: prevItems.filter((it) => it.id !== inboxItemId),
             unreadCount: wasUnread ? Math.max(0, prevUnreadCount - 1) : prevUnreadCount,
           },
         });
@@ -690,27 +658,15 @@ export function createNotifyKitClient(
             `/inbox/${encodeURIComponent(inboxItemId)}`,
           );
         } catch (err) {
-          if (target && removedIndex >= 0) {
-            const items = [...state.inbox.items];
-            items.splice(removedIndex, 0, target);
-            setState({
-              ...state,
-              inbox: {
-                ...state.inbox,
-                items,
-                unreadCount: prevUnreadCount,
-                error: err instanceof Error ? err.message : String(err),
-              },
-            });
-          } else {
-            setState({
-              ...state,
-              inbox: {
-                ...state.inbox,
-                error: err instanceof Error ? err.message : String(err),
-              },
-            });
-          }
+          setState({
+            ...state,
+            inbox: {
+              ...state.inbox,
+              items: prevItems,
+              unreadCount: prevUnreadCount,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
           throw err;
         }
       },
