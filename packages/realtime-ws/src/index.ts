@@ -59,6 +59,7 @@ export type WebSocketRealtimeAdapter = RealtimeAdapter & {
   handleMessage(ws: WebSocketLike, data: string): void;
   handleClose(ws: WebSocketLike): void;
   connectionCount(): number;
+  shutdown(): void;
 };
 
 export type WebSocketLike = {
@@ -198,6 +199,13 @@ export function webSocketRealtimeAdapter(
     handleClose,
     connectionCount() {
       return connections.size;
+    },
+    shutdown() {
+      for (const [ws] of connections) {
+        handleClose(ws);
+        try { ws.close(); } catch {}
+      }
+      subs.clear();
     },
   };
 }
