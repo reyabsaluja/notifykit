@@ -526,7 +526,7 @@ export function createNotifyKitClient(
 
       async markAllRead(): Promise<number> {
         const prevUnread = state.inbox.unreadCount;
-        const readAtSnapshot = new Map<string, Date | null>();
+        const readAtSnapshot = new Map<string, Date | null | undefined>();
         for (const it of state.inbox.items) {
           if (!it.readAt && !it.archivedAt) readAtSnapshot.set(it.id, it.readAt);
         }

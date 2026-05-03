@@ -1,5 +1,6 @@
 import type {
   ChannelPreferenceMap,
+  ChannelType,
   NotificationClassification,
   NotificationDefinition,
   PayloadSchema,
