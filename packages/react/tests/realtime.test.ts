@@ -447,3 +447,121 @@ describe("client optimistic mutations", () => {
     expect(client.getState().inbox.unreadCount).toBe(1);
   });
 });
+
+describe("SSE reconnection", () => {
+  test("reconnects after stream error and delivers events", async () => {
+    let attempt = 0;
+    const newItem = makeItem({ id: "inb_reconnect" });
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      const parsed = new URL(url, "http://localhost");
+      const path = parsed.pathname.replace(/^\/api\/notifykit/, "");
+
+      if (path === "/inbox/stream") {
+        attempt++;
+        if (attempt === 1) {
+          return new Response(null, { status: 500 });
+        }
+        return sseResponse([{ type: "inbox.created", item: newItem }]);
+      }
+
+      if (`${method} ${path}` === "GET /inbox") {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ error: "Not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const client = createNotifyKitClient({
+      fetch: fetchImpl,
+      realtime: true,
+    });
+
+    await client.inbox.list();
+    client.connect();
+
+    await waitForState(
+      client,
+      () => client.getState().inbox.items.length === 1,
+      5000,
+    );
+    expect(client.getState().inbox.items[0].id).toBe("inb_reconnect");
+    expect(attempt).toBeGreaterThanOrEqual(2);
+
+    client.disconnect();
+  });
+
+  test("tracks Last-Event-ID from server", async () => {
+    let capturedHeaders: Record<string, string> = {};
+    let attempt = 0;
+    const encoder = new TextEncoder();
+
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      const parsed = new URL(url, "http://localhost");
+      const path = parsed.pathname.replace(/^\/api\/notifykit/, "");
+
+      if (path === "/inbox/stream") {
+        attempt++;
+        const hdrs = init?.headers as Record<string, string> | undefined;
+        if (attempt === 2 && hdrs) {
+          capturedHeaders = { ...hdrs };
+        }
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (attempt === 1) {
+              controller.enqueue(encoder.encode("id: 42\ndata: {\"type\":\"inbox.all_read\",\"count\":0}\n\n"));
+            }
+            controller.close();
+          },
+        });
+        return new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+
+      if (`${method} ${path}` === "GET /inbox") {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const client = createNotifyKitClient({
+      fetch: fetchImpl,
+      realtime: true,
+    });
+
+    await client.inbox.list();
+    client.connect();
+
+    await waitForState(
+      client,
+      () => attempt >= 2,
+      5000,
+    );
+    expect(capturedHeaders["last-event-id"]).toBe("42");
+
+    client.disconnect();
+  });
+});
