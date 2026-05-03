@@ -679,4 +679,91 @@ describe("drizzleSqliteAdapter", () => {
     expect((await ctx.adapter.inbox.unarchiveForRecipient("missing", "user_1")).status).toBe("not_found");
     expect((await ctx.adapter.inbox.deleteForRecipient("missing", "user_1")).status).toBe("not_found");
   });
+
+  describe("multi-tenant isolation", () => {
+    test("inbox items are scoped by tenantId", async () => {
+      await ctx.notify.upsertRecipient({ id: "user_1" });
+
+      await ctx.notify.send({
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        payload: { name: "Tenant A" },
+        tenantId: "tenant_a",
+      });
+      await ctx.notify.send({
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        payload: { name: "Tenant B" },
+        tenantId: "tenant_b",
+      });
+
+      const allItems = await ctx.adapter.inbox.listByRecipient("user_1", {});
+      expect(allItems.length).toBeGreaterThanOrEqual(2);
+
+      const tenantAItems = await ctx.adapter.inbox.listByRecipient("user_1", { tenantId: "tenant_a" });
+      const tenantBItems = await ctx.adapter.inbox.listByRecipient("user_1", { tenantId: "tenant_b" });
+      expect(tenantAItems.every((it) => it.tenantId === "tenant_a")).toBe(true);
+      expect(tenantBItems.every((it) => it.tenantId === "tenant_b")).toBe(true);
+      expect(tenantAItems.length).toBe(1);
+      expect(tenantBItems.length).toBe(1);
+    });
+
+    test("preferences are scoped by tenantId", async () => {
+      await ctx.notify.upsertRecipient({ id: "user_1" });
+
+      await ctx.notify.preferences.update({
+        recipientId: "user_1",
+        notificationId: "comment_mentioned",
+        tenantId: "tenant_a",
+        channels: { email: false },
+      });
+      await ctx.notify.preferences.update({
+        recipientId: "user_1",
+        notificationId: "comment_mentioned",
+        tenantId: "tenant_b",
+        channels: { email: true },
+      });
+
+      const prefA = await ctx.notify.preferences.get({
+        recipientId: "user_1",
+        notificationId: "comment_mentioned",
+        tenantId: "tenant_a",
+      });
+      const prefB = await ctx.notify.preferences.get({
+        recipientId: "user_1",
+        notificationId: "comment_mentioned",
+        tenantId: "tenant_b",
+      });
+      expect(prefA?.channels.email).toBe(false);
+      expect(prefB?.channels.email).toBe(true);
+    });
+
+    test("unread count is scoped by tenantId", async () => {
+      await ctx.notify.upsertRecipient({ id: "user_1" });
+
+      await ctx.notify.send({
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        payload: { name: "A" },
+        tenantId: "tenant_a",
+      });
+      await ctx.notify.send({
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        payload: { name: "B" },
+        tenantId: "tenant_a",
+      });
+      await ctx.notify.send({
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        payload: { name: "C" },
+        tenantId: "tenant_b",
+      });
+
+      const countA = await ctx.adapter.inbox.unreadCount("user_1", { tenantId: "tenant_a" });
+      const countB = await ctx.adapter.inbox.unreadCount("user_1", { tenantId: "tenant_b" });
+      expect(countA).toBe(2);
+      expect(countB).toBe(1);
+    });
+  });
 });
