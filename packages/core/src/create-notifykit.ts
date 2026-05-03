@@ -1092,7 +1092,7 @@ export function createNotifyKit<
         const headers: Record<string, string> = { host: hostHeader };
         if (ch.headers) {
           for (const [k, v] of Object.entries(ch.headers)) {
-            headers[k] = renderTemplate(v, payload, { escapeHtml: false });
+            headers[k] = renderTemplate(v, payload, { escapeHtml: false }).replace(/[\r\n]/g, "");
           }
         }
 
