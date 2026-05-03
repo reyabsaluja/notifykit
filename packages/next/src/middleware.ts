@@ -46,6 +46,9 @@ export function createNotifyKitMiddleware(
           "Content-Type, Authorization",
         );
         response.headers.set("Access-Control-Max-Age", "86400");
+        if (!allowedOrigins.includes("*")) {
+          response.headers.set("Vary", "Origin");
+        }
         if (cors.credentials !== false && !allowedOrigins.includes("*")) {
           response.headers.set("Access-Control-Allow-Credentials", "true");
         }
@@ -60,6 +63,9 @@ export function createNotifyKitMiddleware(
       "Access-Control-Allow-Origin",
       allowedOrigins.includes("*") ? "*" : origin,
     );
+    if (!allowedOrigins.includes("*")) {
+      response.headers.set("Vary", "Origin");
+    }
     if (cors.credentials !== false && !allowedOrigins.includes("*")) {
       response.headers.set("Access-Control-Allow-Credentials", "true");
     }
