@@ -421,10 +421,6 @@ export function createHandler<
           if (result.status === "forbidden") {
             return withCors(json({ error: "Forbidden" }, 403));
           }
-          notify.realtime?.publish(context.recipientId, context, {
-            type: "inbox.updated",
-            item: result.item,
-          });
           return withCors(json({ data: result.item }));
         }
         case "inbox.unreadCount": {
@@ -439,10 +435,6 @@ export function createHandler<
             context.recipientId,
             context,
           );
-          notify.realtime?.publish(context.recipientId, context, {
-            type: "inbox.all_read",
-            count,
-          });
           return withCors(json({ data: { count } }));
         }
         case "inbox.archive": {
@@ -457,10 +449,6 @@ export function createHandler<
           if (result.status === "forbidden") {
             return withCors(json({ error: "Forbidden" }, 403));
           }
-          notify.realtime?.publish(context.recipientId, context, {
-            type: "inbox.archived",
-            item: result.item,
-          });
           return withCors(json({ data: result.item }));
         }
         case "inbox.unarchive": {
@@ -475,10 +463,6 @@ export function createHandler<
           if (result.status === "forbidden") {
             return withCors(json({ error: "Forbidden" }, 403));
           }
-          notify.realtime?.publish(context.recipientId, context, {
-            type: "inbox.unarchived",
-            item: result.item,
-          });
           return withCors(json({ data: result.item }));
         }
         case "inbox.delete": {
@@ -493,10 +477,6 @@ export function createHandler<
           if (result.status === "forbidden") {
             return withCors(json({ error: "Forbidden" }, 403));
           }
-          notify.realtime?.publish(context.recipientId, context, {
-            type: "inbox.deleted",
-            itemId: route.id,
-          });
           return withCors(json({ data: { deleted: true } }));
         }
         case "preferences.list": {

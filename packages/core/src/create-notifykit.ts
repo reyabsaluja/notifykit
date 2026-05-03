@@ -1306,27 +1306,62 @@ export function createNotifyKit<
       list(recipientId, scope, filter) {
         return database.inbox.listByRecipient(recipientId, scope, filter);
       },
-      markReadForRecipient(inboxItemId, recipientId, scope) {
-        return database.inbox.markReadForRecipient(
+      async markReadForRecipient(inboxItemId, recipientId, scope) {
+        const result = await database.inbox.markReadForRecipient(
           inboxItemId,
           recipientId,
           scope,
         );
+        if (result.status === "marked") {
+          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+            type: "inbox.updated",
+            item: result.item,
+          });
+        }
+        return result;
       },
       unreadCount(recipientId, scope) {
         return database.inbox.unreadCount(recipientId, scope);
       },
-      markAllRead(recipientId, scope) {
-        return database.inbox.markAllRead(recipientId, scope);
+      async markAllRead(recipientId, scope) {
+        const count = await database.inbox.markAllRead(recipientId, scope);
+        if (count > 0) {
+          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+            type: "inbox.all_read",
+            count,
+          });
+        }
+        return count;
       },
-      archiveForRecipient(inboxItemId, recipientId, scope) {
-        return database.inbox.archiveForRecipient(inboxItemId, recipientId, scope);
+      async archiveForRecipient(inboxItemId, recipientId, scope) {
+        const result = await database.inbox.archiveForRecipient(inboxItemId, recipientId, scope);
+        if (result.status === "ok") {
+          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+            type: "inbox.archived",
+            item: result.item,
+          });
+        }
+        return result;
       },
-      unarchiveForRecipient(inboxItemId, recipientId, scope) {
-        return database.inbox.unarchiveForRecipient(inboxItemId, recipientId, scope);
+      async unarchiveForRecipient(inboxItemId, recipientId, scope) {
+        const result = await database.inbox.unarchiveForRecipient(inboxItemId, recipientId, scope);
+        if (result.status === "ok") {
+          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+            type: "inbox.unarchived",
+            item: result.item,
+          });
+        }
+        return result;
       },
-      deleteForRecipient(inboxItemId, recipientId, scope) {
-        return database.inbox.deleteForRecipient(inboxItemId, recipientId, scope);
+      async deleteForRecipient(inboxItemId, recipientId, scope) {
+        const result = await database.inbox.deleteForRecipient(inboxItemId, recipientId, scope);
+        if (result.status === "deleted") {
+          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+            type: "inbox.deleted",
+            itemId: inboxItemId,
+          });
+        }
+        return result;
       },
     },
     deliveries: {

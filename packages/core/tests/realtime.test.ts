@@ -356,3 +356,166 @@ describe("handler SSE stream", () => {
     expect(events.some((e) => e.type === "inbox.all_read")).toBe(true);
   });
 });
+
+describe("core inbox mutations publish realtime events", () => {
+  let realtime: RealtimeAdapter;
+  let notify: Awaited<ReturnType<typeof createNotifyKit<readonly [typeof commentMentioned]>>>;
+
+  beforeEach(async () => {
+    realtime = memoryRealtimeAdapter();
+    const database = memoryAdapter();
+    notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+      realtime,
+    });
+
+    await notify.upsertRecipient({
+      id: "user_1",
+      email: "a@example.com",
+      name: "Alice",
+    });
+  });
+
+  test("markReadForRecipient publishes inbox.updated", async () => {
+    const events: RealtimeEvent[] = [];
+    realtime.subscribe("user_1", {}, (e) => events.push(e));
+
+    await notify.send({
+      notificationId: "comment_mentioned",
+      recipientId: "user_1",
+      payload: { actorName: "Bob", postTitle: "Post", postUrl: "https://example.com" },
+    });
+
+    const items = await notify.inbox.list("user_1", {});
+    const result = await notify.inbox.markReadForRecipient(items[0]!.id, "user_1", {});
+    expect(result.status).toBe("marked");
+    expect(events.some((e) => e.type === "inbox.updated")).toBe(true);
+  });
+
+  test("markAllRead publishes inbox.all_read", async () => {
+    const events: RealtimeEvent[] = [];
+    realtime.subscribe("user_1", {}, (e) => events.push(e));
+
+    await notify.send({
+      notificationId: "comment_mentioned",
+      recipientId: "user_1",
+      payload: { actorName: "Bob", postTitle: "Post", postUrl: "https://example.com" },
+    });
+
+    const count = await notify.inbox.markAllRead("user_1", {});
+    expect(count).toBe(1);
+    const allReadEvent = events.find((e) => e.type === "inbox.all_read");
+    expect(allReadEvent).toBeDefined();
+    expect((allReadEvent as any).count).toBe(1);
+  });
+
+  test("archiveForRecipient publishes inbox.archived", async () => {
+    const events: RealtimeEvent[] = [];
+    realtime.subscribe("user_1", {}, (e) => events.push(e));
+
+    await notify.send({
+      notificationId: "comment_mentioned",
+      recipientId: "user_1",
+      payload: { actorName: "Bob", postTitle: "Post", postUrl: "https://example.com" },
+    });
+
+    const items = await notify.inbox.list("user_1", {});
+    const result = await notify.inbox.archiveForRecipient(items[0]!.id, "user_1", {});
+    expect(result.status).toBe("ok");
+    expect(events.some((e) => e.type === "inbox.archived")).toBe(true);
+  });
+
+  test("unarchiveForRecipient publishes inbox.unarchived", async () => {
+    const events: RealtimeEvent[] = [];
+    realtime.subscribe("user_1", {}, (e) => events.push(e));
+
+    await notify.send({
+      notificationId: "comment_mentioned",
+      recipientId: "user_1",
+      payload: { actorName: "Bob", postTitle: "Post", postUrl: "https://example.com" },
+    });
+
+    const items = await notify.inbox.list("user_1", {});
+    await notify.inbox.archiveForRecipient(items[0]!.id, "user_1", {});
+    const result = await notify.inbox.unarchiveForRecipient(items[0]!.id, "user_1", {});
+    expect(result.status).toBe("ok");
+    expect(events.some((e) => e.type === "inbox.unarchived")).toBe(true);
+  });
+
+  test("deleteForRecipient publishes inbox.deleted", async () => {
+    const events: RealtimeEvent[] = [];
+    realtime.subscribe("user_1", {}, (e) => events.push(e));
+
+    await notify.send({
+      notificationId: "comment_mentioned",
+      recipientId: "user_1",
+      payload: { actorName: "Bob", postTitle: "Post", postUrl: "https://example.com" },
+    });
+
+    const items = await notify.inbox.list("user_1", {});
+    const result = await notify.inbox.deleteForRecipient(items[0]!.id, "user_1", {});
+    expect(result.status).toBe("deleted");
+    const deleteEvent = events.find((e) => e.type === "inbox.deleted");
+    expect(deleteEvent).toBeDefined();
+    expect((deleteEvent as any).itemId).toBe(items[0]!.id);
+  });
+
+  test("no realtime event on not_found result", async () => {
+    const events: RealtimeEvent[] = [];
+    realtime.subscribe("user_1", {}, (e) => events.push(e));
+
+    const result = await notify.inbox.markReadForRecipient("nonexistent", "user_1", {});
+    expect(result.status).toBe("not_found");
+    expect(events).toHaveLength(0);
+  });
+
+  test("markAllRead does not publish when count is 0", async () => {
+    const events: RealtimeEvent[] = [];
+    realtime.subscribe("user_1", {}, (e) => events.push(e));
+
+    const count = await notify.inbox.markAllRead("user_1", {});
+    expect(count).toBe(0);
+    expect(events.filter((e) => e.type === "inbox.all_read")).toHaveLength(0);
+  });
+
+  test("no event when realtime adapter is not configured", async () => {
+    const noRtNotify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: fakeEmailProvider() },
+    });
+
+    await noRtNotify.upsertRecipient({ id: "user_1", email: "a@example.com" });
+    await noRtNotify.send({
+      notificationId: "comment_mentioned",
+      recipientId: "user_1",
+      payload: { actorName: "Bob", postTitle: "Post", postUrl: "https://example.com" },
+    });
+
+    const items = await noRtNotify.inbox.list("user_1", {});
+    const result = await noRtNotify.inbox.markReadForRecipient(items[0]!.id, "user_1", {});
+    expect(result.status).toBe("marked");
+  });
+
+  test("scope is forwarded to realtime publish", async () => {
+    const unscopedEvents: RealtimeEvent[] = [];
+    const scopedEvents: RealtimeEvent[] = [];
+    realtime.subscribe("user_1", {}, (e) => unscopedEvents.push(e));
+    realtime.subscribe("user_1", { tenantId: "t_1" }, (e) => scopedEvents.push(e));
+
+    await notify.send({
+      notificationId: "comment_mentioned",
+      recipientId: "user_1",
+      tenantId: "t_1",
+      payload: { actorName: "Bob", postTitle: "Post", postUrl: "https://example.com" },
+    } as any);
+
+    const items = await notify.inbox.list("user_1", { tenantId: "t_1" });
+    await notify.inbox.markReadForRecipient(items[0]!.id, "user_1", { tenantId: "t_1" });
+
+    expect(scopedEvents.some((e) => e.type === "inbox.updated")).toBe(true);
+    expect(unscopedEvents.filter((e) => e.type === "inbox.updated")).toHaveLength(0);
+  });
+});
