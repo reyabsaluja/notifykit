@@ -499,7 +499,11 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         return row ? rowToDelivery(row) : null;
       },
       async update(id, patch): Promise<DeliveryRecord | null> {
-        const set: Record<string, unknown> = { ...patch, updatedAt: new Date() };
+        const ALLOWED = ["status", "providerMessageId", "error", "attempts", "sentAt", "failedAt"] as const;
+        const set: Record<string, unknown> = { updatedAt: new Date() };
+        for (const key of ALLOWED) {
+          if (key in patch) set[key] = (patch as Record<string, unknown>)[key];
+        }
         const updated = await db
           .update(deliveries)
           .set(set)
