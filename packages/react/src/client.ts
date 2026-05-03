@@ -274,12 +274,21 @@ export function createNotifyKitClient(
     sseAbort = controller;
     (async () => {
       let retryMs = 1000;
+      let retries = 0;
+      const MAX_RETRIES = 20;
       while (!controller.signal.aborted) {
         try {
           await readSSEStream(controller.signal);
+          retries = 0;
+          retryMs = 1000;
         } catch (err) {
           if (controller.signal.aborted) break;
+          retries++;
           onRealtimeError?.(err);
+          if (retries >= MAX_RETRIES) {
+            setRtStatus("disconnected");
+            break;
+          }
         }
         if (controller.signal.aborted) break;
         setRtStatus("connecting");
@@ -448,7 +457,7 @@ export function createNotifyKitClient(
           inbox: {
             ...state.inbox,
             items: optimistic,
-            unreadCount: wasUnread ? prev.unreadCount - 1 : prev.unreadCount,
+            unreadCount: wasUnread ? Math.max(0, prev.unreadCount - 1) : prev.unreadCount,
           },
         });
         try {
@@ -532,7 +541,7 @@ export function createNotifyKitClient(
             ...state.inbox,
             items: optimistic,
             unreadCount: shouldDecrementCount
-              ? prev.unreadCount - 1
+              ? Math.max(0, prev.unreadCount - 1)
               : prev.unreadCount,
           },
         });
@@ -601,7 +610,7 @@ export function createNotifyKitClient(
           inbox: {
             ...state.inbox,
             items: optimistic,
-            unreadCount: wasUnread ? prev.unreadCount - 1 : prev.unreadCount,
+            unreadCount: wasUnread ? Math.max(0, prev.unreadCount - 1) : prev.unreadCount,
           },
         });
         try {
