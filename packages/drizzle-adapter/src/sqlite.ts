@@ -791,7 +791,12 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           const cutoff = new Date(Date.now() - input.windowMs);
           await db
             .delete(rateLimitEvents)
-            .where(lt(rateLimitEvents.occurredAt, cutoff));
+            .where(
+              and(
+                eq(rateLimitEvents.key, input.key),
+                lt(rateLimitEvents.occurredAt, cutoff),
+              ),
+            );
           const rows = await db
             .select({ id: rateLimitEvents.id })
             .from(rateLimitEvents)
@@ -821,7 +826,12 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         const cutoff = new Date(Date.now() - input.windowMs);
         await db
           .delete(rateLimitEvents)
-          .where(lt(rateLimitEvents.occurredAt, cutoff));
+          .where(
+            and(
+              eq(rateLimitEvents.key, input.key),
+              lt(rateLimitEvents.occurredAt, cutoff),
+            ),
+          );
         const rows = await db
           .select()
           .from(rateLimitEvents)

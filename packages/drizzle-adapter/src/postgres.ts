@@ -715,7 +715,12 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           const cutoff = new Date(Date.now() - input.windowMs);
           await tx
             .delete(rateLimitEvents)
-            .where(lt(rateLimitEvents.occurredAt, cutoff));
+            .where(
+              and(
+                eq(rateLimitEvents.key, input.key),
+                lt(rateLimitEvents.occurredAt, cutoff),
+              ),
+            );
           const rows = await tx
             .select({ id: rateLimitEvents.id })
             .from(rateLimitEvents)
@@ -745,7 +750,12 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         const cutoff = new Date(Date.now() - input.windowMs);
         await db
           .delete(rateLimitEvents)
-          .where(lt(rateLimitEvents.occurredAt, cutoff));
+          .where(
+            and(
+              eq(rateLimitEvents.key, input.key),
+              lt(rateLimitEvents.occurredAt, cutoff),
+            ),
+          );
         const rows = await db
           .select()
           .from(rateLimitEvents)
