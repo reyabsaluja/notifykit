@@ -895,6 +895,35 @@ export function createNotifyKit<
       const validated = def.validate
         ? def.validate(combined)
         : validatePayload(def.payload, combined, def.id);
+
+      const deferChannels: ChannelType[] = [];
+      if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
+        const deferSeen = new Set<ChannelType>();
+        for (const ch of def.channels) {
+          if ((ch.type === "email" || ch.type === "webhook") && !deferSeen.has(ch.type)) {
+            deferSeen.add(ch.type);
+            deferChannels.push(ch.type);
+          }
+        }
+      }
+
+      if (deferChannels.length > 0) {
+        const result = await deliver(recipient, def, validated, { deferChannels, scope });
+        const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
+        const record = await database.scheduledSends.create({
+          recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: def.id,
+          notificationRecordId: result.notification?.id,
+          payload: validated,
+          scheduledFor,
+          reason: "quiet_hours",
+        });
+        scheduleDeferredFlush(record.id, scheduledFor);
+        return;
+      }
+
       await deliver(recipient, def, validated, { scope });
     } catch (err) {
       await database.digests.restore(entry);
