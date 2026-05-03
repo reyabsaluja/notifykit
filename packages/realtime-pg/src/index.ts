@@ -92,6 +92,7 @@ export function pgRealtimeAdapter(
       if (!listening) return;
       await conn.unlisten(pgChannel);
       listening = false;
+      subs.clear();
     },
 
     publish(recipientId, scope, event) {
