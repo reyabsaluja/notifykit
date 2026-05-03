@@ -21,5 +21,5 @@ export type NotificationInput<Id extends string, S extends PayloadSchema> = {
     defaultChannels?: ChannelPreferenceMap;
     classification?: NotificationClassification;
 };
-export declare function notification<Id extends string, S extends PayloadSchema>(def: NotificationInput<Id, S>): NotificationDefinition<Id, S>;
+export declare function notification<Id extends string, const S extends PayloadSchema>(def: NotificationInput<Id, S>): NotificationDefinition<Id, S>;
 //# sourceMappingURL=notification.d.ts.map

@@ -828,6 +828,89 @@ describe("valibotPayload adapter", () => {
   });
 });
 
+describe("exported instance preserves payload types across module boundaries", () => {
+  test("send() infers payload from an exported NotifyKit instance without casts", async () => {
+    const db = memoryAdapter();
+    const commentMentioned = notification({
+      id: "comment_mentioned",
+      payload: {
+        actorName: "string",
+        postTitle: "string",
+        postUrl: "string",
+      },
+      channels: [inbox({ title: "{{actorName}} mentioned you" })],
+    });
+    const welcomeNotification = notification({
+      id: "welcome",
+      payload: { name: "string" },
+      channels: [inbox({ title: "Welcome, {{name}}" })],
+    });
+
+    const notify = createNotifyKit({
+      notifications: [commentMentioned, welcomeNotification] as const,
+      database: db,
+    });
+
+    await notify.upsertRecipient({ id: "u1" });
+
+    const r1 = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: {
+        actorName: "Alice",
+        postTitle: "Launch Plan",
+        postUrl: "/posts/42",
+      },
+    });
+    expect(r1.notification).not.toBeNull();
+    expect(r1.inboxItems[0]!.title).toBe("Alice mentioned you");
+
+    const r2 = await notify.send({
+      recipientId: "u1",
+      notificationId: "welcome",
+      payload: { name: "friend" },
+    });
+    expect(r2.notification).not.toBeNull();
+    expect(r2.inboxItems[0]!.title).toBe("Welcome, friend");
+  });
+
+  test("wrong notification ID is a compile-time error", () => {
+    const def = notification({
+      id: "only_one",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    const _bad: Parameters<typeof notify.send>[0] = {
+      recipientId: "u1",
+      // @ts-expect-error — "nonexistent" is not a valid notification ID
+      notificationId: "nonexistent",
+      payload: { msg: "hi" },
+    };
+  });
+
+  test("wrong payload shape is a compile-time error", () => {
+    const def = notification({
+      id: "typed",
+      payload: { name: "string", count: "number" },
+      channels: [inbox({ title: "{{name}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    const _bad: Parameters<typeof notify.send>[0] = {
+      recipientId: "u1",
+      notificationId: "typed",
+      // @ts-expect-error — missing "count" field
+      payload: { name: "hi" },
+    };
+  });
+});
+
 describe("arktypePayload adapter", () => {
   test("derives PayloadSchema and validate from an ArkType object", async () => {
     const { type } = await import("arktype");

@@ -194,7 +194,7 @@ export type NotificationDefinition<
    * delivery logs, timeline, studio, and analytics surfaces. The full
    * payload is still stored on the notification record for server-side use.
    */
-  redact?: readonly (keyof S & string)[];
+  redact?: readonly string[];
   /**
    * Custom validation function for payloads. When set, this runs *instead*
    * of the built-in primitive schema validation. Use this to plug in Zod,

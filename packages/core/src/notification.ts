@@ -35,7 +35,7 @@ export type NotificationInput<
   classification?: NotificationClassification;
 };
 
-export function notification<Id extends string, S extends PayloadSchema>(
+export function notification<Id extends string, const S extends PayloadSchema>(
   def: NotificationInput<Id, S>,
 ): NotificationDefinition<Id, S> {
   return def as unknown as NotificationDefinition<Id, S>;
