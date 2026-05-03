@@ -491,6 +491,7 @@ export type DatabaseAdapter = {
       recipientId: string,
       scope?: SecurityScope,
       filter?: InboxListFilter,
+      limit?: number,
     ): Promise<InboxItem[]>;
     markReadForRecipient(
       inboxItemId: string,
@@ -535,6 +536,7 @@ export type DatabaseAdapter = {
     list(
       recipientId?: string,
       scope?: SecurityScope,
+      limit?: number,
     ): Promise<DeliveryRecord[]>;
   };
   preferences: {

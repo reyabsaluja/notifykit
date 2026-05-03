@@ -273,6 +273,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         recipientId: string,
         scope?: SecurityScope,
         filter?: InboxListFilter,
+        limit?: number,
       ): Promise<InboxItem[]> {
         const conditions = [
           eq(inboxItems.recipientId, recipientId),
@@ -283,11 +284,14 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         } else {
           conditions.push(isNull(inboxItems.archivedAt));
         }
-        const rows = await db
+        let query = db
           .select()
           .from(inboxItems)
           .where(and(...conditions))
           .orderBy(desc(inboxItems.createdAt));
+        const rows = limit !== undefined
+          ? await query.limit(limit)
+          : await query.limit(200);
         return rows.map(rowToInboxItem);
       },
 
@@ -509,17 +513,16 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       async list(
         recipientId?: string,
         scope?: SecurityScope,
+        limit?: number,
       ): Promise<DeliveryRecord[]> {
-        const query = db.select().from(deliveries);
+        const cap = limit ?? 200;
         const conditions = [
           ...(recipientId ? [eq(deliveries.recipientId, recipientId)] : []),
           ...scopedConditions(deliveries, scope),
         ];
-        const rows = recipientId
-          ? await query.where(and(...conditions)).orderBy(desc(deliveries.createdAt))
-          : conditions.length > 0
-            ? await query.where(and(...conditions)).orderBy(desc(deliveries.createdAt))
-          : await query.orderBy(desc(deliveries.createdAt));
+        const rows = conditions.length > 0
+          ? await db.select().from(deliveries).where(and(...conditions)).orderBy(desc(deliveries.createdAt)).limit(cap)
+          : await db.select().from(deliveries).orderBy(desc(deliveries.createdAt)).limit(cap);
         return rows.map(rowToDelivery);
       },
     },
@@ -839,7 +842,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
             ),
           );
         const rows = await db
-          .select()
+          .select({ value: drizzleCount() })
           .from(rateLimitEvents)
           .where(
             and(
@@ -847,7 +850,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
               gte(rateLimitEvents.occurredAt, cutoff),
             ),
           );
-        return rows.length;
+        return rows[0]?.value ?? 0;
       },
     },
 

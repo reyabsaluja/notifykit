@@ -141,8 +141,9 @@ export function memoryAdapter(): MemoryAdapter {
         recipientId: string,
         scope?: SecurityScope,
         filter?: InboxListFilter,
+        limit?: number,
       ): Promise<InboxItem[]> {
-        return state.inboxItems
+        const items = state.inboxItems
           .filter((i) => {
             if (i.recipientId !== recipientId || !matchesScope(i, scope)) return false;
             if (filter?.archived === true) return !!i.archivedAt;
@@ -151,6 +152,7 @@ export function memoryAdapter(): MemoryAdapter {
           })
           .slice()
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        return limit !== undefined ? items.slice(0, limit) : items;
       },
       async markReadForRecipient(
         inboxItemId: string,
@@ -282,19 +284,23 @@ export function memoryAdapter(): MemoryAdapter {
       async list(
         recipientId?: string,
         scope?: SecurityScope,
+        limit?: number,
       ): Promise<DeliveryRecord[]> {
+        let items: DeliveryRecord[];
         if (recipientId === undefined) {
-          return state.deliveries
+          items = state.deliveries
             .filter((d) => matchesScope(d, scope))
             .slice()
             .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        } else {
+          items = state.deliveries
+            .filter(
+              (d) => d.recipientId === recipientId && matchesScope(d, scope),
+            )
+            .slice()
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         }
-        return state.deliveries
-          .filter(
-            (d) => d.recipientId === recipientId && matchesScope(d, scope),
-          )
-          .slice()
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        return limit !== undefined ? items.slice(0, limit) : items;
       },
     },
     preferences: {

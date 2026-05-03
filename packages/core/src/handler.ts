@@ -427,10 +427,12 @@ export function createHandler<
           const filter = archivedParam === "true"
             ? { archived: true as const }
             : undefined;
+          const limit = parseLimit(url.searchParams.get("limit"));
           const items = await notify.inbox.list(
             context.recipientId,
             context,
             filter,
+            limit,
           );
           return withCors(json({ data: items }));
         }
@@ -644,7 +646,8 @@ export function createHandler<
           const recipientId = isAdmin
             ? (url.searchParams.get("recipientId") ?? undefined)
             : context.recipientId;
-          const deliveries = await notify.deliveries.list(recipientId, context);
+          const dlvLimit = parseLimit(url.searchParams.get("limit"));
+          const deliveries = await notify.deliveries.list(recipientId, context, dlvLimit);
           return withCors(json({ data: deliveries.map(redactDelivery) }));
         }
       }
@@ -834,6 +837,13 @@ async function isAdminIdentity(
   }
   const permissions = context.identity.permissions ?? [];
   return permissions.includes("admin");
+}
+
+function parseLimit(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return Math.min(n, 200);
 }
 
 function normalizeBasePath(input: string): string {

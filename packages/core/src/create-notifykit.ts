@@ -145,7 +145,7 @@ export type NotifyKit<
      * use the handler's `GET /inbox` route, which derives the recipient
      * from `identify()`.
      */
-    list(recipientId: string, scope?: SecurityScope, filter?: InboxListFilter): Promise<InboxItem[]>;
+    list(recipientId: string, scope?: SecurityScope, filter?: InboxListFilter, limit?: number): Promise<InboxItem[]>;
     markReadForRecipient(
       inboxItemId: string,
       recipientId: string,
@@ -176,7 +176,7 @@ export type NotifyKit<
      * without authorization; use the handler's `GET /deliveries` route
      * which requires the `deliveries.list` permission.
      */
-    list(recipientId?: string, scope?: SecurityScope): Promise<DeliveryRecord[]>;
+    list(recipientId?: string, scope?: SecurityScope, limit?: number): Promise<DeliveryRecord[]>;
   };
   preferences: {
     get(input: GetPreferenceInput<T>): Promise<RecipientPreference | null>;
@@ -1316,8 +1316,8 @@ export function createNotifyKit<
     send,
     explain,
     inbox: {
-      list(recipientId, scope, filter) {
-        return database.inbox.listByRecipient(recipientId, scope, filter);
+      list(recipientId, scope, filter, limit?) {
+        return database.inbox.listByRecipient(recipientId, scope, filter, limit);
       },
       async markReadForRecipient(inboxItemId, recipientId, scope) {
         const result = await database.inbox.markReadForRecipient(
@@ -1378,8 +1378,8 @@ export function createNotifyKit<
       },
     },
     deliveries: {
-      list(recipientId, scope) {
-        return database.deliveries.list(recipientId, scope);
+      list(recipientId, scope, limit?) {
+        return database.deliveries.list(recipientId, scope, limit);
       },
     },
     preferences: {
