@@ -32,10 +32,18 @@ export function nextQuietHoursEnd(
   const tz = quietHours.timezone ?? "UTC";
   const nowMin = minutesOfDay(now, tz);
 
-  // Distance in minutes from "now" to the next occurrence of endMin (in tz).
   let diff = endMin - nowMin;
   if (diff <= 0) diff += 24 * 60;
-  return new Date(now.getTime() + diff * 60_000);
+
+  // Start with a rough estimate, then converge on the exact wall-clock target
+  // to handle DST transitions where 1 minute of wall-clock time != 60_000 ms.
+  let candidate = new Date(now.getTime() + diff * 60_000);
+  const candidateMin = minutesOfDay(candidate, tz);
+  const drift = candidateMin - endMin;
+  if (drift !== 0) {
+    candidate = new Date(candidate.getTime() - drift * 60_000);
+  }
+  return candidate;
 }
 
 function parseWindowMinutes(q: QuietHours): [number, number] {
