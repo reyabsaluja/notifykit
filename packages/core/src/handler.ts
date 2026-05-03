@@ -350,9 +350,8 @@ export function createHandler<
       if (options.onWebhookEvent) {
         try {
           await options.onWebhookEvent(route.provider, payload);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Internal error";
-          return withCors(json({ error: message }, 500));
+        } catch {
+          return withCors(json({ error: "Internal error" }, 500));
         }
       }
       return withCors(json({ ok: true }));

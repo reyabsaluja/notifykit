@@ -1504,7 +1504,7 @@ describe("inbound provider webhook route", () => {
     );
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("handler blew up");
+    expect(body.error).toBe("Internal error");
   });
 
   test("verifier that throws returns 401 instead of crashing", async () => {
