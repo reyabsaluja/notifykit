@@ -1107,9 +1107,11 @@ export function createNotifyKit<
   async function processDeliveryJob(job: DeliveryJob): Promise<void> {
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
-      const wait = retry.delayMs(attempt);
-      if (wait > 0) {
-        await new Promise<void>((r) => setTimeout(r, wait));
+      if (attempt > 1) {
+        const wait = retry.delayMs(attempt);
+        if (wait > 0) {
+          await new Promise<void>((r) => setTimeout(r, wait));
+        }
       }
       try {
         let result: { providerMessageId?: string };

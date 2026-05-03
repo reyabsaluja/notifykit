@@ -104,7 +104,7 @@ describe("retries", () => {
     expect(result.deliveries[0]!.error).toMatch(/flaky attempt 2/);
   });
 
-  test("delayMs receives the 1-indexed attempt number", async () => {
+  test("delayMs receives the 1-indexed attempt number (skipped for first attempt)", async () => {
     const calls: number[] = [];
     const provider = makeFlakyProvider(99);
     const notify = createNotifyKit({
@@ -125,7 +125,7 @@ describe("retries", () => {
       notificationId: "comment_mentioned",
       payload: basePayload,
     });
-    expect(calls).toEqual([1, 2, 3]);
+    expect(calls).toEqual([2, 3]);
   });
 
   test("delivery.failed hook fires exactly once", async () => {
