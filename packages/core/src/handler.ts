@@ -295,6 +295,9 @@ export function createHandler<
           400,
         ));
       }
+      if (route.kind === "unsubscribe.get") {
+        return withCors(unsubscribeConfirmHtml(claims.notificationId, token));
+      }
       try {
         await notify.preferences.update({
           recipientId: claims.recipientId,
@@ -311,9 +314,6 @@ export function createHandler<
           ));
         }
         throw err;
-      }
-      if (route.kind === "unsubscribe.post") {
-        return withCors(new Response("", { status: 200 }));
       }
       return withCors(unsubscribeHtml(
         `You've been unsubscribed from "${escapeHtml(claims.notificationId)}" emails.`,
@@ -900,6 +900,30 @@ async function extractUnsubscribeToken(
     // sender built. Callers who omit the token on POST fail here as expected.
   }
   return null;
+}
+
+function unsubscribeConfirmHtml(notificationId: string, token: string): Response {
+  const safeId = escapeHtml(notificationId);
+  const safeToken = escapeHtml(token);
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Unsubscribe</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body style="font-family: system-ui, sans-serif; max-width: 36rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5;">
+    <p>Unsubscribe from &ldquo;${safeId}&rdquo; emails?</p>
+    <form method="POST">
+      <input type="hidden" name="token" value="${safeToken}" />
+      <button type="submit">Confirm unsubscribe</button>
+    </form>
+  </body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
 }
 
 function unsubscribeHtml(message: string, status: number): Response {

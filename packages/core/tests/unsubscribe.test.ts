@@ -142,8 +142,19 @@ describe("email rendering", () => {
     const claims = verifyUnsubscribeToken(token, "shhh")!;
     expect(claims.tenantId).toBe("tenant_a");
 
-    const res = await handler(
+    const confirmRes = await handler(
       new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`),
+    );
+    expect(confirmRes.status).toBe(200);
+    const confirmHtml = await confirmRes.text();
+    expect(confirmHtml).toMatch(/<form/i);
+
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
     );
     expect(res.status).toBe(200);
     const scoped = await notify.preferences.get({
@@ -167,7 +178,7 @@ describe("email rendering", () => {
 });
 
 describe("handler route", () => {
-  test("GET with valid token flips preference and returns HTML", async () => {
+  test("GET with valid token shows confirmation form without changing preferences", async () => {
     const { notify, handler } = buildKit({ secret: "shhh" });
     await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
     const token = signUnsubscribeToken(
@@ -180,14 +191,15 @@ describe("handler route", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toMatch(/text\/html/);
     const text = await res.text();
-    expect(text).toMatch(/unsubscribed/i);
     expect(text).toContain("comment_mentioned");
+    expect(text).toMatch(/<form/i);
+    expect(text).toMatch(/method="POST"/i);
 
     const pref = await notify.preferences.get({
       recipientId: "user_1",
       notificationId: "comment_mentioned",
     });
-    expect(pref?.channels.email).toBe(false);
+    expect(pref).toBeNull();
   });
 
   test("POST one-click with token in query returns 200 and flips preference", async () => {
@@ -275,7 +287,11 @@ describe("handler route", () => {
       "shhh",
     );
     await handler(
-      new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`),
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
     );
 
     const result = await notify.send({
@@ -287,7 +303,7 @@ describe("handler route", () => {
     expect(provider.sent).toHaveLength(1);
   });
 
-  test("token for unknown notification returns 404", async () => {
+  test("token for unknown notification returns 404 on POST", async () => {
     const { notify, handler } = buildKit({ secret: "shhh" });
     await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
     const token = signUnsubscribeToken(
@@ -295,14 +311,16 @@ describe("handler route", () => {
       "shhh",
     );
     const res = await handler(
-      new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`),
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
     );
     expect(res.status).toBe(404);
   });
 
   test("unsubscribe bypasses identify()", async () => {
-    // Handler identify() returns null — other routes 401. Unsubscribe should
-    // still work because the token itself is the auth.
     const db = memoryAdapter();
     const notify = createNotifyKit({
       notifications: [def] as const,
@@ -319,9 +337,17 @@ describe("handler route", () => {
       { recipientId: "user_1", notificationId: "comment_mentioned" },
       "shhh",
     );
-    const res = await handler(
+    const getRes = await handler(
       new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`),
     );
-    expect(res.status).toBe(200);
+    expect(getRes.status).toBe(200);
+    const postRes = await handler(
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
+    );
+    expect(postRes.status).toBe(200);
   });
 });
