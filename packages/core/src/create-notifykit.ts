@@ -1195,56 +1195,63 @@ export function createNotifyKit<
     // preference engine so app/category/tenant/global/required all apply.
     const def = byId.get(job.notificationId);
     if (def?.fallback) {
-      const fallbackScope: SecurityScope = {
-        tenantId: job.tenantId,
-        workspaceId: job.workspaceId,
-      };
-      const fallbackRecipient = await database.recipients.findById(job.recipientId);
-      const [fbGlobal, fbCategory, fbNotification, fbTenant] = await Promise.all([
-        database.preferences.get(job.recipientId, GLOBAL_PREFERENCE_KEY, fallbackScope),
-        def.category
-          ? database.preferences.get(job.recipientId, categoryPreferenceKey(def.category), fallbackScope)
-          : Promise.resolve(null),
-        database.preferences.get(job.recipientId, def.id, fallbackScope),
-        fallbackScope.tenantId && config.tenantDefaults
-          ? Promise.resolve(config.tenantDefaults(fallbackScope.tenantId))
-          : Promise.resolve(null),
-      ]);
-      const inboxResolution = resolveChannel("inbox", {
-        def,
-        recipient: fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
-        scope: fallbackScope,
-        appDefaults: config.defaults?.channels,
-        categoryDefaults: config.defaults?.categories,
-        tenantChannels: fbTenant,
-        userGlobal: fbGlobal,
-        userCategory: fbCategory,
-        userNotification: fbNotification,
-      });
-      const inboxAllowed = inboxResolution.allowed;
-      if (inboxAllowed) {
-        const fallback = def.fallback;
-        const item = await database.inbox.create({
-          notificationRecordId: job.notificationRecordId,
-          recipientId: job.recipientId,
+      try {
+        const fallbackScope: SecurityScope = {
           tenantId: job.tenantId,
           workspaceId: job.workspaceId,
-          notificationId: job.notificationId,
-          title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
-          body:
-            fallback.body !== undefined
-              ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
-              : undefined,
-          actionUrl:
-            fallback.actionUrl !== undefined
-              ? renderTemplate(fallback.actionUrl, job.payload)
-              : undefined,
+        };
+        const fallbackRecipient = await database.recipients.findById(job.recipientId);
+        const [fbGlobal, fbCategory, fbNotification, fbTenant] = await Promise.all([
+          database.preferences.get(job.recipientId, GLOBAL_PREFERENCE_KEY, fallbackScope),
+          def.category
+            ? database.preferences.get(job.recipientId, categoryPreferenceKey(def.category), fallbackScope)
+            : Promise.resolve(null),
+          database.preferences.get(job.recipientId, def.id, fallbackScope),
+          fallbackScope.tenantId && config.tenantDefaults
+            ? Promise.resolve(config.tenantDefaults(fallbackScope.tenantId))
+            : Promise.resolve(null),
+        ]);
+        const inboxResolution = resolveChannel("inbox", {
+          def,
+          recipient: fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
+          scope: fallbackScope,
+          appDefaults: config.defaults?.channels,
+          categoryDefaults: config.defaults?.categories,
+          tenantChannels: fbTenant,
+          userGlobal: fbGlobal,
+          userCategory: fbCategory,
+          userNotification: fbNotification,
         });
-        await runHook("inbox.created", { inboxItem: item });
-        await realtimeAdapter?.publish(job.recipientId, fallbackScope, {
-          type: "inbox.created",
-          item,
-        });
+        const inboxAllowed = inboxResolution.allowed;
+        if (inboxAllowed) {
+          const fallback = def.fallback;
+          const item = await database.inbox.create({
+            notificationRecordId: job.notificationRecordId,
+            recipientId: job.recipientId,
+            tenantId: job.tenantId,
+            workspaceId: job.workspaceId,
+            notificationId: job.notificationId,
+            title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
+            body:
+              fallback.body !== undefined
+                ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
+                : undefined,
+            actionUrl:
+              fallback.actionUrl !== undefined
+                ? renderTemplate(fallback.actionUrl, job.payload)
+                : undefined,
+          });
+          await runHook("inbox.created", { inboxItem: item });
+          await realtimeAdapter?.publish(job.recipientId, fallbackScope, {
+            type: "inbox.created",
+            item,
+          });
+        }
+      } catch (fallbackErr) {
+        await runHook("delivery.failed", {
+          channel: "inbox",
+          error: fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr)),
+        }).catch(() => {});
       }
     }
   }
