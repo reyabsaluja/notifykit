@@ -510,7 +510,7 @@ describe("core inbox mutations publish realtime events", () => {
       recipientId: "user_1",
       tenantId: "t_1",
       payload: { actorName: "Bob", postTitle: "Post", postUrl: "https://example.com" },
-    } as any);
+    });
 
     const items = await notify.inbox.list("user_1", { tenantId: "t_1" });
     await notify.inbox.markReadForRecipient(items[0]!.id, "user_1", { tenantId: "t_1" });
