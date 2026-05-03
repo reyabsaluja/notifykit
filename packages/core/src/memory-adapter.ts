@@ -277,7 +277,10 @@ export function memoryAdapter(): MemoryAdapter {
       async update(id, patch): Promise<DeliveryRecord | null> {
         const existing = state.deliveries.find((d) => d.id === id);
         if (!existing) return null;
-        Object.assign(existing, patch);
+        const allowed = ["status", "providerMessageId", "attempts", "error", "sentAt", "failedAt"] as const;
+        for (const key of allowed) {
+          if (key in patch) (existing as Record<string, unknown>)[key] = patch[key as keyof typeof patch];
+        }
         existing.updatedAt = new Date();
         return existing;
       },
