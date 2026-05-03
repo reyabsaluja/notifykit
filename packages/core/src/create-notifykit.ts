@@ -1050,7 +1050,7 @@ export function createNotifyKit<
         const provider = providers!.webhook!;
 
         const url = renderTemplate(ch.url, payload);
-        assertSafeWebhookUrl(url);
+        await assertSafeWebhookUrl(url);
         const headers: Record<string, string> = {};
         if (ch.headers) {
           for (const [k, v] of Object.entries(ch.headers)) {

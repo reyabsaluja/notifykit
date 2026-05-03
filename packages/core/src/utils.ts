@@ -104,6 +104,7 @@ const BLOCKED_HOSTNAME_PATTERNS = [
   /^169\.254\.\d{1,3}\.\d{1,3}$/,
   /^0\.0\.0\.0$/,
   /^\[?::1\]?$/,
+  /^\[?::ffff:/i,
   /^\[?fe80:/i,
   /^\[?fc00:/i,
   /^\[?fd[0-9a-f]{2}:/i,
@@ -112,7 +113,22 @@ const BLOCKED_HOSTNAME_PATTERNS = [
   /\.local$/i,
 ];
 
-export function assertSafeWebhookUrl(url: string): void {
+function isNumericIp(hostname: string): boolean {
+  return /^0x[0-9a-f]+$/i.test(hostname) ||
+    /^0[0-7]+$/.test(hostname) ||
+    /^\d{8,}$/.test(hostname);
+}
+
+function isBlockedHostname(hostname: string): boolean {
+  const clean = hostname.replace(/^\[|\]$/g, "");
+  if (isNumericIp(clean)) return true;
+  for (const pattern of BLOCKED_HOSTNAME_PATTERNS) {
+    if (pattern.test(clean)) return true;
+  }
+  return false;
+}
+
+export async function assertSafeWebhookUrl(url: string): Promise<void> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -122,12 +138,27 @@ export function assertSafeWebhookUrl(url: string): void {
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new NotifyKitError(`Webhook URL must use http or https: ${url}`);
   }
-  const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
-  for (const pattern of BLOCKED_HOSTNAME_PATTERNS) {
-    if (pattern.test(hostname)) {
-      throw new NotifyKitError(
-        `Webhook URL points to a blocked address: ${url}`,
+  if (isBlockedHostname(parsed.hostname)) {
+    throw new NotifyKitError(
+      `Webhook URL points to a blocked address: ${url}`,
+    );
+  }
+  if (typeof globalThis.process !== "undefined") {
+    try {
+      const dns = await import("node:dns");
+      const { resolve4 } = dns.promises ?? dns;
+      const addresses = await (resolve4 as (h: string) => Promise<string[]>)(
+        parsed.hostname,
       );
+      for (const addr of addresses) {
+        if (isBlockedHostname(addr)) {
+          throw new NotifyKitError(
+            `Webhook URL resolves to a blocked address: ${url}`,
+          );
+        }
+      }
+    } catch (err) {
+      if (err instanceof NotifyKitError) throw err;
     }
   }
 }
