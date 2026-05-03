@@ -112,6 +112,7 @@ export async function createPgTables(
       tenant_id TEXT,
       workspace_id TEXT,
       notification_id TEXT NOT NULL,
+      notification_record_id TEXT,
       payload JSONB NOT NULL,
       scheduled_for TIMESTAMPTZ NOT NULL,
       reason TEXT NOT NULL,

@@ -132,6 +132,7 @@ export const scheduledSends = pgTable(
     tenantId: text("tenant_id"),
     workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
+    notificationRecordId: text("notification_record_id"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     scheduledFor: timestamp("scheduled_for", {
       withTimezone: true,

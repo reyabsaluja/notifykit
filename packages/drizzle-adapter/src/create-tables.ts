@@ -112,6 +112,7 @@ export async function createSqliteTables(
       tenant_id TEXT,
       workspace_id TEXT,
       notification_id TEXT NOT NULL,
+      notification_record_id TEXT,
       payload TEXT NOT NULL,
       scheduled_for INTEGER NOT NULL,
       reason TEXT NOT NULL,

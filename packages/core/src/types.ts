@@ -329,6 +329,8 @@ export type ScheduledSend = {
   tenantId?: string;
   workspaceId?: string;
   notificationId: string;
+  /** ID of the NotificationRecord created at send() time, so the deferred delivery references the same record instead of creating a duplicate. */
+  notificationRecordId?: string;
   payload: Record<string, unknown>;
   /** Wall-clock moment when the send should fire. */
   scheduledFor: Date;

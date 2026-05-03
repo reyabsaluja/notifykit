@@ -668,18 +668,20 @@ export function createNotifyKit<
     }
 
     if (deferChannels.length > 0) {
+      const result = await deliver(recipient, def, payload, { deferChannels, scope, prefResult });
       const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
       const record = await database.scheduledSends.create({
         recipientId: recipient.id,
         tenantId: scope.tenantId,
         workspaceId: scope.workspaceId,
         notificationId: def.id,
+        notificationRecordId: result.notification?.id,
         payload,
         scheduledFor,
         reason: "quiet_hours",
       });
       scheduleDeferredFlush(record.id, scheduledFor);
-      return deliver(recipient, def, payload, { deferChannels, scope, prefResult });
+      return result;
     }
 
     return deliver(recipient, def, payload, { scope, prefResult });
@@ -828,13 +830,21 @@ export function createNotifyKit<
       // apply a non-idempotent transform a second time, so we only run the
       // built-in schema check here as a corruption guard.
       const payload = validatePayload(def.payload, record.payload, def.id);
-      // The inbox item was written at send() time. Only fire the previously
-      // deferred channels now. We create a fresh notification record for the
-      // deferred delivery so the delivery row has a parent — matches the
-      // behavior where digest flushes also create a fresh record.
+      const existingNotification = record.notificationRecordId
+        ? {
+            id: record.notificationRecordId,
+            recipientId: record.recipientId,
+            tenantId: record.tenantId,
+            workspaceId: record.workspaceId,
+            notificationId: record.notificationId,
+            payload,
+            createdAt: record.createdAt,
+          }
+        : undefined;
       await deliver(recipient, def, payload, {
         onlyChannels: ["email", "webhook"],
         scope,
+        existingNotification,
       });
       // Only delete after delivery has been enqueued/completed successfully.
       await database.scheduledSends.complete(id);

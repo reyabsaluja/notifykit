@@ -438,6 +438,7 @@ export function memoryAdapter(): MemoryAdapter {
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
           notificationId: input.notificationId,
+          notificationRecordId: input.notificationRecordId,
           payload: input.payload,
           scheduledFor: input.scheduledFor,
           reason: input.reason,
