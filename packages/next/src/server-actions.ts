@@ -74,6 +74,25 @@ export function createServerActions<
     },
 
     async updatePreference(input) {
+      if (
+        !input ||
+        typeof input !== "object" ||
+        typeof (input as Record<string, unknown>).notificationId !== "string"
+      ) {
+        throw new Error("Invalid notificationId");
+      }
+      const channels = (input as Record<string, unknown>).channels;
+      if (channels !== undefined) {
+        if (!channels || typeof channels !== "object" || Array.isArray(channels)) {
+          throw new Error("Invalid channels");
+        }
+        for (const [key, value] of Object.entries(channels as Record<string, unknown>)) {
+          if (typeof value !== "boolean") throw new Error("Invalid channel value");
+          if (key !== "inbox" && key !== "email" && key !== "webhook") {
+            throw new Error("Invalid channel key");
+          }
+        }
+      }
       const { recipientId, ...scope } = await resolveIdentity();
       return notifykit.preferences.update({
         ...input,
