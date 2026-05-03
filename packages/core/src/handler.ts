@@ -233,9 +233,10 @@ export function createHandler<
     const headers = new Headers(response.headers);
     headers.set("Access-Control-Allow-Origin", corsOrigin);
     headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    const requestedHeaders = request?.headers.get("Access-Control-Request-Headers");
     headers.set(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization",
+      requestedHeaders || "Content-Type, Authorization",
     );
     headers.set("Access-Control-Max-Age", "86400");
     if (corsOrigin !== "*") {
