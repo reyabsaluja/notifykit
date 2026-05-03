@@ -277,15 +277,18 @@ export function createNotifyKitClient(
     (async () => {
       let retryMs = 1000;
       let retries = 0;
+      let wasError = false;
       const MAX_RETRIES = 20;
       while (!controller.signal.aborted) {
         try {
           await readSSEStream(controller.signal);
           retries = 0;
           retryMs = 1000;
+          wasError = false;
         } catch (err) {
           if (controller.signal.aborted) break;
           retries++;
+          wasError = true;
           onRealtimeError?.(err);
           if (retries >= MAX_RETRIES) {
             setRtStatus("disconnected");
@@ -299,7 +302,7 @@ export function createNotifyKitClient(
           controller.signal.addEventListener("abort", () => { clearTimeout(timer); r(undefined); }, { once: true });
         });
         if (controller.signal.aborted) break;
-        retryMs = Math.min(retryMs * 2, 30_000);
+        if (wasError) retryMs = Math.min(retryMs * 2, 30_000);
       }
     })();
   }
