@@ -71,6 +71,8 @@ function parseHHMM(s: string): number {
  */
 const fmtCache = new Map<string, Intl.DateTimeFormat>();
 
+const MAX_CACHE_SIZE = 600;
+
 function minutesOfDay(d: Date, timezone: string): number {
   let fmt = fmtCache.get(timezone);
   if (!fmt) {
@@ -80,6 +82,7 @@ function minutesOfDay(d: Date, timezone: string): number {
       minute: "2-digit",
       hour12: false,
     });
+    if (fmtCache.size >= MAX_CACHE_SIZE) fmtCache.clear();
     fmtCache.set(timezone, fmt);
   }
   const parts = fmt.formatToParts(d);
