@@ -974,8 +974,8 @@ export function createNotifyKit<
           tenantId: scope.tenantId,
           workspaceId: scope.workspaceId,
           notificationId: def.id,
-          title: renderTemplate(ch.title, payload),
-          body: ch.body !== undefined ? renderTemplate(ch.body, payload) : undefined,
+          title: renderTemplate(ch.title, payload, { escapeHtml: true }),
+          body: ch.body !== undefined ? renderTemplate(ch.body, payload, { escapeHtml: true }) : undefined,
           actionUrl:
             ch.actionUrl !== undefined
               ? renderTemplate(ch.actionUrl, payload)
@@ -1219,10 +1219,10 @@ export function createNotifyKit<
           tenantId: job.tenantId,
           workspaceId: job.workspaceId,
           notificationId: job.notificationId,
-          title: renderTemplate(fallback.title, job.payload),
+          title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
           body:
             fallback.body !== undefined
-              ? renderTemplate(fallback.body, job.payload)
+              ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
               : undefined,
           actionUrl:
             fallback.actionUrl !== undefined
