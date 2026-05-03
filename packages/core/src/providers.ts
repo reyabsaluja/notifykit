@@ -103,6 +103,7 @@ export function webhookProvider(
           headers,
           body,
           signal: controller.signal,
+          redirect: "error",
         });
       } finally {
         clearTimeout(timer);
