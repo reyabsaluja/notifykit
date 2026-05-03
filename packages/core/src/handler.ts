@@ -721,6 +721,11 @@ function buildNotificationsIndex<
   });
 }
 
+function decodeParam(raw: string): string | null {
+  const decoded = decodeURIComponent(raw);
+  return decoded.length <= MAX_ID_LENGTH ? decoded : null;
+}
+
 function matchRoute(method: string, sub: string): Route {
   const trimmed = sub.endsWith("/") && sub.length > 1 ? sub.slice(0, -1) : sub;
 
@@ -743,28 +748,32 @@ function matchRoute(method: string, sub: string): Route {
   const markRead = trimmed.match(/^\/inbox\/([^/]+)\/read$/);
   if (markRead && markRead[1]) {
     if (method === "POST") {
-      return { kind: "inbox.markRead", id: decodeURIComponent(markRead[1]) };
+      const id = decodeParam(markRead[1]);
+      return id ? { kind: "inbox.markRead", id } : { kind: "not_found" };
     }
     return { kind: "not_found" };
   }
   const archive = trimmed.match(/^\/inbox\/([^/]+)\/archive$/);
   if (archive && archive[1]) {
     if (method === "POST") {
-      return { kind: "inbox.archive", id: decodeURIComponent(archive[1]) };
+      const id = decodeParam(archive[1]);
+      return id ? { kind: "inbox.archive", id } : { kind: "not_found" };
     }
     return { kind: "not_found" };
   }
   const unarchive = trimmed.match(/^\/inbox\/([^/]+)\/unarchive$/);
   if (unarchive && unarchive[1]) {
     if (method === "POST") {
-      return { kind: "inbox.unarchive", id: decodeURIComponent(unarchive[1]) };
+      const id = decodeParam(unarchive[1]);
+      return id ? { kind: "inbox.unarchive", id } : { kind: "not_found" };
     }
     return { kind: "not_found" };
   }
   const deleteItem = trimmed.match(/^\/inbox\/([^/]+)$/);
   if (deleteItem && deleteItem[1]) {
     if (method === "DELETE") {
-      return { kind: "inbox.delete", id: decodeURIComponent(deleteItem[1]) };
+      const id = decodeParam(deleteItem[1]);
+      return id ? { kind: "inbox.delete", id } : { kind: "not_found" };
     }
     return { kind: "not_found" };
   }
@@ -805,21 +814,28 @@ function matchRoute(method: string, sub: string): Route {
   const webhookMatch = trimmed.match(/^\/webhooks\/([^/]+)$/);
   if (webhookMatch && webhookMatch[1]) {
     if (method === "POST") {
-      return { kind: "webhooks.post", provider: decodeURIComponent(webhookMatch[1]) };
+      const provider = decodeParam(webhookMatch[1]);
+      if (!provider) return { kind: "not_found" };
+      return { kind: "webhooks.post", provider };
     }
     return { kind: "not_found" };
   }
   return { kind: "not_found" };
 }
 
+const MAX_ID_LENGTH = 512;
+
 function normalizeIdentity(
   value: Awaited<ReturnType<Identify>>,
 ): HandlerIdentity | null {
   if (!value) return null;
   if (typeof value === "string") {
-    return value ? { recipientId: value } : null;
+    if (!value || value.length > MAX_ID_LENGTH) return null;
+    return { recipientId: value };
   }
-  if (!value.recipientId) return null;
+  if (!value.recipientId || value.recipientId.length > MAX_ID_LENGTH) return null;
+  if (value.tenantId && value.tenantId.length > MAX_ID_LENGTH) return null;
+  if (value.workspaceId && value.workspaceId.length > MAX_ID_LENGTH) return null;
   return value;
 }
 

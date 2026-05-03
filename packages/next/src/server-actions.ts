@@ -77,7 +77,8 @@ export function createServerActions<
       if (
         !input ||
         typeof input !== "object" ||
-        typeof (input as Record<string, unknown>).notificationId !== "string"
+        typeof (input as Record<string, unknown>).notificationId !== "string" ||
+        ((input as Record<string, unknown>).notificationId as string).length > 512
       ) {
         throw new Error("Invalid notificationId");
       }
