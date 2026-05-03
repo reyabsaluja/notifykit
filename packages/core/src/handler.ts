@@ -209,7 +209,16 @@ export function createHandler<
       return true;
     }
     if (rateLimitBuckets.size >= MAX_BUCKETS && !rateLimitBuckets.has(recipientId)) {
-      return true;
+      let oldestKey: string | null = null;
+      let oldestTime = Infinity;
+      for (const [key, ts] of rateLimitBuckets) {
+        const last = ts.length > 0 ? ts[ts.length - 1]! : 0;
+        if (last < oldestTime) {
+          oldestTime = last;
+          oldestKey = key;
+        }
+      }
+      if (oldestKey) rateLimitBuckets.delete(oldestKey);
     }
     if (!timestamps) {
       timestamps = [];
