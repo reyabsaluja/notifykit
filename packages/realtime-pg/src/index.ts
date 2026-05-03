@@ -17,6 +17,8 @@ export type PgNotifyConnection = {
 export type PgRealtimeAdapterOptions = {
   connection: PgNotifyConnection;
   channel?: string;
+  reconnectMs?: number;
+  onError?: (err: unknown) => void;
 };
 
 function scopeKey(recipientId: string, scope: SecurityScope): string {
@@ -34,8 +36,11 @@ export function pgRealtimeAdapter(
 ): PgRealtimeAdapter {
   const conn = options.connection;
   const pgChannel = options.channel ?? DEFAULT_CHANNEL;
+  const reconnectMs = options.reconnectMs ?? 5_000;
   const subs = new Map<string, Set<RealtimeListener>>();
   let listening = false;
+  let stopped = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   function handleNotification(raw: string) {
     let parsed: {
@@ -52,14 +57,38 @@ export function pgRealtimeAdapter(
     for (const fn of set) fn(parsed.event);
   }
 
-  return {
-    async start() {
-      if (listening) return;
+  async function tryListen() {
+    try {
       await conn.listen(pgChannel, handleNotification);
       listening = true;
+    } catch (err) {
+      listening = false;
+      options.onError?.(err);
+      scheduleReconnect();
+    }
+  }
+
+  function scheduleReconnect() {
+    if (stopped || reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (!stopped) void tryListen();
+    }, reconnectMs);
+  }
+
+  return {
+    async start() {
+      stopped = false;
+      if (listening) return;
+      await tryListen();
     },
 
     async stop() {
+      stopped = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       if (!listening) return;
       await conn.unlisten(pgChannel);
       listening = false;
