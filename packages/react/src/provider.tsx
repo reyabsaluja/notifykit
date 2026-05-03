@@ -20,12 +20,11 @@ export function NotifyKitProvider({
   options,
   children,
 }: NotifyKitProviderProps) {
+  const optionsKey = client ? null : JSON.stringify(options);
   const resolved = useMemo(
     () => client ?? createNotifyKitClient(options),
-    // If the consumer passes a client, it's their responsibility to stabilize it.
-    // Otherwise, we build one once per provider mount using the options snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [client],
+    [client, optionsKey],
   );
   return (
     <NotifyKitContext.Provider value={resolved}>
