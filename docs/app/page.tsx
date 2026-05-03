@@ -16,7 +16,7 @@ export default function HomePage() {
         </Link>
         <Link href="/demo">Live demo</Link>
         <a
-          href="https://github.com/anthropics/notifykit"
+          href="https://github.com/reyabsaluja/notifykit"
           target="_blank"
           rel="noreferrer"
         >
@@ -39,8 +39,8 @@ cd my-app && npm install && npm run dev`}</code>
         </li>
         <li>
           <strong>Your database, your tables</strong> — memory adapter for
-          local dev, Drizzle SQLite adapter for production. Postgres/MySQL by
-          swapping the schema file.
+          local dev, Drizzle adapter for production. SQLite and Postgres
+          supported today — more coming soon.
         </li>
         <li>
           <strong>Inbox + email + webhook</strong> out of the box. Retries,

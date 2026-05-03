@@ -37,9 +37,9 @@ export const notify = createNotifyKit({
         <code>users.id</code>.
       </p>
       <p>
-        Postgres/MySQL: the adapter logic is portable. Swap the schema file
-        from <code>sqlite</code> to <code>pg</code>/<code>mysql</code>{" "}
-        Drizzle tables and you&apos;re done.
+        Postgres is also supported. Swap the schema and adapter imports
+        from <code>sqlite</code> to <code>postgres</code> and you&apos;re
+        done. MySQL support is planned.
       </p>
 
       <h2>Email: Resend</h2>

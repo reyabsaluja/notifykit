@@ -1,7 +1,15 @@
 {
   "name": "notifykit-drizzle",
   "version": "0.0.1",
+  "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reyabsaluja/notifykit",
+    "directory": "packages/drizzle-adapter"
+  },
+  "homepage": "https://github.com/reyabsaluja/notifykit",
+  "bugs": "https://github.com/reyabsaluja/notifykit/issues",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

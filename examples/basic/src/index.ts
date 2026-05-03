@@ -85,7 +85,7 @@ async function main() {
   console.log(deliveries);
 
   if (inboxItems[0]) {
-    await notify.inbox.markRead(inboxItems[0].id);
+    await notify.inbox.markReadForRecipient(inboxItems[0].id, "user_123");
     const refreshed = await notify.inbox.list("user_123");
     console.log("\nInbox after markRead:");
     console.log(refreshed);

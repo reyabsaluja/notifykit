@@ -86,4 +86,4 @@ user id from `identify()`.
 - Turn on rate limits (`rateLimit: { max, windowMs }`) for transactional ones.
 - Configure quiet hours per recipient: `upsertRecipient({ quietHours: { start: "22:00", end: "08:00", timezone: "America/New_York" } })`.
 
-See the [NotifyKit docs](https://github.com/anthropics/notifykit) for more.
+See the [NotifyKit docs](https://github.com/reyabsaluja/notifykit) for more.
