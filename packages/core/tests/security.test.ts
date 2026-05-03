@@ -1019,7 +1019,7 @@ describe("CORS support", () => {
     );
     expect(res.status).toBe(204);
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe(
-      "Content-Type, Authorization",
+      "Content-Type, X-Custom-Auth",
     );
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
     expect(res.headers.get("Access-Control-Allow-Methods")).toBe(
