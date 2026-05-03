@@ -29,8 +29,10 @@ import {
   scheduledSends,
 } from "./schema/postgres.js";
 
+import { randomBytes } from "node:crypto";
+
 function createId(prefix: string): string {
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = randomBytes(12).toString("base64url");
   const time = Date.now().toString(36);
   return `${prefix}_${time}${rand}`;
 }
