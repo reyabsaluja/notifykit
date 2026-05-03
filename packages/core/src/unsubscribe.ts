@@ -56,7 +56,7 @@ export function verifyUnsubscribeToken(
   if (!timingSafeEqual(a, b)) return null;
 
   const segments = payload.split(":");
-  if (segments.length !== 2 && segments.length !== 4) return null;
+  if (segments.length !== 4) return null;
   const [encRecipient, encNotification, encTenant, encWorkspace] = segments;
   if (!encRecipient || !encNotification) return null;
 
