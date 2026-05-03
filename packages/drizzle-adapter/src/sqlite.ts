@@ -710,23 +710,25 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       },
 
       async take(key: string): Promise<DigestBufferEntry | null> {
-        const rows = await db
-          .delete(digestBuffers)
-          .where(eq(digestBuffers.key, key))
-          .returning();
-        const row = rows[0];
-        if (!row) return null;
-        return {
-          key: row.key,
-          recipientId: row.recipientId,
-          tenantId: row.tenantId ?? undefined,
-          workspaceId: row.workspaceId ?? undefined,
-          notificationId: row.notificationId,
-          payloads: row.payloads as Record<string, unknown>[],
-          flushAt: row.flushAt,
-          createdAt: row.createdAt,
-          updatedAt: row.updatedAt,
-        };
+        return atomic(async () => {
+          const rows = await db
+            .delete(digestBuffers)
+            .where(eq(digestBuffers.key, key))
+            .returning();
+          const row = rows[0];
+          if (!row) return null;
+          return {
+            key: row.key,
+            recipientId: row.recipientId,
+            tenantId: row.tenantId ?? undefined,
+            workspaceId: row.workspaceId ?? undefined,
+            notificationId: row.notificationId,
+            payloads: row.payloads as Record<string, unknown>[],
+            flushAt: row.flushAt,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+          };
+        });
       },
 
       async restore(entry: DigestBufferEntry): Promise<DigestBufferEntry> {
