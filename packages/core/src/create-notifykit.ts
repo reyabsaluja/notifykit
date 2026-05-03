@@ -640,7 +640,12 @@ export function createNotifyKit<
           if (!scheduled) return;
           scheduledFlushes.delete(key);
           flushDigestKey(key, def)
-            .catch(() => {})
+            .catch((err) => {
+              runHook("delivery.failed", {
+                channel: "email",
+                error: err instanceof Error ? err : new Error(String(err)),
+              }).catch(() => {});
+            })
             .finally(() => scheduled.resolve());
         }, delay);
         scheduledFlushes.set(key, { timer, resolve: resolveTask, def });
