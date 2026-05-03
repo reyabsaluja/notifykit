@@ -1,7 +1,8 @@
+import { randomBytes } from "node:crypto";
 import type { PayloadSchema } from "./types.js";
 
 export function createId(prefix: string): string {
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = randomBytes(12).toString("base64url");
   const time = Date.now().toString(36);
   return `${prefix}_${time}${rand}`;
 }
