@@ -69,14 +69,19 @@ export function pgRealtimeAdapter(
       const key = scopeKey(recipientId, scope);
       const payload = JSON.stringify({ key, event });
       if (payload.length > 7999) {
+        const itemId = "item" in event ? event.item.id : "itemId" in event ? event.itemId : undefined;
         const trimmed = JSON.stringify({
           key,
-          event: { type: event.type, itemId: (event as Record<string, unknown>).itemId },
+          event: { type: event.type, itemId },
         });
-        void Promise.resolve(conn.notify(pgChannel, trimmed)).catch(() => {});
+        void Promise.resolve(conn.notify(pgChannel, trimmed)).catch((err: unknown) => {
+          console.error("[notifykit:realtime-pg] publish failed:", err);
+        });
         return;
       }
-      void Promise.resolve(conn.notify(pgChannel, payload)).catch(() => {});
+      void Promise.resolve(conn.notify(pgChannel, payload)).catch((err: unknown) => {
+        console.error("[notifykit:realtime-pg] publish failed:", err);
+      });
     },
 
     subscribe(recipientId, scope, listener) {
