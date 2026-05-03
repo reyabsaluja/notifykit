@@ -64,6 +64,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const basePath = options.basePath ?? "/api/notifykit";
   const server = Bun.serve({
     port: options.port,
+    hostname: "127.0.0.1",
     fetch: handler,
   });
 
