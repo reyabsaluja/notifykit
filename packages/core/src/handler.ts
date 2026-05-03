@@ -319,7 +319,7 @@ export function createHandler<
         throw err;
       }
       return withCors(unsubscribeHtml(
-        `You've been unsubscribed from "${escapeHtml(claims.notificationId)}" emails.`,
+        `You've been unsubscribed from "${claims.notificationId}" emails.`,
         200,
       ));
     }
@@ -971,6 +971,7 @@ function unsubscribeConfirmHtml(notificationId: string, token: string): Response
 }
 
 function unsubscribeHtml(message: string, status: number): Response {
+  const safe = escapeHtml(message);
   const html = `<!doctype html>
 <html lang="en">
   <head>
@@ -979,7 +980,7 @@ function unsubscribeHtml(message: string, status: number): Response {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>
   <body style="font-family: system-ui, sans-serif; max-width: 36rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5;">
-    <p>${message}</p>
+    <p>${safe}</p>
   </body>
 </html>`;
   return new Response(html, {
