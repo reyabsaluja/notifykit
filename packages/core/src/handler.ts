@@ -283,6 +283,9 @@ export function createHandler<
     }
 
     // Unsubscribe routes use HMAC token as auth — bypass identify().
+    // The Origin check only fires when the header is present. Requests without
+    // Origin (e.g., RFC 8058 one-click from mail clients) are allowed because
+    // the HMAC token itself is the primary authentication.
     if (route.kind === "unsubscribe.get" || route.kind === "unsubscribe.post") {
       if (!unsubscribeSecret) {
         return withCors(json({ error: "Not found" }, 404));
