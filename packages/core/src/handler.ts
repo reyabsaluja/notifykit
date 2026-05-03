@@ -168,6 +168,7 @@ export function createHandler<
   const rateLimitBuckets = new Map<string, number[]>();
   let lastSweep = Date.now();
   const SWEEP_INTERVAL = 60_000;
+  const MAX_BUCKETS = 10_000;
 
   /** Returns true when the caller should be rejected with 429. */
   function checkRateLimit(recipientId: string): boolean {
@@ -175,7 +176,7 @@ export function createHandler<
     const now = Date.now();
     const cutoff = now - requestRateLimit.windowMs;
 
-    if (now - lastSweep > SWEEP_INTERVAL) {
+    if (now - lastSweep > SWEEP_INTERVAL || rateLimitBuckets.size > MAX_BUCKETS) {
       lastSweep = now;
       for (const [key, ts] of rateLimitBuckets) {
         if (ts.length === 0 || ts[ts.length - 1]! < cutoff) {
