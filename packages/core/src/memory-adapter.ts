@@ -312,7 +312,7 @@ export function memoryAdapter(): MemoryAdapter {
         return state.preferences
           .filter(
             (p) =>
-              p.recipientId === recipientId && matchesScope(p, scope),
+              p.recipientId === recipientId && samePreferenceScope(p, scope),
           )
           .slice();
       },
