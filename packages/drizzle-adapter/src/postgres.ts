@@ -696,7 +696,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
       },
 
       async list(): Promise<DigestBufferEntry[]> {
-        const rows = await db.select().from(digestBuffers);
+        const rows = await db.select().from(digestBuffers).limit(10000);
         return rows.map((row) => ({
           key: row.key,
           recipientId: row.recipientId,
@@ -869,7 +869,8 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
               eq(scheduledSends.status, "pending"),
               lte(scheduledSends.scheduledFor, now),
             ),
-          );
+          )
+          .limit(1000);
         return rows.map((row) => ({
           id: row.id,
           recipientId: row.recipientId,
