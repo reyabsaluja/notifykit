@@ -3,10 +3,12 @@ import { cookies } from "next/headers";
 const COOKIE = "notifykit_demo_user";
 
 /**
- * Tiny demo-only "session": stores a user id in a cookie. Replace with your
- * real auth (NextAuth, Clerk, Lucia, …). NotifyKit doesn't care which — it
- * just needs `identify()` on the handler to return the authenticated user's
- * recipient id.
+ * ⚠ DEMO ONLY — DO NOT USE IN PRODUCTION ⚠
+ *
+ * This stores an unsigned user ID in a plain cookie. Anyone can forge it
+ * to impersonate another user. Replace with real auth (NextAuth, Clerk,
+ * Lucia, …) before deploying. NotifyKit just needs `identify()` on the
+ * handler to return the authenticated user's recipient id.
  */
 export async function getCurrentUserId(): Promise<string | null> {
   const store = await cookies();
