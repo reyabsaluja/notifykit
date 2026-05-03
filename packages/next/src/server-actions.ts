@@ -1,3 +1,5 @@
+"use server";
+
 import type {
   InboxDeleteForRecipientResult,
   InboxItem,
@@ -59,6 +61,12 @@ export function createServerActions<
     return normalizeIdentity(await identify());
   }
 
+  function assertStringId(value: unknown): asserts value is string {
+    if (typeof value !== "string" || value.length === 0 || value.length > 256) {
+      throw new Error("Invalid inbox item ID");
+    }
+  }
+
   return {
     async getPreferences() {
       const { recipientId, ...scope } = await resolveIdentity();
@@ -86,6 +94,7 @@ export function createServerActions<
       },
 
       async markRead(inboxItemId) {
+        assertStringId(inboxItemId);
         const { recipientId, ...scope } = await resolveIdentity();
         return notifykit.inbox.markReadForRecipient(inboxItemId, recipientId, scope);
       },
@@ -96,16 +105,19 @@ export function createServerActions<
       },
 
       async archive(inboxItemId) {
+        assertStringId(inboxItemId);
         const { recipientId, ...scope } = await resolveIdentity();
         return notifykit.inbox.archiveForRecipient(inboxItemId, recipientId, scope);
       },
 
       async unarchive(inboxItemId) {
+        assertStringId(inboxItemId);
         const { recipientId, ...scope } = await resolveIdentity();
         return notifykit.inbox.unarchiveForRecipient(inboxItemId, recipientId, scope);
       },
 
       async deleteItem(inboxItemId) {
+        assertStringId(inboxItemId);
         const { recipientId, ...scope } = await resolveIdentity();
         return notifykit.inbox.deleteForRecipient(inboxItemId, recipientId, scope);
       },
