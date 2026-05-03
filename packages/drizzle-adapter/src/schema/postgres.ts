@@ -9,6 +9,9 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 
+// Foreign keys are intentionally omitted. Deliveries and notifications are
+// historical/audit records that must survive recipient deletion. Application
+// code handles cleanup via the adapter's delete methods.
 export const recipients = pgTable("notifykit_recipients", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id"),

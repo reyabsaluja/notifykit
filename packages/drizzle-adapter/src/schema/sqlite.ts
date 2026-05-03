@@ -7,6 +7,9 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
+// Foreign keys are intentionally omitted. Deliveries and notifications are
+// historical/audit records that must survive recipient deletion. Application
+// code handles cleanup via the adapter's delete methods.
 export const recipients = sqliteTable("notifykit_recipients", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id"),
