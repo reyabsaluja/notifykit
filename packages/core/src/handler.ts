@@ -394,6 +394,7 @@ export function createHandler<
         return withCors(json({ error: "Realtime not configured" }, 404));
       }
       const scope = normalizeScope(context);
+      let cleanup: (() => void) | null = null;
       const stream = new ReadableStream({
         start(controller) {
           const encoder = new TextEncoder();
@@ -413,11 +414,15 @@ export function createHandler<
             },
           );
           const heartbeat = setInterval(() => push(": heartbeat\n\n"), 30_000);
-          request.signal.addEventListener("abort", () => {
+          cleanup = () => {
             unsub();
             clearInterval(heartbeat);
-            try { controller.close(); } catch { /* already closed */ }
-          });
+            try { controller.close(); } catch {}
+          };
+          request.signal.addEventListener("abort", cleanup);
+        },
+        cancel() {
+          cleanup?.();
         },
       });
       const sseHeaders = new Headers({
