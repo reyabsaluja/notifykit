@@ -1705,3 +1705,146 @@ describe("authorize hook + admin scoping on deliveries", () => {
     }
   });
 });
+
+describe("organizationId alias", () => {
+  let database: MemoryAdapter;
+  let notify: NotifyKit<readonly [typeof commentMentioned]>;
+
+  beforeEach(async () => {
+    database = memoryAdapter();
+    notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      organizationId: "org_1",
+      email: "alice@x.com",
+    });
+  });
+
+  test("upsertRecipient stores organizationId as tenantId", async () => {
+    const r = await database.recipients.findById("alice");
+    expect(r!.tenantId).toBe("org_1");
+  });
+
+  test("send() accepts organizationId in place of tenantId", async () => {
+    const result = await notify.send({
+      recipientId: "alice",
+      organizationId: "org_1",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    expect(result.notification!.tenantId).toBe("org_1");
+  });
+
+  test("handler identify() normalizes organizationId to tenantId", async () => {
+    await database.inbox.create({
+      notificationRecordId: "n1",
+      recipientId: "alice",
+      tenantId: "org_1",
+      notificationId: "comment_mentioned",
+      title: "Test",
+    });
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", organizationId: "org_1" }),
+    });
+    const res = await handler(new Request(`${BASE}/inbox`));
+    const body = (await res.json()) as { data: unknown[] };
+    expect(body.data).toHaveLength(1);
+  });
+
+  test("preferences.get accepts organizationId", async () => {
+    await notify.preferences.update({
+      recipientId: "alice",
+      organizationId: "org_1",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+    const pref = await notify.preferences.get({
+      recipientId: "alice",
+      organizationId: "org_1",
+      notificationId: "comment_mentioned",
+    });
+    expect(pref?.channels.email).toBe(false);
+  });
+
+  test("tenantId takes precedence over organizationId when both are set", async () => {
+    await notify.upsertRecipient({
+      id: "bob",
+      tenantId: "t_explicit",
+      email: "bob@x.com",
+    });
+    const result = await notify.send({
+      recipientId: "bob",
+      tenantId: "t_explicit",
+      organizationId: "should_be_ignored",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    expect(result.notification!.tenantId).toBe("t_explicit");
+  });
+});
+
+describe("getGlobal / getCategory scope validation", () => {
+  const categorized = notification({
+    id: "social_update",
+    category: "social",
+    payload: { actorName: "string", postTitle: "string", postUrl: "string" },
+    channels: [
+      inbox({ title: "{{actorName}}", body: "{{postTitle}}", actionUrl: "{{postUrl}}" }),
+      email({ subject: "{{actorName}}", body: "{{postTitle}}" }),
+    ],
+  });
+
+  let notify: NotifyKit<readonly [typeof categorized]>;
+
+  beforeEach(async () => {
+    const database = memoryAdapter();
+    notify = createNotifyKit({
+      notifications: [categorized] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tA", email: "a@x.com" });
+    await notify.upsertRecipient({ id: "bob", tenantId: "tB", email: "b@x.com" });
+  });
+
+  test("getGlobal validates recipient tenant scope", async () => {
+    await notify.preferences.updateGlobal({
+      recipientId: "alice",
+      tenantId: "tA",
+      channels: { email: false },
+    });
+    const wrongTenant = notify.preferences.getGlobal({
+      recipientId: "alice",
+      tenantId: "tB",
+    });
+    await expect(wrongTenant).rejects.toThrow(/does not belong/);
+  });
+
+  test("getGlobal returns null for unknown recipient", async () => {
+    const result = await notify.preferences.getGlobal({
+      recipientId: "ghost",
+    });
+    expect(result).toBeNull();
+  });
+
+  test("getCategory validates recipient tenant scope", async () => {
+    const wrongTenant = notify.preferences.getCategory({
+      recipientId: "alice",
+      tenantId: "tB",
+      category: "social",
+    });
+    await expect(wrongTenant).rejects.toThrow(/does not belong/);
+  });
+
+  test("getCategory returns null for unknown recipient", async () => {
+    const result = await notify.preferences.getCategory({
+      recipientId: "ghost",
+      category: "social",
+    });
+    expect(result).toBeNull();
+  });
+});

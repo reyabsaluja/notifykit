@@ -130,10 +130,45 @@ export async function createPgTables(
     await db.execute(sql.raw(stmt));
   }
 
-  // Backfill archived_at for tables created before this column existed.
-  await db.execute(
-    sql.raw(
-      `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`,
-    ),
+  // Backfill columns for tables created before these were added.
+  const backfills = [
+    `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`,
+    `ALTER TABLE notifykit_recipients ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
+    `ALTER TABLE notifykit_recipients ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+    `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
+    `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+    `ALTER TABLE notifykit_deliveries ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
+    `ALTER TABLE notifykit_deliveries ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+    `ALTER TABLE notifykit_digest_buffers ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
+    `ALTER TABLE notifykit_digest_buffers ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+    `ALTER TABLE notifykit_rate_limit_events ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
+    `ALTER TABLE notifykit_rate_limit_events ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+    `ALTER TABLE notifykit_scheduled_sends ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
+    `ALTER TABLE notifykit_scheduled_sends ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+  ];
+  for (const stmt of backfills) {
+    await db.execute(sql.raw(stmt));
+  }
+
+  // Migrate preferences PK from (recipient_id, notification_id) to
+  // (recipient_id, notification_id, tenant_id, workspace_id) for pre-tenant
+  // databases. Postgres doesn't support ADD COLUMN IF NOT EXISTS for PK
+  // changes, so we detect the old schema and rebuild.
+  const pkCheck = await db.execute(sql.raw(`
+    SELECT a.attname FROM pg_index i
+    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+    WHERE i.indrelid = 'notifykit_preferences'::regclass AND i.indisprimary
+    ORDER BY array_position(i.indkey, a.attnum)
+  `));
+  const pkCols = (pkCheck as { rows: Array<{ attname: string }> }).rows.map(
+    (r) => r.attname,
   );
+  if (!pkCols.includes("tenant_id")) {
+    await db.execute(sql.raw(`ALTER TABLE notifykit_preferences ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT ''`));
+    await db.execute(sql.raw(`ALTER TABLE notifykit_preferences ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT ''`));
+    await db.execute(sql.raw(`ALTER TABLE notifykit_preferences DROP CONSTRAINT notifykit_preferences_pkey`));
+    await db.execute(sql.raw(`ALTER TABLE notifykit_preferences ADD PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id)`));
+  }
 }

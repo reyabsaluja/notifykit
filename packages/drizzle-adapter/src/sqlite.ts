@@ -561,7 +561,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       async list(recipientId, scope): Promise<RecipientPreference[]> {
         const conditions = [
           eq(preferences.recipientId, recipientId),
-          ...(scope ? preferenceScopeConditions(scope) : []),
+          ...preferenceScopeConditions(scope),
         ];
         const rows = await db
           .select()

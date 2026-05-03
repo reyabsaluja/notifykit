@@ -62,7 +62,10 @@ export type DeliveryExplanation = {
 };
 
 export type SecurityScope = {
+  /** Tenant identifier. Aliased as `organizationId`. */
   tenantId?: string;
+  /** Alias for `tenantId`. When both are set, `tenantId` takes precedence. */
+  organizationId?: string;
   workspaceId?: string;
 };
 
@@ -672,6 +675,7 @@ export type SendInput<
   [K in T[number] as K["id"]]: {
     recipientId: string;
     tenantId?: string;
+    organizationId?: string;
     workspaceId?: string;
     notificationId: K["id"];
     payload: InferSchema<K["payload"]>;
@@ -687,6 +691,7 @@ export type UpdatePreferenceInput<
 > = {
   recipientId: string;
   tenantId?: string;
+  organizationId?: string;
   workspaceId?: string;
   notificationId: NotificationIds<T>;
   channels: ChannelPreferenceMap;
@@ -697,6 +702,7 @@ export type GetPreferenceInput<
 > = {
   recipientId: string;
   tenantId?: string;
+  organizationId?: string;
   workspaceId?: string;
   notificationId: NotificationIds<T>;
 };

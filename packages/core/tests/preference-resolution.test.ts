@@ -9,7 +9,9 @@ import {
   notification,
   GLOBAL_PREFERENCE_KEY,
   categoryPreferenceKey,
+  isCategoryPreferenceKey,
   isSyntheticPreferenceKey,
+  parseCategoryFromKey,
 } from "../src/index.js";
 import type { ChannelOutcome, DeliveryExplanation, PreferenceExplanation } from "../src/index.js";
 
@@ -594,6 +596,265 @@ describe("updateGlobal and updateCategory", () => {
       }),
     ).rejects.toThrow(/Unknown category/);
   });
+
+  test("getGlobal reads back saved global preference", async () => {
+    const def = notification({
+      id: "test",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const before = await notify.preferences.getGlobal({ recipientId: "u1" });
+    expect(before).toBeNull();
+
+    await notify.preferences.updateGlobal({
+      recipientId: "u1",
+      channels: { inbox: false },
+    });
+
+    const after = await notify.preferences.getGlobal({ recipientId: "u1" });
+    expect(after).not.toBeNull();
+    expect(after!.channels.inbox).toBe(false);
+  });
+
+  test("getCategory reads back saved category preference", async () => {
+    const def = notification({
+      id: "test",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      category: "billing",
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const before = await notify.preferences.getCategory({
+      recipientId: "u1",
+      category: "billing",
+    });
+    expect(before).toBeNull();
+
+    await notify.preferences.updateCategory({
+      recipientId: "u1",
+      category: "billing",
+      channels: { inbox: false },
+    });
+
+    const after = await notify.preferences.getCategory({
+      recipientId: "u1",
+      category: "billing",
+    });
+    expect(after).not.toBeNull();
+    expect(after!.channels.inbox).toBe(false);
+  });
+
+  test("getCategory throws for unknown category", async () => {
+    const def = notification({
+      id: "test",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      category: "billing",
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    await expect(
+      notify.preferences.getCategory({
+        recipientId: "u1",
+        category: "nonexistent",
+      }),
+    ).rejects.toThrow(/Unknown category/);
+  });
+
+  test("listCategories returns only category preferences", async () => {
+    const def = notification({
+      id: "test",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "s", body: "b" })],
+      category: "billing",
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@test.com" });
+
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "test",
+      channels: { email: true },
+    });
+    await notify.preferences.updateGlobal({
+      recipientId: "u1",
+      channels: { inbox: true },
+    });
+    await notify.preferences.updateCategory({
+      recipientId: "u1",
+      category: "billing",
+      channels: { inbox: false },
+    });
+
+    const categories = await notify.preferences.listCategories("u1");
+    expect(categories).toHaveLength(1);
+    expect(categories[0].notificationId).toBe(categoryPreferenceKey("billing"));
+    expect(categories[0].channels.inbox).toBe(false);
+
+    const regular = await notify.preferences.list("u1");
+    expect(regular.every((p) => !isSyntheticPreferenceKey(p.notificationId))).toBe(true);
+  });
+});
+
+describe("synthetic notification ID validation", () => {
+  test("rejects notification id that matches __global__", () => {
+    expect(() =>
+      createNotifyKit({
+        notifications: [
+          notification({
+            id: "__global__",
+            payload: { msg: "string" },
+            channels: [inbox({ title: "{{msg}}" })],
+          }),
+        ] as const,
+        database: memoryAdapter(),
+      }),
+    ).toThrow(/reserved for internal preference keys/);
+  });
+
+  test("rejects notification id that matches __category:*__ pattern", () => {
+    expect(() =>
+      createNotifyKit({
+        notifications: [
+          notification({
+            id: "__category:billing__",
+            payload: { msg: "string" },
+            channels: [inbox({ title: "{{msg}}" })],
+          }),
+        ] as const,
+        database: memoryAdapter(),
+      }),
+    ).toThrow(/reserved for internal preference keys/);
+  });
+});
+
+describe("preference-keys new helpers", () => {
+  test("isCategoryPreferenceKey identifies category keys", () => {
+    expect(isCategoryPreferenceKey("__category:billing__")).toBe(true);
+    expect(isCategoryPreferenceKey("__category:x__")).toBe(true);
+    expect(isCategoryPreferenceKey("__global__")).toBe(false);
+    expect(isCategoryPreferenceKey("test")).toBe(false);
+  });
+
+  test("parseCategoryFromKey extracts category name", () => {
+    expect(parseCategoryFromKey("__category:billing__")).toBe("billing");
+    expect(parseCategoryFromKey("__category:social__")).toBe("social");
+    expect(parseCategoryFromKey("__global__")).toBeNull();
+    expect(parseCategoryFromKey("test")).toBeNull();
+  });
+});
+
+describe("scoped read-after-write for global/category preferences", () => {
+  function buildScoped() {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      category: "billing",
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    return { notify, db };
+  }
+
+  test("getGlobal resolves tenant scope from recipient", async () => {
+    const { notify } = buildScoped();
+    await notify.upsertRecipient({ id: "u1", tenantId: "t1" });
+
+    await notify.preferences.updateGlobal({
+      recipientId: "u1",
+      channels: { inbox: false },
+    });
+
+    const pref = await notify.preferences.getGlobal({ recipientId: "u1" });
+    expect(pref).not.toBeNull();
+    expect(pref!.channels.inbox).toBe(false);
+  });
+
+  test("getCategory resolves tenant scope from recipient", async () => {
+    const { notify } = buildScoped();
+    await notify.upsertRecipient({ id: "u1", tenantId: "t1" });
+
+    await notify.preferences.updateCategory({
+      recipientId: "u1",
+      category: "billing",
+      channels: { inbox: false },
+    });
+
+    const pref = await notify.preferences.getCategory({
+      recipientId: "u1",
+      category: "billing",
+    });
+    expect(pref).not.toBeNull();
+    expect(pref!.channels.inbox).toBe(false);
+  });
+
+  test("listCategories resolves tenant scope from recipient", async () => {
+    const { notify } = buildScoped();
+    await notify.upsertRecipient({ id: "u1", tenantId: "t1" });
+
+    await notify.preferences.updateCategory({
+      recipientId: "u1",
+      category: "billing",
+      channels: { inbox: false },
+    });
+
+    const cats = await notify.preferences.listCategories("u1");
+    expect(cats).toHaveLength(1);
+    expect(cats[0].channels.inbox).toBe(false);
+  });
+
+  test("getGlobal resolves workspace scope from recipient", async () => {
+    const { notify } = buildScoped();
+    await notify.upsertRecipient({ id: "u1", workspaceId: "w1" });
+
+    await notify.preferences.updateGlobal({
+      recipientId: "u1",
+      channels: { inbox: false },
+    });
+
+    const pref = await notify.preferences.getGlobal({ recipientId: "u1" });
+    expect(pref).not.toBeNull();
+    expect(pref!.channels.inbox).toBe(false);
+  });
+
+  test("returns null/empty for unknown recipient", async () => {
+    const { notify } = buildScoped();
+
+    const globalPref = await notify.preferences.getGlobal({ recipientId: "ghost" });
+    expect(globalPref).toBeNull();
+
+    const catPref = await notify.preferences.getCategory({
+      recipientId: "ghost",
+      category: "billing",
+    });
+    expect(catPref).toBeNull();
+
+    const cats = await notify.preferences.listCategories("ghost");
+    expect(cats).toHaveLength(0);
+  });
 });
 
 describe("backward compatibility", () => {
@@ -903,6 +1164,116 @@ describe("handler routes", () => {
       }),
     );
     expect(res.status).toBe(400);
+  });
+
+  test("GET /preferences/global returns saved global preference", async () => {
+    const { notify, handler } = buildHandler();
+    await notify.upsertRecipient({ id: "u1" });
+
+    const resBefore = await handler(
+      new Request("http://localhost/api/notifykit/preferences/global", {
+        headers: { "x-user": "u1" },
+      }),
+    );
+    expect(resBefore.status).toBe(200);
+    const bodyBefore = (await resBefore.json()) as { data: unknown };
+    expect(bodyBefore.data).toBeNull();
+
+    await handler(
+      new Request("http://localhost/api/notifykit/preferences/global", {
+        method: "POST",
+        headers: { "x-user": "u1", "content-type": "application/json" },
+        body: JSON.stringify({ channels: { email: false } }),
+      }),
+    );
+
+    const resAfter = await handler(
+      new Request("http://localhost/api/notifykit/preferences/global", {
+        headers: { "x-user": "u1" },
+      }),
+    );
+    expect(resAfter.status).toBe(200);
+    const bodyAfter = (await resAfter.json()) as {
+      data: { channels: { email: boolean } };
+    };
+    expect(bodyAfter.data.channels.email).toBe(false);
+  });
+
+  test("GET /preferences/category returns saved category preference", async () => {
+    const { notify, handler } = buildHandler();
+    await notify.upsertRecipient({ id: "u1" });
+
+    const resBefore = await handler(
+      new Request(
+        "http://localhost/api/notifykit/preferences/category?category=social",
+        { headers: { "x-user": "u1" } },
+      ),
+    );
+    expect(resBefore.status).toBe(200);
+    const bodyBefore = (await resBefore.json()) as { data: unknown };
+    expect(bodyBefore.data).toBeNull();
+
+    await handler(
+      new Request("http://localhost/api/notifykit/preferences/category", {
+        method: "POST",
+        headers: { "x-user": "u1", "content-type": "application/json" },
+        body: JSON.stringify({ category: "social", channels: { inbox: false } }),
+      }),
+    );
+
+    const resAfter = await handler(
+      new Request(
+        "http://localhost/api/notifykit/preferences/category?category=social",
+        { headers: { "x-user": "u1" } },
+      ),
+    );
+    expect(resAfter.status).toBe(200);
+    const bodyAfter = (await resAfter.json()) as {
+      data: { channels: { inbox: boolean } };
+    };
+    expect(bodyAfter.data.channels.inbox).toBe(false);
+  });
+
+  test("GET /preferences/category without category param returns 400", async () => {
+    const { notify, handler } = buildHandler();
+    await notify.upsertRecipient({ id: "u1" });
+
+    const res = await handler(
+      new Request("http://localhost/api/notifykit/preferences/category", {
+        headers: { "x-user": "u1" },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("GET /preferences/categories returns only category preferences", async () => {
+    const { notify, handler } = buildHandler();
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.preferences.updateGlobal({
+      recipientId: "u1",
+      channels: { email: false },
+    });
+    await notify.preferences.updateCategory({
+      recipientId: "u1",
+      category: "social",
+      channels: { inbox: false },
+    });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "comment",
+      channels: { email: true },
+    });
+
+    const res = await handler(
+      new Request("http://localhost/api/notifykit/preferences/categories", {
+        headers: { "x-user": "u1" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ notificationId: string }> };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].notificationId).toBe(categoryPreferenceKey("social"));
   });
 });
 

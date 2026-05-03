@@ -130,14 +130,52 @@ export async function createSqliteTables(
     await db.run(sql.raw(stmt));
   }
 
-  // Backfill archived_at for tables created before this column existed.
-  try {
-    await db.run(
-      sql.raw(
-        `ALTER TABLE notifykit_inbox_items ADD COLUMN archived_at INTEGER`,
-      ),
-    );
-  } catch {
-    // Column already exists — expected for fresh tables.
+  // Backfill columns for tables created before these were added.
+  const backfills = [
+    `ALTER TABLE notifykit_inbox_items ADD COLUMN archived_at INTEGER`,
+    `ALTER TABLE notifykit_recipients ADD COLUMN tenant_id TEXT`,
+    `ALTER TABLE notifykit_recipients ADD COLUMN workspace_id TEXT`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN tenant_id TEXT`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN workspace_id TEXT`,
+    `ALTER TABLE notifykit_inbox_items ADD COLUMN tenant_id TEXT`,
+    `ALTER TABLE notifykit_inbox_items ADD COLUMN workspace_id TEXT`,
+    `ALTER TABLE notifykit_deliveries ADD COLUMN tenant_id TEXT`,
+    `ALTER TABLE notifykit_deliveries ADD COLUMN workspace_id TEXT`,
+    `ALTER TABLE notifykit_digest_buffers ADD COLUMN tenant_id TEXT`,
+    `ALTER TABLE notifykit_digest_buffers ADD COLUMN workspace_id TEXT`,
+    `ALTER TABLE notifykit_rate_limit_events ADD COLUMN tenant_id TEXT`,
+    `ALTER TABLE notifykit_rate_limit_events ADD COLUMN workspace_id TEXT`,
+    `ALTER TABLE notifykit_scheduled_sends ADD COLUMN tenant_id TEXT`,
+    `ALTER TABLE notifykit_scheduled_sends ADD COLUMN workspace_id TEXT`,
+  ];
+  for (const stmt of backfills) {
+    try {
+      await db.run(sql.raw(stmt));
+    } catch {
+      // Column already exists — expected for fresh tables.
+    }
+  }
+
+  // Migrate preferences PK from (recipient_id, notification_id) to
+  // (recipient_id, notification_id, tenant_id, workspace_id) for pre-tenant
+  // databases. SQLite can't ALTER a PK, so we rebuild via a temp table.
+  const tableInfo = await db.all<{ name: string }>(
+    sql.raw(`PRAGMA table_info(notifykit_preferences)`),
+  );
+  const colNames = tableInfo.map((c) => c.name);
+  if (!colNames.includes("tenant_id")) {
+    await db.run(sql.raw(`ALTER TABLE notifykit_preferences RENAME TO _notifykit_preferences_old`));
+    await db.run(sql.raw(`CREATE TABLE notifykit_preferences (
+      recipient_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT '',
+      workspace_id TEXT NOT NULL DEFAULT '',
+      notification_id TEXT NOT NULL,
+      channels TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id)
+    )`));
+    await db.run(sql.raw(`INSERT INTO notifykit_preferences (recipient_id, notification_id, channels, updated_at, tenant_id, workspace_id)
+      SELECT recipient_id, notification_id, channels, updated_at, '', '' FROM _notifykit_preferences_old`));
+    await db.run(sql.raw(`DROP TABLE _notifykit_preferences_old`));
   }
 }

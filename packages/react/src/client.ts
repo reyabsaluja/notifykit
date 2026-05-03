@@ -90,6 +90,16 @@ export type NotifyKitClient = {
       notificationId: string;
       channels: ChannelPreferenceMap;
     }): Promise<RecipientPreference>;
+    getGlobal(): Promise<RecipientPreference | null>;
+    updateGlobal(input: {
+      channels: ChannelPreferenceMap;
+    }): Promise<RecipientPreference>;
+    getCategory(category: string): Promise<RecipientPreference | null>;
+    listCategories(): Promise<RecipientPreference[]>;
+    updateCategory(input: {
+      category: string;
+      channels: ChannelPreferenceMap;
+    }): Promise<RecipientPreference>;
   };
   notifications: {
     list(): Promise<NotificationMetadata[]>;
@@ -777,6 +787,33 @@ export function createNotifyKitClient(
           });
           throw err;
         }
+      },
+
+      async getGlobal(): Promise<RecipientPreference | null> {
+        const raw = await request("GET", "/preferences/global");
+        return raw ? revivePreference(raw) : null;
+      },
+
+      async updateGlobal(input): Promise<RecipientPreference> {
+        const raw = await request("POST", "/preferences/global", input);
+        return revivePreference(raw);
+      },
+
+      async getCategory(category): Promise<RecipientPreference | null> {
+        const raw = await request(
+          "GET",
+          `/preferences/category?category=${encodeURIComponent(category)}`,
+        );
+        return raw ? revivePreference(raw) : null;
+      },
+
+      async listCategories(): Promise<RecipientPreference[]> {
+        return revivePreferences(await request("GET", "/preferences/categories"));
+      },
+
+      async updateCategory(input): Promise<RecipientPreference> {
+        const raw = await request("POST", "/preferences/category", input);
+        return revivePreference(raw);
       },
     },
 

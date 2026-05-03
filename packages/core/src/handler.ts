@@ -152,7 +152,10 @@ type Route =
   | { kind: "inbox.delete"; id: string }
   | { kind: "preferences.list" }
   | { kind: "preferences.update" }
+  | { kind: "preferences.getGlobal" }
   | { kind: "preferences.updateGlobal" }
+  | { kind: "preferences.getCategory" }
+  | { kind: "preferences.listCategories" }
   | { kind: "preferences.updateCategory" }
   | { kind: "preferences.explain" }
   | { kind: "explain" }
@@ -571,6 +574,14 @@ export function createHandler<
           } as Parameters<typeof notify.preferences.update>[0]);
           return withCors(json({ data: updated }));
         }
+        case "preferences.getGlobal": {
+          const result = await notify.preferences.getGlobal({
+            recipientId: context.recipientId,
+            tenantId: context.tenantId,
+            workspaceId: context.workspaceId,
+          });
+          return withCors(json({ data: result }));
+        }
         case "preferences.updateGlobal": {
           const body = await readJson(request);
           if (!body || typeof body !== "object") {
@@ -591,6 +602,29 @@ export function createHandler<
             channels: validChannels,
           });
           return withCors(json({ data: result }));
+        }
+        case "preferences.getCategory": {
+          const category = url.searchParams.get("category");
+          if (!category) {
+            return withCors(json(
+              { error: "Missing 'category' query parameter" },
+              400,
+            ));
+          }
+          const result = await notify.preferences.getCategory({
+            recipientId: context.recipientId,
+            tenantId: context.tenantId,
+            workspaceId: context.workspaceId,
+            category,
+          });
+          return withCors(json({ data: result }));
+        }
+        case "preferences.listCategories": {
+          const prefs = await notify.preferences.listCategories(
+            context.recipientId,
+            context,
+          );
+          return withCors(json({ data: prefs }));
         }
         case "preferences.updateCategory": {
           const body = await readJson(request);
@@ -806,10 +840,16 @@ function matchRoute(method: string, sub: string): Route {
     return { kind: "not_found" };
   }
   if (trimmed === "/preferences/global") {
+    if (method === "GET") return { kind: "preferences.getGlobal" };
     if (method === "POST") return { kind: "preferences.updateGlobal" };
     return { kind: "not_found" };
   }
+  if (trimmed === "/preferences/categories") {
+    if (method === "GET") return { kind: "preferences.listCategories" };
+    return { kind: "not_found" };
+  }
   if (trimmed === "/preferences/category") {
+    if (method === "GET") return { kind: "preferences.getCategory" };
     if (method === "POST") return { kind: "preferences.updateCategory" };
     return { kind: "not_found" };
   }
@@ -854,8 +894,12 @@ function normalizeIdentity(
     return { recipientId: value };
   }
   if (!value.recipientId || value.recipientId.length > MAX_ID_LENGTH) return null;
-  if (value.tenantId && value.tenantId.length > MAX_ID_LENGTH) return null;
+  const tenantId = value.tenantId ?? value.organizationId;
+  if (tenantId && tenantId.length > MAX_ID_LENGTH) return null;
   if (value.workspaceId && value.workspaceId.length > MAX_ID_LENGTH) return null;
+  if (value.organizationId && !value.tenantId) {
+    return { ...value, tenantId, organizationId: undefined };
+  }
   return value;
 }
 

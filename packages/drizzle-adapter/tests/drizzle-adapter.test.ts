@@ -765,5 +765,28 @@ describe("drizzleSqliteAdapter", () => {
       expect(countA).toBe(2);
       expect(countB).toBe(1);
     });
+
+    test("preferences.list defaults to global scope when scope is omitted", async () => {
+      await ctx.notify.upsertRecipient({ id: "user_1" });
+      await ctx.adapter.preferences.upsert({
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        tenantId: "tenant_a",
+        channels: { email: false },
+      });
+      await ctx.adapter.preferences.upsert({
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        channels: { email: true },
+      });
+
+      const unscopedList = await ctx.adapter.preferences.list("user_1");
+      expect(unscopedList).toHaveLength(1);
+      expect(unscopedList[0]!.channels.email).toBe(true);
+
+      const scopedList = await ctx.adapter.preferences.list("user_1", { tenantId: "tenant_a" });
+      expect(scopedList).toHaveLength(1);
+      expect(scopedList[0]!.channels.email).toBe(false);
+    });
   });
 });

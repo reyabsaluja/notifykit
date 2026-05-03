@@ -7,6 +7,15 @@ export function categoryPreferenceKey(category: string): string {
 export function isSyntheticPreferenceKey(key: string): boolean {
   return (
     key === GLOBAL_PREFERENCE_KEY ||
-    (key.startsWith("__category:") && key.endsWith("__"))
+    isCategoryPreferenceKey(key)
   );
+}
+
+export function isCategoryPreferenceKey(key: string): boolean {
+  return key.startsWith("__category:") && key.endsWith("__");
+}
+
+export function parseCategoryFromKey(key: string): string | null {
+  if (!isCategoryPreferenceKey(key)) return null;
+  return key.slice("__category:".length, -"__".length);
 }

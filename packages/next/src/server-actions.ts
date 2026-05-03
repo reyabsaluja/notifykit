@@ -1,6 +1,7 @@
 "use server";
 
 import type {
+  ChannelPreferenceMap,
   InboxDeleteForRecipientResult,
   InboxItem,
   InboxItemForRecipientResult,
@@ -30,8 +31,18 @@ export type NotifyKitServerActions<
 > = {
   getPreferences: () => Promise<RecipientPreference[]>;
   updatePreference: (
-    input: Omit<UpdatePreferenceInput<T>, "recipientId" | "tenantId" | "workspaceId">,
+    input: Omit<UpdatePreferenceInput<T>, "recipientId" | "tenantId" | "workspaceId" | "organizationId">,
   ) => Promise<RecipientPreference>;
+  getGlobalPreference: () => Promise<RecipientPreference | null>;
+  updateGlobalPreference: (input: {
+    channels: ChannelPreferenceMap;
+  }) => Promise<RecipientPreference>;
+  getCategoryPreference: (category: string) => Promise<RecipientPreference | null>;
+  listCategoryPreferences: () => Promise<RecipientPreference[]>;
+  updateCategoryPreference: (input: {
+    category: string;
+    channels: ChannelPreferenceMap;
+  }) => Promise<RecipientPreference>;
   inbox: {
     list: (filter?: InboxListFilter) => Promise<InboxItem[]>;
     unreadCount: () => Promise<number>;
@@ -67,6 +78,17 @@ export function createServerActions<
     }
   }
 
+  function assertChannelMap(channels: unknown): asserts channels is ChannelPreferenceMap {
+    if (!channels || typeof channels !== "object" || Array.isArray(channels)) {
+      throw new Error("Invalid channels");
+    }
+    const validChannelKeys = new Set(["inbox", "email", "webhook"]);
+    for (const [key, value] of Object.entries(channels as Record<string, unknown>)) {
+      if (!validChannelKeys.has(key)) throw new Error("Invalid channel key");
+      if (typeof value !== "boolean") throw new Error("Invalid channel value");
+    }
+  }
+
   return {
     async getPreferences() {
       const { recipientId, ...scope } = await resolveIdentity();
@@ -99,6 +121,53 @@ export function createServerActions<
         recipientId,
         ...scope,
       } as UpdatePreferenceInput<T>);
+    },
+
+    async getGlobalPreference() {
+      const { recipientId, ...scope } = await resolveIdentity();
+      return notifykit.preferences.getGlobal({ recipientId, ...scope });
+    },
+
+    async updateGlobalPreference(input) {
+      assertChannelMap(input?.channels);
+      const { recipientId, ...scope } = await resolveIdentity();
+      return notifykit.preferences.updateGlobal({
+        recipientId,
+        ...scope,
+        channels: input.channels,
+      });
+    },
+
+    async getCategoryPreference(category) {
+      if (typeof category !== "string" || category.length === 0 || category.length > 512) {
+        throw new Error("Invalid category");
+      }
+      const { recipientId, ...scope } = await resolveIdentity();
+      return notifykit.preferences.getCategory({ recipientId, ...scope, category });
+    },
+
+    async listCategoryPreferences() {
+      const { recipientId, ...scope } = await resolveIdentity();
+      return notifykit.preferences.listCategories(recipientId, scope);
+    },
+
+    async updateCategoryPreference(input) {
+      if (
+        !input ||
+        typeof input !== "object" ||
+        typeof (input as Record<string, unknown>).category !== "string" ||
+        ((input as Record<string, unknown>).category as string).length > 512
+      ) {
+        throw new Error("Invalid category");
+      }
+      assertChannelMap((input as Record<string, unknown>).channels);
+      const { recipientId, ...scope } = await resolveIdentity();
+      return notifykit.preferences.updateCategory({
+        recipientId,
+        ...scope,
+        category: input.category,
+        channels: input.channels,
+      });
     },
 
     inbox: {

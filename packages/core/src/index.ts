@@ -4,7 +4,9 @@ export { createNotifyKit } from "./create-notifykit.js";
 export {
   GLOBAL_PREFERENCE_KEY,
   categoryPreferenceKey,
+  isCategoryPreferenceKey,
   isSyntheticPreferenceKey,
+  parseCategoryFromKey,
 } from "./preference-keys.js";
 export { createHandler } from "./handler.js";
 export { memoryAdapter } from "./memory-adapter.js";

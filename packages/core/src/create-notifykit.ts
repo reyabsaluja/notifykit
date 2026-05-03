@@ -35,6 +35,7 @@ import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
 import {
   GLOBAL_PREFERENCE_KEY,
   categoryPreferenceKey,
+  isCategoryPreferenceKey,
   isSyntheticPreferenceKey,
 } from "./preference-keys.js";
 import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
@@ -188,17 +189,39 @@ export type NotifyKit<
      */
     list(recipientId: string, scope?: SecurityScope): Promise<RecipientPreference[]>;
     update(input: UpdatePreferenceInput<T>): Promise<RecipientPreference>;
+    /** Read the user's global channel preferences, or null if unset. */
+    getGlobal(input: {
+      recipientId: string;
+      tenantId?: string;
+      organizationId?: string;
+      workspaceId?: string;
+    }): Promise<RecipientPreference | null>;
     /** Update user's global channel preferences (applies across all notifications). */
     updateGlobal(input: {
       recipientId: string;
       tenantId?: string;
+      organizationId?: string;
       workspaceId?: string;
       channels: ChannelPreferenceMap;
     }): Promise<RecipientPreference>;
+    /** Read the user's category-level channel preferences, or null if unset. */
+    getCategory(input: {
+      recipientId: string;
+      tenantId?: string;
+      organizationId?: string;
+      workspaceId?: string;
+      category: string;
+    }): Promise<RecipientPreference | null>;
+    /** List all category preferences for a user. */
+    listCategories(
+      recipientId: string,
+      scope?: SecurityScope,
+    ): Promise<RecipientPreference[]>;
     /** Update user's category-level channel preferences. */
     updateCategory(input: {
       recipientId: string;
       tenantId?: string;
+      organizationId?: string;
       workspaceId?: string;
       category: string;
       channels: ChannelPreferenceMap;
@@ -210,6 +233,7 @@ export type NotifyKit<
     explain(input: {
       recipientId: string;
       tenantId?: string;
+      organizationId?: string;
       workspaceId?: string;
       notificationId: string;
     }): Promise<PreferenceExplanation>;
@@ -303,6 +327,12 @@ export function createNotifyKit<
 
   const byId = new Map<string, NotificationDefinition<string, PayloadSchema>>();
   for (const def of notifications) {
+    if (isSyntheticPreferenceKey(def.id)) {
+      throw new NotifyKitError(
+        `Notification id "${def.id}" is reserved for internal preference keys. ` +
+          `Choose a different id.`,
+      );
+    }
     if (byId.has(def.id)) {
       throw new NotifyKitError(
         `Duplicate notification id: "${def.id}". Notification ids must be unique.`,
@@ -465,7 +495,15 @@ export function createNotifyKit<
   };
   const scheduledSendTimers = new Map<string, ScheduledSendTimer>();
 
-  function resolveScope(input: SecurityScope, recipient: Recipient): SecurityScope {
+  function normalizeOrgId(scope: SecurityScope): SecurityScope {
+    if (scope.organizationId && !scope.tenantId) {
+      return { ...scope, tenantId: scope.organizationId, organizationId: undefined };
+    }
+    return scope;
+  }
+
+  function resolveScope(raw: SecurityScope, recipient: Recipient): SecurityScope {
+    const input = normalizeOrgId(raw);
     const tenantId = input.tenantId ?? recipient.tenantId;
     const workspaceId = input.workspaceId ?? recipient.workspaceId;
     if (input.tenantId && recipient.tenantId && input.tenantId !== recipient.tenantId) {
@@ -1364,7 +1402,12 @@ export function createNotifyKit<
 
   return {
     async upsertRecipient(input) {
-      return database.recipients.upsert(input);
+      const normalized = normalizeOrgId(input);
+      return database.recipients.upsert({
+        ...input,
+        tenantId: normalized.tenantId,
+        organizationId: undefined,
+      });
     },
     send,
     explain,
@@ -1442,6 +1485,42 @@ export function createNotifyKit<
         return all.filter((p) => !isSyntheticPreferenceKey(p.notificationId));
       },
       update: updatePreference,
+      async getGlobal(input) {
+        const recipient = await database.recipients.findById(input.recipientId);
+        if (!recipient) return null;
+        const scope = resolveScope(input, recipient);
+        return database.preferences.get(
+          input.recipientId,
+          GLOBAL_PREFERENCE_KEY,
+          scope,
+        );
+      },
+      async getCategory(input) {
+        const knownCategories = new Set(
+          notifications.map((n) => n.category).filter(Boolean) as string[],
+        );
+        if (!knownCategories.has(input.category)) {
+          throw new NotifyKitError(
+            `Unknown category: "${input.category}". ` +
+              `Known categories: ${[...knownCategories].join(", ") || "(none)"}.`,
+          );
+        }
+        const recipient = await database.recipients.findById(input.recipientId);
+        if (!recipient) return null;
+        const scope = resolveScope(input, recipient);
+        return database.preferences.get(
+          input.recipientId,
+          categoryPreferenceKey(input.category),
+          scope,
+        );
+      },
+      async listCategories(recipientId, scope) {
+        const recipient = await database.recipients.findById(recipientId);
+        if (!recipient) return [];
+        const resolved = resolveScope(scope ?? {}, recipient);
+        const all = await database.preferences.list(recipientId, resolved);
+        return all.filter((p) => isCategoryPreferenceKey(p.notificationId));
+      },
       async updateGlobal(input) {
         const recipient = await database.recipients.findById(input.recipientId);
         if (!recipient) {
