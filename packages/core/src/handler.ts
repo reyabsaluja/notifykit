@@ -166,20 +166,38 @@ export function createHandler<
   const corsOrigin = options.cors ?? null;
   const requestRateLimit = options.requestRateLimit ?? null;
   const rateLimitBuckets = new Map<string, number[]>();
+  let lastSweep = Date.now();
+  const SWEEP_INTERVAL = 60_000;
 
   /** Returns true when the caller should be rejected with 429. */
   function checkRateLimit(recipientId: string): boolean {
     if (!requestRateLimit) return false;
     const now = Date.now();
     const cutoff = now - requestRateLimit.windowMs;
+
+    if (now - lastSweep > SWEEP_INTERVAL) {
+      lastSweep = now;
+      for (const [key, ts] of rateLimitBuckets) {
+        if (ts.length === 0 || ts[ts.length - 1]! < cutoff) {
+          rateLimitBuckets.delete(key);
+        }
+      }
+    }
+
     let timestamps = rateLimitBuckets.get(recipientId);
     if (timestamps) {
-      while (timestamps.length > 0 && timestamps[0]! < cutoff) {
-        timestamps.shift();
+      let pruneCount = 0;
+      while (pruneCount < timestamps.length && timestamps[pruneCount]! < cutoff) {
+        pruneCount++;
       }
-      if (timestamps.length === 0) {
-        rateLimitBuckets.delete(recipientId);
-        timestamps = undefined;
+      if (pruneCount > 0) {
+        timestamps = timestamps.slice(pruneCount);
+        if (timestamps.length === 0) {
+          rateLimitBuckets.delete(recipientId);
+          timestamps = undefined;
+        } else {
+          rateLimitBuckets.set(recipientId, timestamps);
+        }
       }
     }
     if (timestamps && timestamps.length >= requestRateLimit.max) {
@@ -198,10 +216,9 @@ export function createHandler<
     const headers = new Headers(response.headers);
     headers.set("Access-Control-Allow-Origin", corsOrigin);
     headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    const requestedHeaders = request?.headers.get("Access-Control-Request-Headers");
     headers.set(
       "Access-Control-Allow-Headers",
-      requestedHeaders || "Content-Type, Authorization",
+      "Content-Type, Authorization",
     );
     headers.set("Access-Control-Max-Age", "86400");
     if (corsOrigin !== "*") {
@@ -630,8 +647,7 @@ export function createHandler<
       if (err instanceof NotifyKitError) {
         return withCors(json({ error: err.message }, 400));
       }
-      const message = err instanceof Error ? err.message : "Internal error";
-      return withCors(json({ error: message }, 500));
+      return withCors(json({ error: "Internal error" }, 500));
     }
   };
 }
