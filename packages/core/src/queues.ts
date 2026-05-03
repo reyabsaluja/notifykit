@@ -36,14 +36,18 @@ export function inlineQueue(): Queue {
  * delivery happens on the event loop. Use `notify.drain()` in tests or
  * during shutdown to wait for outstanding jobs.
  */
-export function setTimeoutQueue(): Queue {
+export function setTimeoutQueue(options?: {
+  onError?: (err: unknown, job: DeliveryJob) => void;
+}): Queue {
   const inflight = new Set<Promise<void>>();
   return {
     enqueue(job, run) {
       const task = new Promise<void>((resolve) => {
         setTimeout(() => {
           run(job)
-            .catch(() => {})
+            .catch((err) => {
+              try { options?.onError?.(err, job); } catch {}
+            })
             .finally(() => resolve());
         }, 0);
       });
