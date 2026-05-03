@@ -272,6 +272,15 @@ export function createHandler<
       if (!unsubscribeSecret) {
         return withCors(json({ error: "Not found" }, 404));
       }
+      if (route.kind === "unsubscribe.post") {
+        const origin = request.headers.get("origin");
+        if (origin) {
+          const expected = new URL(url.href).origin;
+          if (origin !== expected) {
+            return withCors(json({ error: "Forbidden" }, 403));
+          }
+        }
+      }
       const token = await extractUnsubscribeToken(request, url);
       if (!token) {
         return withCors(unsubscribeHtml(
