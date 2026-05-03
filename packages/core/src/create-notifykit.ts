@@ -315,6 +315,15 @@ export function createNotifyKit<
         `Notification "${def.id}" has no channels. Add at least one channel.`,
       );
     }
+    const seenTypes = new Set<string>();
+    for (const ch of def.channels) {
+      if (seenTypes.has(ch.type)) {
+        throw new NotifyKitError(
+          `Notification "${def.id}" has duplicate "${ch.type}" channel configs. Each channel type may only appear once.`,
+        );
+      }
+      seenTypes.add(ch.type);
+    }
     const schemaKeys = new Set(Object.keys(def.payload));
     const builtInVars = new Set(["_unsubscribeUrl"]);
     for (const ch of def.channels) {

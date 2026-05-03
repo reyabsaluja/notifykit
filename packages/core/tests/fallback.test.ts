@@ -205,10 +205,7 @@ describe("fallback channel", () => {
     expect(items).toHaveLength(1);
   });
 
-  test("fires for each failed email when multiple would-be deliveries are configured", async () => {
-    // If the same notification had two email channels (unusual today — one
-    // for primary, one for say a BCC), each failure should trigger its own
-    // fallback. We prove the "no coalescing" behavior.
+  test("rejects duplicate channel types at definition time", () => {
     const def = notification({
       id: "double",
       payload: { msg: "string" },
@@ -218,23 +215,13 @@ describe("fallback channel", () => {
       ],
       fallback: inbox({ title: "Fallback: {{msg}}" }),
     });
-    const db = memoryAdapter();
-    const notify = createNotifyKit({
-      notifications: [def] as const,
-      database: db,
-      providers: { email: alwaysFail },
-      retry: { maxAttempts: 1, delayMs: () => 0 },
-    });
-    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
-    await notify.send({
-      recipientId: "u1",
-      notificationId: "double",
-      payload: { msg: "hi" },
-    });
-    const items = await notify.inbox.list("u1");
-    expect(items).toHaveLength(2);
-    for (const item of items) {
-      expect(item.title).toBe("Fallback: hi");
-    }
+    expect(() =>
+      createNotifyKit({
+        notifications: [def] as const,
+        database: memoryAdapter(),
+        providers: { email: alwaysFail },
+        retry: { maxAttempts: 1, delayMs: () => 0 },
+      }),
+    ).toThrow(/duplicate.*email/i);
   });
 });
