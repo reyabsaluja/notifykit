@@ -53,6 +53,11 @@ export type CreateNotifyKitClientOptions = {
    * opens an EventSource to `/inbox/stream` and merges events into state.
    */
   realtime?: boolean;
+  /**
+   * Called when the SSE connection encounters an error during
+   * reconnect. Useful for logging or diagnostics in production.
+   */
+  onRealtimeError?: (error: unknown) => void;
 };
 
 export type RealtimeStatus = "disconnected" | "connecting" | "connected";
@@ -104,6 +109,7 @@ export function createNotifyKitClient(
   const credentials = options.credentials ?? "same-origin";
   const extraHeaders = options.headers ?? {};
   const realtimeEnabled = options.realtime ?? false;
+  const onRealtimeError = options.onRealtimeError;
 
   let state: ClientState = {
     inbox: { items: [], unreadCount: 0, status: "idle", error: null },
@@ -271,8 +277,9 @@ export function createNotifyKitClient(
       while (!controller.signal.aborted) {
         try {
           await readSSEStream(controller.signal);
-        } catch {
+        } catch (err) {
           if (controller.signal.aborted) break;
+          onRealtimeError?.(err);
         }
         if (controller.signal.aborted) break;
         setRtStatus("connecting");
