@@ -117,9 +117,19 @@ const BLOCKED_HOSTNAME_PATTERNS = [
 ];
 
 function isNumericIp(hostname: string): boolean {
-  return /^0x[0-9a-f]+$/i.test(hostname) ||
-    /^0[0-7]+$/.test(hostname) ||
-    /^\d{8,}$/.test(hostname);
+  if (/^0x[0-9a-f]+$/i.test(hostname)) return true;
+  if (/^0[0-7]+$/.test(hostname)) return true;
+  if (/^\d{8,}$/.test(hostname)) return true;
+  const parts = hostname.split(".");
+  if (
+    parts.length >= 2 &&
+    parts.length <= 4 &&
+    parts.every((p) => /^\d+$/.test(p)) &&
+    parts.length < 4
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function isBlockedHostname(hostname: string): boolean {
@@ -149,11 +159,21 @@ export async function assertSafeWebhookUrl(url: string): Promise<void> {
   if (typeof globalThis.process !== "undefined") {
     try {
       const dns = await import("node:dns");
-      const { resolve4 } = dns.promises ?? dns;
-      const addresses = await (resolve4 as (h: string) => Promise<string[]>)(
-        parsed.hostname,
-      );
-      for (const addr of addresses) {
+      const resolve4 = dns.promises?.resolve4 ?? dns.resolve4;
+      const resolve6 = dns.promises?.resolve6 ?? dns.resolve6;
+      const allAddresses: string[] = [];
+      const [v4, v6] = await Promise.allSettled([
+        (resolve4 as (h: string) => Promise<string[]>)(parsed.hostname),
+        (resolve6 as (h: string) => Promise<string[]>)(parsed.hostname),
+      ]);
+      if (v4.status === "fulfilled") allAddresses.push(...v4.value);
+      if (v6.status === "fulfilled") allAddresses.push(...v6.value);
+      if (allAddresses.length === 0) {
+        throw new NotifyKitError(
+          `Webhook URL failed DNS resolution: ${url}`,
+        );
+      }
+      for (const addr of allAddresses) {
         if (isBlockedHostname(addr)) {
           throw new NotifyKitError(
             `Webhook URL resolves to a blocked address: ${url}`,
@@ -162,6 +182,9 @@ export async function assertSafeWebhookUrl(url: string): Promise<void> {
       }
     } catch (err) {
       if (err instanceof NotifyKitError) throw err;
+      throw new NotifyKitError(
+        `Webhook URL failed DNS resolution: ${url}`,
+      );
     }
   }
 }
