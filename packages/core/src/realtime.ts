@@ -11,7 +11,7 @@ export type RealtimeEvent =
 export type RealtimeListener = (event: RealtimeEvent) => void;
 
 export type RealtimeAdapter = {
-  publish(recipientId: string, scope: SecurityScope, event: RealtimeEvent): void;
+  publish(recipientId: string, scope: SecurityScope, event: RealtimeEvent): void | Promise<void>;
   subscribe(
     recipientId: string,
     scope: SecurityScope,

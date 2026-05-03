@@ -973,7 +973,7 @@ export function createNotifyKit<
         });
         inboxItems.push(item);
         await runHook("inbox.created", { inboxItem: item });
-        realtimeAdapter?.publish(recipient.id, scope, {
+        await realtimeAdapter?.publish(recipient.id, scope, {
           type: "inbox.created",
           item,
         });
@@ -1217,7 +1217,7 @@ export function createNotifyKit<
               : undefined,
         });
         await runHook("inbox.created", { inboxItem: item });
-        realtimeAdapter?.publish(job.recipientId, fallbackScope, {
+        await realtimeAdapter?.publish(job.recipientId, fallbackScope, {
           type: "inbox.created",
           item,
         });
@@ -1313,7 +1313,7 @@ export function createNotifyKit<
           scope,
         );
         if (result.status === "marked") {
-          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
             type: "inbox.updated",
             item: result.item,
           });
@@ -1326,7 +1326,7 @@ export function createNotifyKit<
       async markAllRead(recipientId, scope) {
         const count = await database.inbox.markAllRead(recipientId, scope);
         if (count > 0) {
-          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
             type: "inbox.all_read",
             count,
           });
@@ -1336,7 +1336,7 @@ export function createNotifyKit<
       async archiveForRecipient(inboxItemId, recipientId, scope) {
         const result = await database.inbox.archiveForRecipient(inboxItemId, recipientId, scope);
         if (result.status === "ok") {
-          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
             type: "inbox.archived",
             item: result.item,
           });
@@ -1346,7 +1346,7 @@ export function createNotifyKit<
       async unarchiveForRecipient(inboxItemId, recipientId, scope) {
         const result = await database.inbox.unarchiveForRecipient(inboxItemId, recipientId, scope);
         if (result.status === "ok") {
-          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
             type: "inbox.unarchived",
             item: result.item,
           });
@@ -1356,7 +1356,7 @@ export function createNotifyKit<
       async deleteForRecipient(inboxItemId, recipientId, scope) {
         const result = await database.inbox.deleteForRecipient(inboxItemId, recipientId, scope);
         if (result.status === "deleted") {
-          realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
             type: "inbox.deleted",
             itemId: inboxItemId,
           });
