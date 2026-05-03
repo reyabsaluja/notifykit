@@ -883,13 +883,15 @@ function normalizeBasePath(input: string): string {
   return p;
 }
 
+const VALID_CHANNEL_TYPES = new Set<string>(["inbox", "email", "webhook"]);
+
 function toChannelPreferenceMap(input: unknown): ChannelPreferenceMap | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const out: ChannelPreferenceMap = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (typeof value !== "boolean") return null;
-    if (key !== "inbox" && key !== "email" && key !== "webhook") return null;
-    out[key] = value;
+    if (!VALID_CHANNEL_TYPES.has(key)) return null;
+    out[key as ChannelType] = value;
   }
   return out;
 }
