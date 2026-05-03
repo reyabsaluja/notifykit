@@ -9,12 +9,24 @@ export function createId(prefix: string): string {
 export function renderTemplate(
   template: string,
   payload: Record<string, unknown>,
+  options?: { escapeHtml?: boolean },
 ): string {
+  const escape = options?.escapeHtml ?? false;
   return template.replace(/\{\{\s*([\w.$]+)\s*\}\}/g, (_match, key: string) => {
     const value = payload[key];
     if (value === undefined || value === null) return "";
-    return String(value);
+    const str = String(value);
+    return escape ? escapeHtmlChars(str) : str;
   });
+}
+
+function escapeHtmlChars(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export function extractTemplateVars(template: string): string[] {

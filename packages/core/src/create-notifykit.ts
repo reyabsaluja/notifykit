@@ -995,8 +995,8 @@ export function createNotifyKit<
             scope,
           );
         }
-        const subject = renderTemplate(ch.subject, renderCtx);
-        const body = renderTemplate(ch.body, renderCtx);
+        const subject = renderTemplate(ch.subject, renderCtx, { escapeHtml: true });
+        const body = renderTemplate(ch.body, renderCtx, { escapeHtml: true });
 
         const delivery = await database.deliveries.create({
           notificationRecordId: notificationRecord.id,
