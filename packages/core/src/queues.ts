@@ -19,9 +19,11 @@ export function inlineQueue(): Queue {
   let pending: Promise<void> = Promise.resolve();
   return {
     async enqueue(job, run) {
-      const next = pending.then(() => run(job)).catch(() => {});
+      let error: unknown;
+      const next = pending.then(() => run(job)).catch((err) => { error = err; });
       pending = next;
       await next;
+      if (error !== undefined) throw error;
     },
     async drain() {
       await pending;
