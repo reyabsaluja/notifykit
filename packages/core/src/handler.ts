@@ -102,6 +102,10 @@ export type CreateHandlerOptions = {
    * Requests`. Unauthenticated routes (`/notifications`, `/unsubscribe`)
    * are not rate-limited — apply IP-based throttling at your proxy layer
    * for those.
+   *
+   * NOTE: This is an in-memory, per-instance limiter. In horizontally-scaled
+   * deployments, the effective limit is `max * instanceCount`. Use a shared
+   * store (e.g. Redis) at your proxy layer for strict global limits.
    */
   requestRateLimit?: {
     max: number;
