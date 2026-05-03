@@ -52,23 +52,12 @@ function scopeKey(recipientId: string, scope: SecurityScope): string {
 }
 
 export type WebSocketRealtimeAdapter = RealtimeAdapter & {
-  /**
-   * Handle a WebSocket upgrade. Call this from your server's upgrade path
-   * (e.g., Bun.serve websocket handler, Deno.upgradeWebSocket, etc.).
-   * Returns `null` if authentication fails.
-   */
   handleUpgrade(
     request: Request,
     ws: WebSocketLike,
   ): Promise<{ recipientId: string; scope: SecurityScope } | null>;
-  /**
-   * Handle a WebSocket close event. Must be called when the socket closes to
-   * clean up subscriptions.
-   */
+  handleMessage(ws: WebSocketLike, data: string): void;
   handleClose(ws: WebSocketLike): void;
-  /**
-   * Number of active WebSocket connections. Useful for monitoring.
-   */
   connectionCount(): number;
 };
 
@@ -85,6 +74,7 @@ export function webSocketRealtimeAdapter(
   const subs = new Map<string, Set<RealtimeListener>>();
   const connections = new Map<WebSocketLike, WsConnection>();
   const heartbeats = new Map<WebSocketLike, ReturnType<typeof setInterval>>();
+  const alive = new Set<WebSocketLike>();
 
   function getOrCreateSubs(key: string): Set<RealtimeListener> {
     let set = subs.get(key);
@@ -159,7 +149,14 @@ export function webSocketRealtimeAdapter(
     connections.set(ws, conn);
 
     if (heartbeatMs > 0) {
+      alive.add(ws);
       const interval = setInterval(() => {
+        if (!alive.has(ws)) {
+          handleClose(ws);
+          try { ws.close(); } catch {}
+          return;
+        }
+        alive.delete(ws);
         try {
           ws.send(JSON.stringify({ type: "heartbeat" }));
         } catch {
@@ -172,7 +169,15 @@ export function webSocketRealtimeAdapter(
     return { recipientId: identity.recipientId, scope };
   }
 
+  function handleMessage(ws: WebSocketLike, data: string) {
+    try {
+      const msg = JSON.parse(data);
+      if (msg && msg.type === "pong") alive.add(ws);
+    } catch {}
+  }
+
   function handleClose(ws: WebSocketLike) {
+    alive.delete(ws);
     const conn = connections.get(ws);
     if (conn) {
       conn.close();
@@ -189,6 +194,7 @@ export function webSocketRealtimeAdapter(
     publish,
     subscribe,
     handleUpgrade,
+    handleMessage,
     handleClose,
     connectionCount() {
       return connections.size;
