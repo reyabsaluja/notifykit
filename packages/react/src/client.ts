@@ -355,15 +355,21 @@ export function createNotifyKitClient(
 
   function reviveInbox(raw: unknown): InboxItem[] {
     if (!Array.isArray(raw)) return [];
-    return raw.map(reviveInboxItem);
+    return raw.filter((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).id === "string").map(reviveInboxItem);
   }
 
   function reviveInboxItem(raw: unknown): InboxItem {
+    if (!raw || typeof raw !== "object") {
+      throw new Error("Invalid inbox item: expected an object");
+    }
     const r = raw as Record<string, unknown>;
+    if (typeof r.id !== "string" || typeof r.recipientId !== "string") {
+      throw new Error("Invalid inbox item: missing required fields");
+    }
     return {
-      id: String(r.id),
-      notificationRecordId: String(r.notificationRecordId),
-      recipientId: String(r.recipientId),
+      id: r.id,
+      notificationRecordId: typeof r.notificationRecordId === "string" ? r.notificationRecordId : "",
+      recipientId: r.recipientId,
       tenantId: typeof r.tenantId === "string" ? r.tenantId : undefined,
       workspaceId:
         typeof r.workspaceId === "string" ? r.workspaceId : undefined,
