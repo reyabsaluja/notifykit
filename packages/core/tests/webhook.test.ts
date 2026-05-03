@@ -70,7 +70,7 @@ describe("channel.webhook()", () => {
     expect(provider.sent).toHaveLength(1);
     expect(result.deliveries[0]!.channel).toBe("webhook");
     expect(result.deliveries[0]!.status).toBe("sent");
-    expect(result.deliveries[0]!.to).toBe("https://example.com/hook//p");
+    expect(result.deliveries[0]!.to).toBe("https://example.com/hook/%2Fp");
     expect(db._state.deliveries[0]!.body).toBe(JSON.stringify(basePayload));
   });
 
@@ -85,7 +85,7 @@ describe("channel.webhook()", () => {
     });
 
     const call = provider.sent[0]!;
-    expect(call.url).toBe("https://example.com/hook//p");
+    expect(call.url).toBe("https://example.com/hook/%2Fp");
     expect(call.headers["x-actor"]).toBe("Rey");
     expect(call.payload).toEqual({
       notificationId: "comment_mentioned",

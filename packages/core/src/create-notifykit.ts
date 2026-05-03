@@ -1049,7 +1049,7 @@ export function createNotifyKit<
         // notification that declares a webhook channel.
         const provider = providers!.webhook!;
 
-        const url = renderTemplate(ch.url, payload);
+        const url = renderTemplate(ch.url, payload, { encodeUri: true });
         await assertSafeWebhookUrl(url);
         const headers: Record<string, string> = {};
         if (ch.headers) {
