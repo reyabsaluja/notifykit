@@ -1057,8 +1057,8 @@ export function createNotifyKit<
         const provider = providers!.webhook!;
 
         const url = renderTemplate(ch.url, payload, { encodeUri: true });
-        await assertSafeWebhookUrl(url);
-        const headers: Record<string, string> = {};
+        const { pinnedUrl, hostHeader } = await assertSafeWebhookUrl(url);
+        const headers: Record<string, string> = { host: hostHeader };
         if (ch.headers) {
           for (const [k, v] of Object.entries(ch.headers)) {
             headers[k] = renderTemplate(v, payload);
@@ -1088,7 +1088,7 @@ export function createNotifyKit<
           notificationId: def.id,
           channel: "webhook",
           provider: provider.id,
-          url,
+          url: pinnedUrl,
           headers,
           payload,
         };

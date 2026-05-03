@@ -141,7 +141,12 @@ function isBlockedHostname(hostname: string): boolean {
   return false;
 }
 
-export async function assertSafeWebhookUrl(url: string): Promise<void> {
+export type SafeWebhookResult = {
+  pinnedUrl: string;
+  hostHeader: string;
+};
+
+export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResult> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -156,6 +161,7 @@ export async function assertSafeWebhookUrl(url: string): Promise<void> {
       `Webhook URL points to a blocked address: ${url}`,
     );
   }
+  const originalHost = parsed.host;
   if (typeof globalThis.process !== "undefined") {
     try {
       const dns = await import("node:dns");
@@ -180,6 +186,11 @@ export async function assertSafeWebhookUrl(url: string): Promise<void> {
           );
         }
       }
+      const pinnedIp = allAddresses[0]!;
+      const pinnedHost = pinnedIp.includes(":") ? `[${pinnedIp}]` : pinnedIp;
+      const port = parsed.port ? `:${parsed.port}` : "";
+      parsed.hostname = pinnedHost;
+      return { pinnedUrl: parsed.toString(), hostHeader: originalHost + port };
     } catch (err) {
       if (err instanceof NotifyKitError) throw err;
       throw new NotifyKitError(
@@ -187,6 +198,7 @@ export async function assertSafeWebhookUrl(url: string): Promise<void> {
       );
     }
   }
+  return { pinnedUrl: url, hostHeader: originalHost };
 }
 
 const REDACTED = "[REDACTED]" as const;

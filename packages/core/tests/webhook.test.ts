@@ -85,7 +85,8 @@ describe("channel.webhook()", () => {
     });
 
     const call = provider.sent[0]!;
-    expect(call.url).toBe("https://example.com/hook/%2Fp");
+    expect(new URL(call.url).pathname).toBe("/hook/%2Fp");
+    expect(call.headers["host"]).toBe("example.com");
     expect(call.headers["x-actor"]).toBe("Rey");
     expect(call.payload).toEqual({
       notificationId: "comment_mentioned",
