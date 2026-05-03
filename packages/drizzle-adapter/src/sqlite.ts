@@ -42,7 +42,7 @@ function scopeValue(value: string | undefined): string {
 }
 
 function emptyToUndefined(value: string | null | undefined): string | undefined {
-  return value ? value : undefined;
+  return value === "" || value == null ? undefined : value;
 }
 
 function scopedConditions(
