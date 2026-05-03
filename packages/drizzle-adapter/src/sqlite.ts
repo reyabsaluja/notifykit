@@ -573,63 +573,65 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       },
 
       async upsert(input): Promise<RecipientPreference> {
-        const now = new Date();
-        const existing = await db
-          .select()
-          .from(preferences)
-          .where(
-            and(
-              eq(preferences.recipientId, input.recipientId),
-              eq(preferences.notificationId, input.notificationId),
-              ...preferenceScopeConditions(input),
-            ),
-          )
-          .limit(1);
-
-        if (existing[0]) {
-          const merged: ChannelPreferenceMap = {
-            ...(existing[0].channels as ChannelPreferenceMap),
-            ...input.channels,
-          };
-          await db
-            .update(preferences)
-            .set({
-              channels: merged as Record<string, boolean>,
-              updatedAt: now,
-            })
+        return atomic(async () => {
+          const now = new Date();
+          const existing = await db
+            .select()
+            .from(preferences)
             .where(
               and(
                 eq(preferences.recipientId, input.recipientId),
                 eq(preferences.notificationId, input.notificationId),
                 ...preferenceScopeConditions(input),
               ),
-            );
+            )
+            .limit(1);
+
+          if (existing[0]) {
+            const merged: ChannelPreferenceMap = {
+              ...(existing[0].channels as ChannelPreferenceMap),
+              ...input.channels,
+            };
+            await db
+              .update(preferences)
+              .set({
+                channels: merged as Record<string, boolean>,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(preferences.recipientId, input.recipientId),
+                  eq(preferences.notificationId, input.notificationId),
+                  ...preferenceScopeConditions(input),
+                ),
+              );
+            return {
+              recipientId: input.recipientId,
+              tenantId: input.tenantId,
+              workspaceId: input.workspaceId,
+              notificationId: input.notificationId,
+              channels: merged,
+              updatedAt: now,
+            };
+          }
+
+          await db.insert(preferences).values({
+            recipientId: input.recipientId,
+            tenantId: scopeValue(input.tenantId),
+            workspaceId: scopeValue(input.workspaceId),
+            notificationId: input.notificationId,
+            channels: input.channels as Record<string, boolean>,
+            updatedAt: now,
+          });
           return {
             recipientId: input.recipientId,
             tenantId: input.tenantId,
             workspaceId: input.workspaceId,
             notificationId: input.notificationId,
-            channels: merged,
+            channels: { ...input.channels },
             updatedAt: now,
           };
-        }
-
-        await db.insert(preferences).values({
-          recipientId: input.recipientId,
-          tenantId: scopeValue(input.tenantId),
-          workspaceId: scopeValue(input.workspaceId),
-          notificationId: input.notificationId,
-          channels: input.channels as Record<string, boolean>,
-          updatedAt: now,
         });
-        return {
-          recipientId: input.recipientId,
-          tenantId: input.tenantId,
-          workspaceId: input.workspaceId,
-          notificationId: input.notificationId,
-          channels: { ...input.channels },
-          updatedAt: now,
-        };
       },
     },
 
