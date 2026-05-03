@@ -56,6 +56,15 @@ export function Inbox({ renderItem, emptyState }: InboxProps) {
   );
 }
 
+function isSafeUrl(url: string): boolean {
+  try {
+    const proto = new URL(url, "https://n").protocol;
+    return proto === "https:" || proto === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function DefaultInboxRow({
   item,
   markRead,
@@ -67,8 +76,8 @@ function DefaultInboxRow({
     <div>
       <strong>{item.title}</strong>
       {item.body ? <div>{item.body}</div> : null}
-      {item.actionUrl ? (
-        <a href={item.actionUrl}>Open</a>
+      {item.actionUrl && isSafeUrl(item.actionUrl) ? (
+        <a href={item.actionUrl} rel="noopener noreferrer">Open</a>
       ) : null}
       {!item.readAt ? (
         <button type="button" onClick={() => void markRead(item.id)}>
