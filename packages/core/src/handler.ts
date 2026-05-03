@@ -403,6 +403,7 @@ export function createHandler<
       const stream = new ReadableStream({
         start(controller) {
           const encoder = new TextEncoder();
+          let eventId = 0;
           const push = (data: string) => {
             try {
               controller.enqueue(encoder.encode(data));
@@ -415,7 +416,8 @@ export function createHandler<
             context.recipientId,
             scope,
             (event: RealtimeEvent) => {
-              push(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+              eventId++;
+              push(`id: ${eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
             },
           );
           const heartbeat = setInterval(() => push(": heartbeat\n\n"), 30_000);

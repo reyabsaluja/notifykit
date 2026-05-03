@@ -125,6 +125,7 @@ export function createNotifyKitClient(
   let sseAbort: AbortController | null = null;
   let rtStatus: RealtimeStatus = "disconnected";
   let connectRefCount = 0;
+  let lastEventId = "";
 
   function handleRealtimeData(data: string) {
     let event: {
@@ -234,13 +235,17 @@ export function createNotifyKitClient(
 
   async function readSSEStream(signal: AbortSignal) {
     const url = `${baseUrl}/inbox/stream`;
+    const sseHeaders: Record<string, string> = {
+      accept: "text/event-stream",
+      ...extraHeaders,
+    };
+    if (lastEventId) {
+      sseHeaders["last-event-id"] = lastEventId;
+    }
     const res = await fetchImpl(url, {
       method: "GET",
       credentials,
-      headers: {
-        accept: "text/event-stream",
-        ...extraHeaders,
-      },
+      headers: sseHeaders,
       signal,
     });
     if (!res.ok || !res.body) {
@@ -257,6 +262,10 @@ export function createNotifyKitClient(
           dataLines.push(line.slice(6));
         } else if (line === "data:") {
           dataLines.push("");
+        } else if (line.startsWith("id: ")) {
+          lastEventId = line.slice(4);
+        } else if (line.startsWith("id:")) {
+          lastEventId = line.slice(3);
         }
       }
       if (dataLines.length > 0) handleRealtimeData(dataLines.join("\n"));
