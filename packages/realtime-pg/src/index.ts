@@ -68,7 +68,15 @@ export function pgRealtimeAdapter(
     publish(recipientId, scope, event) {
       const key = scopeKey(recipientId, scope);
       const payload = JSON.stringify({ key, event });
-      void Promise.resolve(conn.notify(pgChannel, payload));
+      if (payload.length > 7999) {
+        const trimmed = JSON.stringify({
+          key,
+          event: { type: event.type, itemId: (event as Record<string, unknown>).itemId },
+        });
+        void Promise.resolve(conn.notify(pgChannel, trimmed)).catch(() => {});
+        return;
+      }
+      void Promise.resolve(conn.notify(pgChannel, payload)).catch(() => {});
     },
 
     subscribe(recipientId, scope, listener) {
