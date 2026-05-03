@@ -35,12 +35,14 @@ export function nextQuietHoursEnd(
   let diff = endMin - nowMin;
   if (diff <= 0) diff += 24 * 60;
 
-  // Start with a rough estimate, then converge on the exact wall-clock target
-  // to handle DST transitions where 1 minute of wall-clock time != 60_000 ms.
+  // Converge on the exact wall-clock target to handle DST transitions where
+  // 1 minute of wall-clock time != 60_000 ms. Multiple passes handle unusual
+  // offsets (e.g., Lord Howe Island ±30/45 min).
   let candidate = new Date(now.getTime() + diff * 60_000);
-  const candidateMin = minutesOfDay(candidate, tz);
-  const drift = candidateMin - endMin;
-  if (drift !== 0) {
+  for (let i = 0; i < 3; i++) {
+    const candidateMin = minutesOfDay(candidate, tz);
+    const drift = candidateMin - endMin;
+    if (drift === 0) break;
     candidate = new Date(candidate.getTime() - drift * 60_000);
   }
   return candidate;
