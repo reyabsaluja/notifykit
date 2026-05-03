@@ -111,6 +111,11 @@ export type DrizzleSqliteAdapter = DatabaseAdapter & {
   };
 };
 
+/**
+ * **Single-process only.** Uses a JS-level mutex for atomic operations.
+ * Multi-process deployments (PM2 cluster, etc.) will have race conditions.
+ * Use the Postgres adapter for multi-process / horizontal scaling.
+ */
 export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
   const atomic = createMutex();
   return {
