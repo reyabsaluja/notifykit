@@ -257,13 +257,15 @@ export function createNotifyKitClient(
       const parts = buffer.split("\n\n");
       buffer = parts.pop()!;
       for (const part of parts) {
-        let data: string | undefined;
+        const dataLines: string[] = [];
         for (const line of part.split("\n")) {
           if (line.startsWith("data: ")) {
-            data = line.slice(6);
+            dataLines.push(line.slice(6));
+          } else if (line === "data:") {
+            dataLines.push("");
           }
         }
-        if (data) handleRealtimeData(data);
+        if (dataLines.length > 0) handleRealtimeData(dataLines.join("\n"));
       }
     }
   }
