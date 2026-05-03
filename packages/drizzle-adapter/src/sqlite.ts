@@ -15,6 +15,7 @@ import type {
   SecurityScope,
   UpsertRecipientInput,
 } from "notifykit";
+import { createId } from "notifykit";
 import { and, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
@@ -28,14 +29,6 @@ import {
   recipients,
   scheduledSends,
 } from "./schema/sqlite.js";
-
-import { randomBytes } from "node:crypto";
-
-function createId(prefix: string): string {
-  const rand = randomBytes(12).toString("base64url");
-  const time = Date.now().toString(36);
-  return `${prefix}_${time}${rand}`;
-}
 
 function scopeValue(value: string | undefined): string {
   return value ?? "";

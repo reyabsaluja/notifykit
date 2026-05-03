@@ -28,6 +28,7 @@ export {
 export {
   NotifyKitError,
   PayloadValidationError,
+  createId,
   extractTemplateVars,
   redactPayload,
   renderTemplate,
