@@ -176,7 +176,7 @@ export function createHandler<
     const now = Date.now();
     const cutoff = now - requestRateLimit.windowMs;
 
-    if (now - lastSweep > SWEEP_INTERVAL || rateLimitBuckets.size > MAX_BUCKETS) {
+    if (now - lastSweep > SWEEP_INTERVAL || rateLimitBuckets.size >= MAX_BUCKETS) {
       lastSweep = now;
       for (const [key, ts] of rateLimitBuckets) {
         if (ts.length === 0 || ts[ts.length - 1]! < cutoff) {
@@ -202,6 +202,9 @@ export function createHandler<
       }
     }
     if (timestamps && timestamps.length >= requestRateLimit.max) {
+      return true;
+    }
+    if (rateLimitBuckets.size >= MAX_BUCKETS && !rateLimitBuckets.has(recipientId)) {
       return true;
     }
     if (!timestamps) {
