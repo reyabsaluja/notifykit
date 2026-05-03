@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  index,
   integer,
   primaryKey,
   sqliteTable,
@@ -25,62 +26,86 @@ export const recipients = sqliteTable("notifykit_recipients", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
-export const notifications = sqliteTable("notifykit_notifications", {
-  id: text("id").primaryKey(),
-  recipientId: text("recipient_id").notNull(),
-  tenantId: text("tenant_id"),
-  workspaceId: text("workspace_id"),
-  notificationId: text("notification_id").notNull(),
-  payload: text("payload", { mode: "json" })
-    .$type<Record<string, unknown>>()
-    .notNull(),
-  /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN payload_schema TEXT; (json) */
-  payloadSchema: text("payload_schema", { mode: "json" })
-    .$type<Record<string, string>>(),
-  /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER; */
-  definitionVersion: integer("definition_version"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const notifications = sqliteTable(
+  "notifykit_notifications",
+  {
+    id: text("id").primaryKey(),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    payload: text("payload", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN payload_schema TEXT; (json) */
+    payloadSchema: text("payload_schema", { mode: "json" })
+      .$type<Record<string, string>>(),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER; */
+    definitionVersion: integer("definition_version"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    recipientIdx: index("idx_notifykit_notifications_recipient").on(
+      table.recipientId,
+    ),
+  }),
+);
 
-export const inboxItems = sqliteTable("notifykit_inbox_items", {
-  id: text("id").primaryKey(),
-  notificationRecordId: text("notification_record_id").notNull(),
-  recipientId: text("recipient_id").notNull(),
-  tenantId: text("tenant_id"),
-  workspaceId: text("workspace_id"),
-  notificationId: text("notification_id").notNull(),
-  title: text("title").notNull(),
-  body: text("body"),
-  actionUrl: text("action_url"),
-  readAt: integer("read_at", { mode: "timestamp_ms" }),
-  /** @since 0.1 – migration: ALTER TABLE notifykit_inbox_items ADD COLUMN archived_at INTEGER; */
-  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const inboxItems = sqliteTable(
+  "notifykit_inbox_items",
+  {
+    id: text("id").primaryKey(),
+    notificationRecordId: text("notification_record_id").notNull(),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    actionUrl: text("action_url"),
+    readAt: integer("read_at", { mode: "timestamp_ms" }),
+    /** @since 0.1 – migration: ALTER TABLE notifykit_inbox_items ADD COLUMN archived_at INTEGER; */
+    archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    recipientIdx: index("idx_notifykit_inbox_items_recipient").on(
+      table.recipientId,
+    ),
+  }),
+);
 
-export const deliveries = sqliteTable("notifykit_deliveries", {
-  id: text("id").primaryKey(),
-  notificationRecordId: text("notification_record_id").notNull(),
-  recipientId: text("recipient_id").notNull(),
-  tenantId: text("tenant_id"),
-  workspaceId: text("workspace_id"),
-  notificationId: text("notification_id").notNull(),
-  channel: text("channel").notNull().$type<"email" | "webhook">(),
-  provider: text("provider").notNull(),
-  status: text("status")
-    .notNull()
-    .$type<"pending" | "sent" | "failed">(),
-  to: text("to"),
-  subject: text("subject"),
-  body: text("body"),
-  providerMessageId: text("provider_message_id"),
-  error: text("error"),
-  attempts: integer("attempts").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-  sentAt: integer("sent_at", { mode: "timestamp_ms" }),
-  failedAt: integer("failed_at", { mode: "timestamp_ms" }),
-});
+export const deliveries = sqliteTable(
+  "notifykit_deliveries",
+  {
+    id: text("id").primaryKey(),
+    notificationRecordId: text("notification_record_id").notNull(),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    channel: text("channel").notNull().$type<"email" | "webhook">(),
+    provider: text("provider").notNull(),
+    status: text("status")
+      .notNull()
+      .$type<"pending" | "sent" | "failed">(),
+    to: text("to"),
+    subject: text("subject"),
+    body: text("body"),
+    providerMessageId: text("provider_message_id"),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    sentAt: integer("sent_at", { mode: "timestamp_ms" }),
+    failedAt: integer("failed_at", { mode: "timestamp_ms" }),
+  },
+  (table) => ({
+    recipientIdx: index("idx_notifykit_deliveries_recipient").on(
+      table.recipientId,
+    ),
+  }),
+);
 
 export const preferences = sqliteTable(
   "notifykit_preferences",
@@ -126,15 +151,24 @@ export const scheduledSends = sqliteTable("notifykit_scheduled_sends", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const rateLimitEvents = sqliteTable("notifykit_rate_limit_events", {
-  id: text("id").primaryKey(),
-  key: text("key").notNull(),
-  recipientId: text("recipient_id").notNull(),
-  tenantId: text("tenant_id"),
-  workspaceId: text("workspace_id"),
-  notificationId: text("notification_id").notNull(),
-  occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const rateLimitEvents = sqliteTable(
+  "notifykit_rate_limit_events",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    keyTimeIdx: index("idx_notifykit_rate_limits_key_time").on(
+      table.key,
+      table.occurredAt,
+    ),
+  }),
+);
 
 export const digestBuffers = sqliteTable("notifykit_digest_buffers", {
   key: text("key").primaryKey(),
