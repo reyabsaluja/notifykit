@@ -87,9 +87,10 @@ export function createServerActions<
         if (!channels || typeof channels !== "object" || Array.isArray(channels)) {
           throw new Error("Invalid channels");
         }
+        const validChannelKeys = new Set(["inbox", "email", "webhook"]);
         for (const [key, value] of Object.entries(channels as Record<string, unknown>)) {
+          if (!validChannelKeys.has(key)) throw new Error("Invalid channel key");
           if (typeof value !== "boolean") throw new Error("Invalid channel value");
-          if (key !== "inbox" && key !== "email" && key !== "webhook") continue;
         }
       }
       const { recipientId, ...scope } = await resolveIdentity();
