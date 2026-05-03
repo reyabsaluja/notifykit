@@ -836,25 +836,27 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       },
 
       async count(input): Promise<number> {
-        const cutoff = new Date(Date.now() - input.windowMs);
-        await db
-          .delete(rateLimitEvents)
-          .where(
-            and(
-              eq(rateLimitEvents.key, input.key),
-              lt(rateLimitEvents.occurredAt, cutoff),
-            ),
-          );
-        const rows = await db
-          .select({ value: drizzleCount() })
-          .from(rateLimitEvents)
-          .where(
-            and(
-              eq(rateLimitEvents.key, input.key),
-              gte(rateLimitEvents.occurredAt, cutoff),
-            ),
-          );
-        return rows[0]?.value ?? 0;
+        return atomic(async () => {
+          const cutoff = new Date(Date.now() - input.windowMs);
+          await db
+            .delete(rateLimitEvents)
+            .where(
+              and(
+                eq(rateLimitEvents.key, input.key),
+                lt(rateLimitEvents.occurredAt, cutoff),
+              ),
+            );
+          const rows = await db
+            .select({ value: drizzleCount() })
+            .from(rateLimitEvents)
+            .where(
+              and(
+                eq(rateLimitEvents.key, input.key),
+                gte(rateLimitEvents.occurredAt, cutoff),
+              ),
+            );
+          return rows[0]?.value ?? 0;
+        });
       },
     },
 

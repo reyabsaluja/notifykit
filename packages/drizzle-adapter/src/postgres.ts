@@ -756,25 +756,30 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
       },
 
       async count(input): Promise<number> {
-        const cutoff = new Date(Date.now() - input.windowMs);
-        await db
-          .delete(rateLimitEvents)
-          .where(
-            and(
-              eq(rateLimitEvents.key, input.key),
-              lt(rateLimitEvents.occurredAt, cutoff),
-            ),
+        return await db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${input.key}))`,
           );
-        const rows = await db
-          .select({ value: drizzleCount() })
-          .from(rateLimitEvents)
-          .where(
-            and(
-              eq(rateLimitEvents.key, input.key),
-              gte(rateLimitEvents.occurredAt, cutoff),
-            ),
-          );
-        return rows[0]?.value ?? 0;
+          const cutoff = new Date(Date.now() - input.windowMs);
+          await tx
+            .delete(rateLimitEvents)
+            .where(
+              and(
+                eq(rateLimitEvents.key, input.key),
+                lt(rateLimitEvents.occurredAt, cutoff),
+              ),
+            );
+          const rows = await tx
+            .select({ value: drizzleCount() })
+            .from(rateLimitEvents)
+            .where(
+              and(
+                eq(rateLimitEvents.key, input.key),
+                gte(rateLimitEvents.occurredAt, cutoff),
+              ),
+            );
+          return rows[0]?.value ?? 0;
+        });
       },
     },
 
