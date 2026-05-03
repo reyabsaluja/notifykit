@@ -461,3 +461,33 @@ describe("createHandler", () => {
     expect(authed.status).toBe(200);
   });
 });
+
+describe("explain endpoint", () => {
+  test("GET /explain returns delivery explanation", async () => {
+    const { handler } = await buildHarness();
+    const res = await handler(
+      new Request(
+        `${BASE}/explain?notificationId=comment_mentioned&actorName=Bob&postTitle=Hi&postUrl=https://x.com`,
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Record<string, unknown> };
+    expect(body.data).toBeDefined();
+    expect(body.data.channels).toBeDefined();
+    expect(Array.isArray(body.data.channels)).toBe(true);
+  });
+
+  test("GET /explain returns 400 without notificationId", async () => {
+    const { handler } = await buildHarness();
+    const res = await handler(new Request(`${BASE}/explain`));
+    expect(res.status).toBe(400);
+  });
+
+  test("GET /explain returns 401 when unauthenticated", async () => {
+    const { handler } = await buildHarness(null);
+    const res = await handler(
+      new Request(`${BASE}/explain?notificationId=comment_mentioned`),
+    );
+    expect(res.status).toBe(401);
+  });
+});
