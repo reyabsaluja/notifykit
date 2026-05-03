@@ -62,6 +62,13 @@ Don't want these? {{_unsubscribeUrl}}
 const secret = process.env.NOTIFYKIT_SECRET;
 const baseUrl = process.env.NOTIFYKIT_BASE_URL;
 
+if (secret === "replace-me-with-a-32-byte-random-secret") {
+  throw new Error(
+    "NOTIFYKIT_SECRET is still the placeholder value from .env.example. " +
+    "Generate a real secret: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+  );
+}
+
 export const notify = createNotifyKit({
   notifications: [commentMentioned] as const,
   database: memoryAdapter(),

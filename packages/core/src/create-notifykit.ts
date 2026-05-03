@@ -274,6 +274,12 @@ export function createNotifyKit<
     delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
   };
   const unsubscribeConfig = config.unsubscribe ?? null;
+  if (unsubscribeConfig && unsubscribeConfig.secret.length < 32) {
+    throw new NotifyKitError(
+      "unsubscribe.secret must be at least 32 characters. " +
+      "Generate one: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+    );
+  }
   const realtimeAdapter = config.realtime;
 
   function buildUnsubscribeUrl(
