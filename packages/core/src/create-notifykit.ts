@@ -998,9 +998,8 @@ export function createNotifyKit<
         // notification that declares an email channel.
         const provider = providers!.email!;
         if (!recipient.email) {
-          throw new NotifyKitError(
-            `Recipient "${recipient.id}" has no email address; cannot send email notification "${def.id}".`,
-          );
+          skippedChannels.push("email");
+          continue;
         }
 
         const renderCtx: Record<string, unknown> = { ...payload };
