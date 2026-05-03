@@ -20,6 +20,11 @@ export type WebSocketRealtimeAdapterOptions = {
    * don't respond within one interval are considered dead. Defaults to 30000.
    */
   heartbeatMs?: number;
+  /**
+   * Maximum number of concurrent WebSocket connections. New connections are
+   * rejected when this limit is reached. Defaults to 10000.
+   */
+  maxConnections?: number;
 };
 
 export type WebSocketIdentity = {
@@ -70,6 +75,7 @@ export function webSocketRealtimeAdapter(
   options: WebSocketRealtimeAdapterOptions,
 ): WebSocketRealtimeAdapter {
   const heartbeatMs = options.heartbeatMs ?? 30_000;
+  const maxConnections = options.maxConnections ?? 10_000;
   const subs = new Map<string, Set<RealtimeListener>>();
   const connections = new Map<WebSocketLike, WsConnection>();
   const heartbeats = new Map<WebSocketLike, ReturnType<typeof setInterval>>();
@@ -112,6 +118,7 @@ export function webSocketRealtimeAdapter(
     request: Request,
     ws: WebSocketLike,
   ): Promise<{ recipientId: string; scope: SecurityScope } | null> {
+    if (connections.size >= maxConnections) return null;
     const identity = await options.authenticate(request);
     if (!identity) return null;
 
