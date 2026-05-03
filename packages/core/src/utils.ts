@@ -82,6 +82,23 @@ export function validatePayload(
   return result;
 }
 
+const BLOCKED_HOSTNAME_PATTERNS = [
+  /^localhost$/i,
+  /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+  /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  /^169\.254\.\d{1,3}\.\d{1,3}$/,
+  /^0\.0\.0\.0$/,
+  /^\[?::1\]?$/,
+  /^\[?fe80:/i,
+  /^\[?fc00:/i,
+  /^\[?fd[0-9a-f]{2}:/i,
+  /^metadata\.google\.internal$/i,
+  /\.internal$/i,
+  /\.local$/i,
+];
+
 export function assertSafeWebhookUrl(url: string): void {
   let parsed: URL;
   try {
@@ -91,6 +108,14 @@ export function assertSafeWebhookUrl(url: string): void {
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new NotifyKitError(`Webhook URL must use http or https: ${url}`);
+  }
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
+  for (const pattern of BLOCKED_HOSTNAME_PATTERNS) {
+    if (pattern.test(hostname)) {
+      throw new NotifyKitError(
+        `Webhook URL points to a blocked address: ${url}`,
+      );
+    }
   }
 }
 
