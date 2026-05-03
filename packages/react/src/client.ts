@@ -250,23 +250,32 @@ export function createNotifyKitClient(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    function processSSEPart(part: string) {
+      const dataLines: string[] = [];
+      for (const line of part.split("\n")) {
+        if (line.startsWith("data: ")) {
+          dataLines.push(line.slice(6));
+        } else if (line === "data:") {
+          dataLines.push("");
+        }
+      }
+      if (dataLines.length > 0) handleRealtimeData(dataLines.join("\n"));
+    }
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        buffer += decoder.decode();
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
       const parts = buffer.split("\n\n");
       buffer = parts.pop()!;
       for (const part of parts) {
-        const dataLines: string[] = [];
-        for (const line of part.split("\n")) {
-          if (line.startsWith("data: ")) {
-            dataLines.push(line.slice(6));
-          } else if (line === "data:") {
-            dataLines.push("");
-          }
-        }
-        if (dataLines.length > 0) handleRealtimeData(dataLines.join("\n"));
+        processSSEPart(part);
       }
+    }
+    if (buffer.trim()) {
+      processSSEPart(buffer);
     }
   }
 
