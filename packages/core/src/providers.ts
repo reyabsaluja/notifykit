@@ -109,10 +109,12 @@ export function webhookProvider(
       }
 
       if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
         throw new Error(
           `Webhook ${input.url} returned HTTP ${res.status} ${res.statusText}`,
         );
       }
+      await res.body?.cancel().catch(() => {});
       const providerMessageId =
         res.headers.get("x-request-id") ?? res.headers.get("request-id") ?? undefined;
       return providerMessageId ? { providerMessageId } : {};
