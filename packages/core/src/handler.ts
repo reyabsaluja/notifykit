@@ -326,11 +326,9 @@ export function createHandler<
       if (!verifier) {
         return withCors(json({ error: "Not found" }, 404));
       }
-      let rawBody: string;
-      try {
-        rawBody = await request.text();
-      } catch {
-        return withCors(json({ error: "Bad request" }, 400));
+      const rawBody = await readBody(request);
+      if (rawBody === null) {
+        return withCors(json({ error: "Payload too large" }, 413));
       }
       let verified: boolean;
       try {
@@ -855,9 +853,45 @@ function toChannelPreferenceMap(input: unknown): ChannelPreferenceMap | null {
   return out;
 }
 
-async function readJson(request: Request): Promise<unknown> {
+const MAX_BODY_BYTES = 1_048_576; // 1 MB
+
+async function readBody(request: Request): Promise<string | null> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
+    return null;
+  }
   try {
-    return await request.json();
+    const reader = request.body?.getReader();
+    if (!reader) return null;
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(merged);
+  } catch {
+    return null;
+  }
+}
+
+async function readJson(request: Request): Promise<unknown> {
+  const text = await readBody(request);
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
   } catch {
     return null;
   }
@@ -878,18 +912,15 @@ async function extractUnsubscribeToken(
   if (fromQuery) return fromQuery;
   if (request.method === "POST") {
     const contentType = request.headers.get("content-type") ?? "";
+    const raw = await readBody(request);
+    if (raw === null) return null;
     if (contentType.includes("application/x-www-form-urlencoded")) {
-      try {
-        const body = await request.text();
-        const params = new URLSearchParams(body);
-        const fromForm = params.get("token");
-        if (fromForm) return fromForm;
-      } catch {
-        return null;
-      }
+      const params = new URLSearchParams(raw);
+      const fromForm = params.get("token");
+      if (fromForm) return fromForm;
     } else if (contentType.includes("application/json")) {
       try {
-        const body = (await request.json()) as { token?: unknown } | null;
+        const body = JSON.parse(raw) as { token?: unknown } | null;
         if (body && typeof body.token === "string") return body.token;
       } catch {
         return null;
