@@ -39,7 +39,7 @@ import {
 } from "./preference-keys.js";
 import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, assertSafeWebhookUrl, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, assertSafeWebhookUrl, extractTemplateVars, isSafeUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
@@ -1013,10 +1013,11 @@ export function createNotifyKit<
           notificationId: def.id,
           title: renderTemplate(ch.title, payload, { escapeHtml: true }),
           body: ch.body !== undefined ? renderTemplate(ch.body, payload, { escapeHtml: true }) : undefined,
-          actionUrl:
-            ch.actionUrl !== undefined
-              ? renderTemplate(ch.actionUrl, payload, { escapeHtml: false })
-              : undefined,
+          actionUrl: (() => {
+            if (ch.actionUrl === undefined) return undefined;
+            const rendered = renderTemplate(ch.actionUrl, payload, { escapeHtml: false });
+            return isSafeUrl(rendered) ? rendered : undefined;
+          })(),
         });
         inboxItems.push(item);
         await runHook("inbox.created", { inboxItem: item });
@@ -1262,10 +1263,11 @@ export function createNotifyKit<
               fallback.body !== undefined
                 ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
                 : undefined,
-            actionUrl:
-              fallback.actionUrl !== undefined
-                ? renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false })
-                : undefined,
+            actionUrl: (() => {
+              if (fallback.actionUrl === undefined) return undefined;
+              const rendered = renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false });
+              return isSafeUrl(rendered) ? rendered : undefined;
+            })(),
           });
           await runHook("inbox.created", { inboxItem: item });
           await realtimeAdapter?.publish(job.recipientId, fallbackScope, {

@@ -197,6 +197,17 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
   return { pinnedUrl: url, hostHeader: originalHost };
 }
 
+const SAFE_URL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
+export function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return SAFE_URL_PROTOCOLS.has(parsed.protocol);
+  } catch {
+    return /^\/[^/\\]/.test(url);
+  }
+}
+
 const REDACTED = "[REDACTED]" as const;
 
 export function redactPayload(
