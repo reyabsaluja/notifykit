@@ -61,13 +61,19 @@ function parseHHMM(s: string): number {
  * Minutes-of-day in the given timezone. Uses Intl.DateTimeFormat so we don't
  * need a tz database — the runtime provides it.
  */
+const fmtCache = new Map<string, Intl.DateTimeFormat>();
+
 function minutesOfDay(d: Date, timezone: string): number {
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  let fmt = fmtCache.get(timezone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    fmtCache.set(timezone, fmt);
+  }
   const parts = fmt.formatToParts(d);
   let hour = 0;
   let minute = 0;

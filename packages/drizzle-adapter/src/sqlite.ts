@@ -125,66 +125,68 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
 
     recipients: {
       async upsert(input: UpsertRecipientInput): Promise<Recipient> {
-        const now = new Date();
-        const existing = await db
-          .select()
-          .from(recipients)
-          .where(eq(recipients.id, input.id))
-          .limit(1);
+        return atomic(async () => {
+          const now = new Date();
+          const existing = await db
+            .select()
+            .from(recipients)
+            .where(eq(recipients.id, input.id))
+            .limit(1);
 
-        const current = existing[0];
-        if (current) {
-          const next = {
-            tenantId:
-              input.tenantId !== undefined ? input.tenantId : current.tenantId,
-            workspaceId:
-              input.workspaceId !== undefined
-                ? input.workspaceId
-                : current.workspaceId,
-            email: input.email !== undefined ? input.email : current.email,
-            name: input.name !== undefined ? input.name : current.name,
-            quietHours:
-              input.quietHours !== undefined
-                ? input.quietHours
-                : current.quietHours,
+          const current = existing[0];
+          if (current) {
+            const next = {
+              tenantId:
+                input.tenantId !== undefined ? input.tenantId : current.tenantId,
+              workspaceId:
+                input.workspaceId !== undefined
+                  ? input.workspaceId
+                  : current.workspaceId,
+              email: input.email !== undefined ? input.email : current.email,
+              name: input.name !== undefined ? input.name : current.name,
+              quietHours:
+                input.quietHours !== undefined
+                  ? input.quietHours
+                  : current.quietHours,
+              updatedAt: now,
+            };
+            await db
+              .update(recipients)
+              .set(next)
+              .where(eq(recipients.id, input.id));
+            return {
+              id: current.id,
+              tenantId: next.tenantId ?? undefined,
+              workspaceId: next.workspaceId ?? undefined,
+              email: next.email ?? undefined,
+              name: next.name ?? undefined,
+              quietHours: (next.quietHours as QuietHours | null | undefined) ?? undefined,
+              createdAt: current.createdAt,
+              updatedAt: now,
+            };
+          }
+
+          await db.insert(recipients).values({
+            id: input.id,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            email: input.email,
+            name: input.name,
+            quietHours: input.quietHours ?? null,
+            createdAt: now,
             updatedAt: now,
-          };
-          await db
-            .update(recipients)
-            .set(next)
-            .where(eq(recipients.id, input.id));
+          });
           return {
-            id: current.id,
-            tenantId: next.tenantId ?? undefined,
-            workspaceId: next.workspaceId ?? undefined,
-            email: next.email ?? undefined,
-            name: next.name ?? undefined,
-            quietHours: (next.quietHours as QuietHours | null | undefined) ?? undefined,
-            createdAt: current.createdAt,
+            id: input.id,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            email: input.email,
+            name: input.name,
+            quietHours: input.quietHours ?? undefined,
+            createdAt: now,
             updatedAt: now,
           };
-        }
-
-        await db.insert(recipients).values({
-          id: input.id,
-          tenantId: input.tenantId,
-          workspaceId: input.workspaceId,
-          email: input.email,
-          name: input.name,
-          quietHours: input.quietHours ?? null,
-          createdAt: now,
-          updatedAt: now,
         });
-        return {
-          id: input.id,
-          tenantId: input.tenantId,
-          workspaceId: input.workspaceId,
-          email: input.email,
-          name: input.name,
-          quietHours: input.quietHours ?? undefined,
-          createdAt: now,
-          updatedAt: now,
-        };
       },
 
       async findById(id: string): Promise<Recipient | null> {
