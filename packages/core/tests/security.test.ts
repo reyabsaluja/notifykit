@@ -1019,7 +1019,7 @@ describe("CORS support", () => {
     );
     expect(res.status).toBe(204);
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe(
-      "Content-Type, X-Custom-Auth",
+      "Content-Type, Authorization",
     );
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
     expect(res.headers.get("Access-Control-Allow-Methods")).toBe(
@@ -1027,7 +1027,7 @@ describe("CORS support", () => {
     );
   });
 
-  test("preflight falls back to default headers when request omits header list", async () => {
+  test("preflight uses fixed allowlist when request omits header list", async () => {
     const database = memoryAdapter();
     const notify = createNotifyKit({
       notifications: [commentMentioned] as const,
