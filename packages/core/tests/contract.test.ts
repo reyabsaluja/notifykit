@@ -301,7 +301,7 @@ describe("startup validation", () => {
           notification({
             id: "needs_webhook",
             payload: { url: "string" },
-            channels: [webhook({ url: "https://hook.example" })],
+            channels: [webhook({ url: "https://example.com/hook" })],
           }),
         ] as const,
         database: memoryAdapter(),
@@ -341,7 +341,7 @@ describe("startup validation", () => {
         ] as const,
         database: memoryAdapter(),
         providers: { email: fakeEmailProvider() },
-        unsubscribe: { secret: "s", baseUrl: "http://x" },
+        unsubscribe: { secret: "test-secret-that-is-at-least-32-chars-long!!", baseUrl: "http://x" },
       }),
     ).not.toThrow();
   });
@@ -599,7 +599,7 @@ describe("startup validation — webhook header templates", () => {
             payload: { name: "string" },
             channels: [
               webhook({
-                url: "https://hook.example",
+                url: "https://example.com/hook",
                 headers: { "x-key": "{{typo}}" },
               }),
             ],
@@ -620,7 +620,7 @@ describe("startup validation — webhook header templates", () => {
             payload: { name: "string" },
             channels: [
               webhook({
-                url: "https://hook.example",
+                url: "https://example.com/hook",
                 headers: { "x-name": "{{name}}" },
               }),
             ],

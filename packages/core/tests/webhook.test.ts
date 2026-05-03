@@ -183,7 +183,7 @@ describe("channel.webhook()", () => {
       payload: { msg: "string" },
       channels: [
         email({ subject: "{{msg}}", body: "{{msg}}" }),
-        webhook({ url: "https://hook.example/x" }),
+        webhook({ url: "https://example.com/hook/x" }),
       ],
     });
     const emailProvider = {
