@@ -989,7 +989,7 @@ export function createNotifyKit<
           body: ch.body !== undefined ? renderTemplate(ch.body, payload, { escapeHtml: true }) : undefined,
           actionUrl:
             ch.actionUrl !== undefined
-              ? renderTemplate(ch.actionUrl, payload)
+              ? renderTemplate(ch.actionUrl, payload, { escapeHtml: false })
               : undefined,
         });
         inboxItems.push(item);
@@ -1065,7 +1065,7 @@ export function createNotifyKit<
         const headers: Record<string, string> = { host: hostHeader };
         if (ch.headers) {
           for (const [k, v] of Object.entries(ch.headers)) {
-            headers[k] = renderTemplate(v, payload);
+            headers[k] = renderTemplate(v, payload, { escapeHtml: false });
           }
         }
 
@@ -1238,7 +1238,7 @@ export function createNotifyKit<
                 : undefined,
             actionUrl:
               fallback.actionUrl !== undefined
-                ? renderTemplate(fallback.actionUrl, job.payload)
+                ? renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false })
                 : undefined,
           });
           await runHook("inbox.created", { inboxItem: item });

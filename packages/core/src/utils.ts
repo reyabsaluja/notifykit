@@ -12,14 +12,14 @@ export function renderTemplate(
   payload: Record<string, unknown>,
   options?: { escapeHtml?: boolean; encodeUri?: boolean },
 ): string {
-  const escape = options?.escapeHtml ?? false;
   const encode = options?.encodeUri ?? false;
+  const escape = encode ? false : (options?.escapeHtml ?? true);
   return template.replace(/\{\{\s*([\w$]+)\s*\}\}/g, (_match, key: string) => {
     const value = payload[key];
     if (value === undefined || value === null) return "";
     const str = String(value);
-    if (escape) return escapeHtmlChars(str);
     if (encode) return encodeURIComponent(str);
+    if (escape) return escapeHtmlChars(str);
     return str;
   });
 }
