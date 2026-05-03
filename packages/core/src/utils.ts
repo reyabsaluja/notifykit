@@ -14,7 +14,7 @@ export function renderTemplate(
 ): string {
   const escape = options?.escapeHtml ?? false;
   const encode = options?.encodeUri ?? false;
-  return template.replace(/\{\{\s*([\w.$]+)\s*\}\}/g, (_match, key: string) => {
+  return template.replace(/\{\{\s*([\w$]+)\s*\}\}/g, (_match, key: string) => {
     const value = payload[key];
     if (value === undefined || value === null) return "";
     const str = String(value);
@@ -35,7 +35,7 @@ function escapeHtmlChars(s: string): string {
 
 export function extractTemplateVars(template: string): string[] {
   const vars: string[] = [];
-  const re = /\{\{\s*([\w.$]+)\s*\}\}/g;
+  const re = /\{\{\s*([\w$]+)\s*\}\}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(template)) !== null) {
     if (m[1]) vars.push(m[1]);
