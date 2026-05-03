@@ -13,6 +13,8 @@ export type InboxChannelInput = {
 export type EmailChannelInput = {
   subject: string;
   body: string;
+  /** When true, template variables in `body` are HTML-escaped. Defaults to true. */
+  html?: boolean;
 };
 
 export type WebhookChannelInput = {
@@ -38,6 +40,7 @@ function emailFactory(): EmailChannelFactory {
     type: "email",
     subject: input.subject,
     body: input.body,
+    html: input.html ?? true,
   });
 }
 

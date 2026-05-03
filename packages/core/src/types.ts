@@ -87,6 +87,7 @@ export type EmailChannelConfig = {
   type: "email";
   subject: string;
   body: string;
+  html?: boolean;
 };
 
 export type WebhookChannelConfig = {
