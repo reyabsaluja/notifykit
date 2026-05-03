@@ -1403,9 +1403,17 @@ export function createNotifyKit<
   return {
     async upsertRecipient(input) {
       const normalized = normalizeOrgId(input);
+      const tenantId = normalized.tenantId;
+      const existing = await database.recipients.findById(input.id);
+      if (existing && existing.tenantId && tenantId && existing.tenantId !== tenantId) {
+        throw new NotifyKitError(
+          `Recipient "${input.id}" already belongs to tenant "${existing.tenantId}". ` +
+            `Cannot reassign to tenant "${tenantId}".`,
+        );
+      }
       return database.recipients.upsert({
         ...input,
-        tenantId: normalized.tenantId,
+        tenantId,
         organizationId: undefined,
       });
     },
@@ -1413,16 +1421,18 @@ export function createNotifyKit<
     explain,
     inbox: {
       list(recipientId, scope, filter, limit?) {
-        return database.inbox.listByRecipient(recipientId, scope, filter, limit);
+        const s = scope ? normalizeOrgId(scope) : scope;
+        return database.inbox.listByRecipient(recipientId, s, filter, limit);
       },
       async markReadForRecipient(inboxItemId, recipientId, scope) {
+        const s = scope ? normalizeOrgId(scope) : scope;
         const result = await database.inbox.markReadForRecipient(
           inboxItemId,
           recipientId,
-          scope,
+          s,
         );
         if (result.status === "marked") {
-          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, s ?? {}, {
             type: "inbox.updated",
             item: result.item,
           });
@@ -1430,12 +1440,14 @@ export function createNotifyKit<
         return result;
       },
       unreadCount(recipientId, scope) {
-        return database.inbox.unreadCount(recipientId, scope);
+        const s = scope ? normalizeOrgId(scope) : scope;
+        return database.inbox.unreadCount(recipientId, s);
       },
       async markAllRead(recipientId, scope) {
-        const count = await database.inbox.markAllRead(recipientId, scope);
+        const s = scope ? normalizeOrgId(scope) : scope;
+        const count = await database.inbox.markAllRead(recipientId, s);
         if (count > 0) {
-          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, s ?? {}, {
             type: "inbox.all_read",
             count,
           });
@@ -1443,9 +1455,10 @@ export function createNotifyKit<
         return count;
       },
       async archiveForRecipient(inboxItemId, recipientId, scope) {
-        const result = await database.inbox.archiveForRecipient(inboxItemId, recipientId, scope);
+        const s = scope ? normalizeOrgId(scope) : scope;
+        const result = await database.inbox.archiveForRecipient(inboxItemId, recipientId, s);
         if (result.status === "ok") {
-          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, s ?? {}, {
             type: "inbox.archived",
             item: result.item,
           });
@@ -1453,9 +1466,10 @@ export function createNotifyKit<
         return result;
       },
       async unarchiveForRecipient(inboxItemId, recipientId, scope) {
-        const result = await database.inbox.unarchiveForRecipient(inboxItemId, recipientId, scope);
+        const s = scope ? normalizeOrgId(scope) : scope;
+        const result = await database.inbox.unarchiveForRecipient(inboxItemId, recipientId, s);
         if (result.status === "ok") {
-          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, s ?? {}, {
             type: "inbox.unarchived",
             item: result.item,
           });
@@ -1463,9 +1477,10 @@ export function createNotifyKit<
         return result;
       },
       async deleteForRecipient(inboxItemId, recipientId, scope) {
-        const result = await database.inbox.deleteForRecipient(inboxItemId, recipientId, scope);
+        const s = scope ? normalizeOrgId(scope) : scope;
+        const result = await database.inbox.deleteForRecipient(inboxItemId, recipientId, s);
         if (result.status === "deleted") {
-          await realtimeAdapter?.publish(recipientId, scope ?? {}, {
+          await realtimeAdapter?.publish(recipientId, s ?? {}, {
             type: "inbox.deleted",
             itemId: inboxItemId,
           });
@@ -1475,13 +1490,15 @@ export function createNotifyKit<
     },
     deliveries: {
       list(recipientId, scope, limit?) {
-        return database.deliveries.list(recipientId, scope, limit);
+        const s = scope ? normalizeOrgId(scope) : scope;
+        return database.deliveries.list(recipientId, s, limit);
       },
     },
     preferences: {
       get: getPreference,
       async list(recipientId, scope) {
-        const all = await database.preferences.list(recipientId, scope);
+        const s = scope ? normalizeOrgId(scope) : scope;
+        const all = await database.preferences.list(recipientId, s);
         return all.filter((p) => !isSyntheticPreferenceKey(p.notificationId));
       },
       update: updatePreference,

@@ -1848,3 +1848,194 @@ describe("getGlobal / getCategory scope validation", () => {
     expect(result).toBeNull();
   });
 });
+
+describe("cross-tenant inbox isolation", () => {
+  let database: MemoryAdapter;
+  let notify: NotifyKit<readonly [typeof commentMentioned]>;
+
+  beforeEach(async () => {
+    database = memoryAdapter();
+    notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "orgA", email: "a@x.com" });
+    await notify.upsertRecipient({ id: "bob", tenantId: "orgB", email: "b@x.com" });
+
+    await notify.send({
+      recipientId: "alice",
+      tenantId: "orgA",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    await notify.send({
+      recipientId: "bob",
+      tenantId: "orgB",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+  });
+
+  test("inbox.list scoped to orgA returns only orgA items", async () => {
+    const items = await notify.inbox.list("alice", { tenantId: "orgA" });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i) => i.tenantId === "orgA")).toBe(true);
+  });
+
+  test("inbox.list scoped to orgB returns only orgB items", async () => {
+    const items = await notify.inbox.list("bob", { tenantId: "orgB" });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i) => i.tenantId === "orgB")).toBe(true);
+  });
+
+  test("inbox.list with wrong tenant returns nothing", async () => {
+    const items = await notify.inbox.list("alice", { tenantId: "orgB" });
+    expect(items).toHaveLength(0);
+  });
+
+  test("deliveries.list scoped to orgA returns only orgA records", async () => {
+    const deliveries = await notify.deliveries.list("alice", { tenantId: "orgA" });
+    expect(deliveries.length).toBeGreaterThan(0);
+    expect(deliveries.every((d) => d.tenantId === "orgA")).toBe(true);
+  });
+
+  test("deliveries.list with wrong tenant returns nothing", async () => {
+    const deliveries = await notify.deliveries.list("alice", { tenantId: "orgB" });
+    expect(deliveries).toHaveLength(0);
+  });
+
+  test("preferences.list scoped to tenant returns only that tenant's preferences", async () => {
+    await notify.preferences.update({
+      recipientId: "alice",
+      tenantId: "orgA",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+    await notify.preferences.update({
+      recipientId: "bob",
+      tenantId: "orgB",
+      notificationId: "comment_mentioned",
+      channels: { email: true },
+    });
+
+    const prefsA = await notify.preferences.list("alice", { tenantId: "orgA" });
+    expect(prefsA).toHaveLength(1);
+    expect(prefsA[0].channels.email).toBe(false);
+
+    const prefsB = await notify.preferences.list("bob", { tenantId: "orgB" });
+    expect(prefsB).toHaveLength(1);
+    expect(prefsB[0].channels.email).toBe(true);
+
+    const wrongScope = await notify.preferences.list("alice", { tenantId: "orgB" });
+    expect(wrongScope).toHaveLength(0);
+  });
+});
+
+describe("organizationId normalization in scope-taking APIs", () => {
+  let database: MemoryAdapter;
+  let notify: NotifyKit<readonly [typeof commentMentioned]>;
+
+  beforeEach(async () => {
+    database = memoryAdapter();
+    notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "org_1", email: "a@x.com" });
+    await notify.send({
+      recipientId: "alice",
+      tenantId: "org_1",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+  });
+
+  test("inbox.list normalizes organizationId to tenantId", async () => {
+    const items = await notify.inbox.list("alice", { organizationId: "org_1" });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i) => i.tenantId === "org_1")).toBe(true);
+  });
+
+  test("inbox.list with wrong organizationId returns nothing", async () => {
+    const items = await notify.inbox.list("alice", { organizationId: "org_wrong" });
+    expect(items).toHaveLength(0);
+  });
+
+  test("inbox.unreadCount normalizes organizationId", async () => {
+    const count = await notify.inbox.unreadCount("alice", { organizationId: "org_1" });
+    expect(count).toBeGreaterThan(0);
+
+    const wrongCount = await notify.inbox.unreadCount("alice", { organizationId: "org_wrong" });
+    expect(wrongCount).toBe(0);
+  });
+
+  test("deliveries.list normalizes organizationId", async () => {
+    const deliveries = await notify.deliveries.list("alice", { organizationId: "org_1" });
+    expect(deliveries.length).toBeGreaterThan(0);
+
+    const wrongDeliveries = await notify.deliveries.list("alice", { organizationId: "org_wrong" });
+    expect(wrongDeliveries).toHaveLength(0);
+  });
+
+  test("preferences.list normalizes organizationId", async () => {
+    await notify.preferences.update({
+      recipientId: "alice",
+      tenantId: "org_1",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+
+    const prefs = await notify.preferences.list("alice", { organizationId: "org_1" });
+    expect(prefs).toHaveLength(1);
+    expect(prefs[0].channels.email).toBe(false);
+
+    const wrongPrefs = await notify.preferences.list("alice", { organizationId: "org_wrong" });
+    expect(wrongPrefs).toHaveLength(0);
+  });
+});
+
+describe("recipient tenant immutability", () => {
+  test("upsertRecipient rejects tenant reassignment", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "orgA" });
+
+    await expect(
+      notify.upsertRecipient({ id: "alice", tenantId: "orgB" }),
+    ).rejects.toThrow(/Cannot reassign to tenant/);
+  });
+
+  test("upsertRecipient allows re-upserting same tenant", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "orgA", email: "old@x.com" });
+
+    const updated = await notify.upsertRecipient({ id: "alice", tenantId: "orgA", email: "new@x.com" });
+    expect(updated.email).toBe("new@x.com");
+    expect(updated.tenantId).toBe("orgA");
+  });
+
+  test("upsertRecipient allows updating non-tenant fields without specifying tenant", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "orgA", email: "old@x.com" });
+
+    const updated = await notify.upsertRecipient({ id: "alice", email: "new@x.com" });
+    expect(updated.email).toBe("new@x.com");
+    expect(updated.tenantId).toBe("orgA");
+  });
+});
