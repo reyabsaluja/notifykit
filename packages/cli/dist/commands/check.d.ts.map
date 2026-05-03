@@ -1,1 +1,0 @@
-{"version":3,"file":"check.d.ts","sourceRoot":"","sources":["../../src/commands/check.ts"],"names":[],"mappings":"AAGA,MAAM,MAAM,YAAY,GAAG;IACzB,GAAG,EAAE,MAAM,CAAC;IACZ,MAAM,CAAC,EAAE,MAAM,CAAC;CACjB,CAAC;AAEF,wBAAsB,QAAQ,CAAC,OAAO,EAAE,YAAY,GAAG,OAAO,CAAC,MAAM,CAAC,CA0BrE"}
