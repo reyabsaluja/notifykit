@@ -1,5 +1,6 @@
 import type {
   CategoryDefaults,
+  ChannelConfig,
   ChannelOutcome,
   ChannelPreferenceMap,
   ChannelType,
@@ -8,8 +9,11 @@ import type {
   DeliveryJob,
   DeliveryRecord,
   EmailProvider,
+  FallbackRule,
+  FallbackTrigger,
   GetPreferenceInput,
   Hooks,
+  InboxChannelConfig,
   InboxDeleteForRecipientResult,
   InboxItem,
   InboxItemForRecipientResult,
@@ -25,6 +29,7 @@ import type {
   RetryPolicy,
   SendInput,
   SecurityScope,
+  SmsProvider,
   UpdatePreferenceInput,
   UpsertRecipientInput,
   WebhookProvider,
@@ -50,6 +55,7 @@ export type CreateNotifyKitInput<
   providers?: {
     email?: EmailProvider;
     webhook?: WebhookProvider;
+    sms?: SmsProvider;
   };
   on?: Hooks;
   /**
@@ -369,6 +375,8 @@ export function createNotifyKit<
         if (ch.headers) {
           for (const v of Object.values(ch.headers)) templates.push(v);
         }
+      } else if (ch.type === "sms") {
+        templates.push(ch.body);
       }
       for (const tmpl of templates) {
         const vars = extractTemplateVars(tmpl);
@@ -384,16 +392,43 @@ export function createNotifyKit<
       }
     }
     if (def.fallback) {
-      const templates = [def.fallback.title];
-      if (def.fallback.body) templates.push(def.fallback.body);
-      if (def.fallback.actionUrl) templates.push(def.fallback.actionUrl);
-      for (const tmpl of templates) {
-        const vars = extractTemplateVars(tmpl);
-        for (const v of vars) {
-          if (!schemaKeys.has(v) && !builtInVars.has(v)) {
+      const fallbackConfigs = isLegacyFallback(def.fallback)
+        ? [def.fallback]
+        : def.fallback.map((r) => r.then);
+      for (const fb of fallbackConfigs) {
+        const templates: string[] = [];
+        if (fb.type === "inbox") {
+          templates.push(fb.title);
+          if (fb.body) templates.push(fb.body);
+          if (fb.actionUrl) templates.push(fb.actionUrl);
+        } else if (fb.type === "email") {
+          templates.push(fb.subject, fb.body);
+        } else if (fb.type === "webhook") {
+          templates.push(fb.url);
+          if (fb.headers) {
+            for (const v of Object.values(fb.headers)) templates.push(v);
+          }
+        } else if (fb.type === "sms") {
+          templates.push(fb.body);
+        }
+        for (const tmpl of templates) {
+          const vars = extractTemplateVars(tmpl);
+          for (const v of vars) {
+            if (!schemaKeys.has(v) && !builtInVars.has(v)) {
+              throw new NotifyKitError(
+                `Notification "${def.id}" fallback references template variable "{{${v}}}" ` +
+                  `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}.`,
+              );
+            }
+          }
+        }
+      }
+      if (!isLegacyFallback(def.fallback)) {
+        const validTriggers = new Set<string>(["channel.failed", "missing_address", "skipped"]);
+        for (const rule of def.fallback) {
+          if (!validTriggers.has(rule.if)) {
             throw new NotifyKitError(
-              `Notification "${def.id}" fallback references template variable "{{${v}}}" ` +
-                `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}.`,
+              `Notification "${def.id}" fallback rule has unknown trigger "${rule.if}".`,
             );
           }
         }
@@ -427,6 +462,34 @@ export function createNotifyKit<
         `Notification "${def.id}" has a webhook channel but no webhook provider is configured. ` +
           `Pass a provider via createNotifyKit({ providers: { webhook: ... } }).`,
       );
+    }
+    if (channelTypes.has("sms") && !providers?.sms) {
+      throw new NotifyKitError(
+        `Notification "${def.id}" has an sms channel but no sms provider is configured. ` +
+          `Pass a provider via createNotifyKit({ providers: { sms: ... } }).`,
+      );
+    }
+    if (def.fallback) {
+      const fallbackTypes = new Set(
+        isLegacyFallback(def.fallback)
+          ? [def.fallback.type]
+          : def.fallback.map((r) => r.then.type),
+      );
+      if (fallbackTypes.has("email") && !providers?.email) {
+        throw new NotifyKitError(
+          `Notification "${def.id}" has a fallback targeting email but no email provider is configured.`,
+        );
+      }
+      if (fallbackTypes.has("webhook") && !providers?.webhook) {
+        throw new NotifyKitError(
+          `Notification "${def.id}" has a fallback targeting webhook but no webhook provider is configured.`,
+        );
+      }
+      if (fallbackTypes.has("sms") && !providers?.sms) {
+        throw new NotifyKitError(
+          `Notification "${def.id}" has a fallback targeting sms but no sms provider is configured.`,
+        );
+      }
     }
     if (
       def.classification &&
@@ -609,9 +672,20 @@ export function createNotifyKit<
     const prefResult = resolvePreferences(resolutionCtx);
     const hasAnyAllowed = prefResult.channels.some((ch) => ch.allowed);
 
-    // If every channel is disabled by preferences, skip entirely — no
-    // rate-limit reservation, no digest buffer, no records.
-    if (!hasAnyAllowed) {
+    const hasMatchingFallback = (() => {
+      if (!def.fallback || isLegacyFallback(def.fallback)) return false;
+      const primaryTypes = new Set<ChannelType>(def.channels.map((c) => c.type));
+      for (const ch of prefResult.channels) {
+        if (ch.allowed) continue;
+        const trigger: FallbackTrigger =
+          ch.resolvedBy === "destination_unavailable" ? "missing_address" : "skipped";
+        if (matchFallbackRules(def.fallback, trigger, ch.channel, primaryTypes)) {
+          return true;
+        }
+      }
+      return false;
+    })();
+    if (!hasAnyAllowed && !hasMatchingFallback) {
       return {
         notification: null,
         inboxItems: [],
@@ -712,7 +786,7 @@ export function createNotifyKit<
     if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
       const deferSeen = new Set<ChannelType>();
       for (const ch of def.channels) {
-        if ((ch.type === "email" || ch.type === "webhook") && !deferSeen.has(ch.type)) {
+        if ((ch.type === "email" || ch.type === "webhook" || ch.type === "sms") && !deferSeen.has(ch.type)) {
           const resolution = prefResult.channels.find((e) => e.channel === ch.type);
           if (resolution?.allowed) {
             deferSeen.add(ch.type);
@@ -813,7 +887,7 @@ export function createNotifyKit<
         outcome = "digested";
       } else if (
         quietHoursActive &&
-        (ch.channel === "email" || ch.channel === "webhook")
+        (ch.channel === "email" || ch.channel === "webhook" || ch.channel === "sms")
       ) {
         outcome = "delayed";
       } else {
@@ -897,7 +971,7 @@ export function createNotifyKit<
           }
         : undefined;
       await deliver(recipient, def, payload, {
-        onlyChannels: ["email", "webhook"],
+        onlyChannels: ["email", "webhook", "sms"],
         scope,
         existingNotification,
       });
@@ -947,7 +1021,7 @@ export function createNotifyKit<
       if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
         const deferSeen = new Set<ChannelType>();
         for (const ch of def.channels) {
-          if ((ch.type === "email" || ch.type === "webhook") && !deferSeen.has(ch.type)) {
+          if ((ch.type === "email" || ch.type === "webhook" || ch.type === "sms") && !deferSeen.has(ch.type)) {
             deferSeen.add(ch.type);
             deferChannels.push(ch.type);
           }
@@ -976,6 +1050,204 @@ export function createNotifyKit<
       await database.digests.restore(entry);
       throw err;
     }
+  }
+
+  function isLegacyFallback(
+    fb: InboxChannelConfig | FallbackRule[],
+  ): fb is InboxChannelConfig {
+    return !Array.isArray(fb);
+  }
+
+  function matchFallbackRules(
+    rules: FallbackRule[],
+    trigger: FallbackTrigger,
+    fromChannel: ChannelType,
+    alreadyAttempted: Set<ChannelType>,
+  ): FallbackRule | null {
+    for (const rule of rules) {
+      if (rule.if !== trigger) continue;
+      if (rule.from && rule.from !== fromChannel) continue;
+      if (alreadyAttempted.has(rule.then.type)) continue;
+      return rule;
+    }
+    return null;
+  }
+
+  async function enqueueOrRun(job: DeliveryJob, insideQueue: boolean): Promise<void> {
+    if (insideQueue) {
+      await processDeliveryJob(job);
+    } else {
+      await queue.enqueue(job, (j) => processDeliveryJob(j));
+    }
+  }
+
+  async function executeFallbackChannel(
+    ch: ChannelConfig,
+    ctx: {
+      notificationRecordId: string;
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      notificationId: string;
+      payload: Record<string, unknown>;
+      insideQueue?: boolean;
+    },
+  ): Promise<{ inboxItem?: InboxItem; delivery?: DeliveryRecord }> {
+    const scope: SecurityScope = { tenantId: ctx.tenantId, workspaceId: ctx.workspaceId };
+    const def = byId.get(ctx.notificationId)!;
+    const recipient = await database.recipients.findById(ctx.recipientId);
+    if (!recipient) return {};
+
+    const resCtx = await buildResolutionCtx(recipient, def, scope);
+    const resolution = resolveChannel(ch.type, resCtx);
+    if (!resolution.allowed) return {};
+
+    if (ch.type === "inbox") {
+      const item = await database.inbox.create({
+        notificationRecordId: ctx.notificationRecordId,
+        recipientId: ctx.recipientId,
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        notificationId: ctx.notificationId,
+        title: renderTemplate(ch.title, ctx.payload, { escapeHtml: true }),
+        body: ch.body !== undefined
+          ? renderTemplate(ch.body, ctx.payload, { escapeHtml: true })
+          : undefined,
+        actionUrl: (() => {
+          if (ch.actionUrl === undefined) return undefined;
+          const rendered = renderTemplate(ch.actionUrl, ctx.payload, { escapeHtml: false });
+          return isSafeUrl(rendered) ? rendered : undefined;
+        })(),
+      });
+      await runHook("inbox.created", { inboxItem: item });
+      await realtimeAdapter?.publish(ctx.recipientId, scope, {
+        type: "inbox.created",
+        item,
+      });
+      return { inboxItem: item };
+    }
+
+    if (ch.type === "email") {
+      const provider = providers?.email;
+      if (!provider || !recipient.email) return {};
+      const renderCtx: Record<string, unknown> = { ...ctx.payload };
+      if (unsubscribeConfig) {
+        renderCtx._unsubscribeUrl = buildUnsubscribeUrl(recipient, def.id, scope);
+      }
+      const isHtml = ch.html !== false;
+      const subject = renderTemplate(ch.subject, renderCtx, { escapeHtml: true });
+      const body = renderTemplate(ch.body, renderCtx, { escapeHtml: isHtml });
+      const delivery = await database.deliveries.create({
+        notificationRecordId: ctx.notificationRecordId,
+        recipientId: ctx.recipientId,
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        notificationId: ctx.notificationId,
+        channel: "email",
+        provider: provider.id,
+        status: "pending",
+        to: recipient.email,
+        subject,
+        body,
+        attempts: 0,
+      });
+      const job: DeliveryJob = {
+        deliveryId: delivery.id,
+        notificationRecordId: ctx.notificationRecordId,
+        recipientId: ctx.recipientId,
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        notificationId: ctx.notificationId,
+        channel: "email",
+        provider: provider.id,
+        to: recipient.email,
+        subject,
+        body,
+        payload: ctx.payload,
+      };
+      await enqueueOrRun(job, !!ctx.insideQueue);
+      const latest = await database.deliveries.findById(delivery.id);
+      return { delivery: latest ?? delivery };
+    }
+
+    if (ch.type === "webhook") {
+      const provider = providers?.webhook;
+      if (!provider) return {};
+      const url = renderTemplate(ch.url, ctx.payload, { encodeUri: true });
+      const { pinnedUrl, hostHeader } = await assertSafeWebhookUrl(url);
+      const headers: Record<string, string> = { host: hostHeader };
+      if (ch.headers) {
+        for (const [k, v] of Object.entries(ch.headers)) {
+          headers[k] = renderTemplate(v, ctx.payload, { escapeHtml: false }).replace(/[\r\n]/g, "");
+        }
+      }
+      const delivery = await database.deliveries.create({
+        notificationRecordId: ctx.notificationRecordId,
+        recipientId: ctx.recipientId,
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        notificationId: ctx.notificationId,
+        channel: "webhook",
+        provider: provider.id,
+        status: "pending",
+        to: url,
+        body: JSON.stringify(ctx.payload),
+        attempts: 0,
+      });
+      const job: DeliveryJob = {
+        deliveryId: delivery.id,
+        notificationRecordId: ctx.notificationRecordId,
+        recipientId: ctx.recipientId,
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        notificationId: ctx.notificationId,
+        channel: "webhook",
+        provider: provider.id,
+        url: pinnedUrl,
+        headers,
+        payload: ctx.payload,
+      };
+      await enqueueOrRun(job, !!ctx.insideQueue);
+      const latest = await database.deliveries.findById(delivery.id);
+      return { delivery: latest ?? delivery };
+    }
+
+    if (ch.type === "sms") {
+      const provider = providers?.sms;
+      if (!provider || !recipient.phone) return {};
+      const body = renderTemplate(ch.body, ctx.payload, { escapeHtml: false });
+      const delivery = await database.deliveries.create({
+        notificationRecordId: ctx.notificationRecordId,
+        recipientId: ctx.recipientId,
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        notificationId: ctx.notificationId,
+        channel: "sms",
+        provider: provider.id,
+        status: "pending",
+        to: recipient.phone,
+        body,
+        attempts: 0,
+      });
+      const job: DeliveryJob = {
+        deliveryId: delivery.id,
+        notificationRecordId: ctx.notificationRecordId,
+        recipientId: ctx.recipientId,
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        notificationId: ctx.notificationId,
+        channel: "sms",
+        provider: provider.id,
+        to: recipient.phone,
+        body,
+        payload: ctx.payload,
+      };
+      await enqueueOrRun(job, !!ctx.insideQueue);
+      const latest = await database.deliveries.findById(delivery.id);
+      return { delivery: latest ?? delivery };
+    }
+
+    return {};
   }
 
   type DeliverOptions = {
@@ -1040,6 +1312,7 @@ export function createNotifyKit<
     const deliveries: DeliveryRecord[] = [];
     const skippedChannels: ChannelType[] = [];
     const deferredChannels: ChannelType[] = [];
+    const pendingFallbacks: Array<{ trigger: FallbackTrigger; fromChannel: ChannelType }> = [];
 
     for (const ch of def.channels) {
       if (onlySet && !onlySet.has(ch.type)) continue;
@@ -1049,6 +1322,14 @@ export function createNotifyKit<
       }
       if (!isChannelAllowed(ch.type)) {
         skippedChannels.push(ch.type);
+        if (def.fallback && !isLegacyFallback(def.fallback)) {
+          const entry = explanation.channels.find((e) => e.channel === ch.type);
+          const trigger: FallbackTrigger =
+            entry?.resolvedBy === "destination_unavailable"
+              ? "missing_address"
+              : "skipped";
+          pendingFallbacks.push({ trigger, fromChannel: ch.type });
+        }
         continue;
       }
       if (ch.type === "inbox") {
@@ -1175,6 +1456,76 @@ export function createNotifyKit<
 
         const latest = await database.deliveries.findById(delivery.id);
         deliveries.push(latest ?? delivery);
+      } else if (ch.type === "sms") {
+        const provider = providers!.sms!;
+        if (!recipient.phone) {
+          skippedChannels.push("sms");
+          if (def.fallback && !isLegacyFallback(def.fallback)) {
+            pendingFallbacks.push({ trigger: "missing_address", fromChannel: "sms" });
+          }
+          continue;
+        }
+
+        const body = renderTemplate(ch.body, payload, { escapeHtml: false });
+
+        const delivery = await database.deliveries.create({
+          notificationRecordId: notificationRecord.id,
+          recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: def.id,
+          channel: "sms",
+          provider: provider.id,
+          status: "pending",
+          to: recipient.phone,
+          body,
+          attempts: 0,
+        });
+
+        const job: DeliveryJob = {
+          deliveryId: delivery.id,
+          notificationRecordId: notificationRecord.id,
+          recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: def.id,
+          channel: "sms",
+          provider: provider.id,
+          to: recipient.phone,
+          body,
+          payload,
+        };
+
+        await queue.enqueue(job, (j) => processDeliveryJob(j));
+
+        const latest = await database.deliveries.findById(delivery.id);
+        deliveries.push(latest ?? delivery);
+      }
+    }
+
+    if (pendingFallbacks.length > 0 && def.fallback && !isLegacyFallback(def.fallback)) {
+      const attempted = new Set<ChannelType>(
+        def.channels.map((c) => c.type),
+      );
+      const fallbackCtx = {
+        notificationRecordId: notificationRecord.id,
+        recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        notificationId: def.id,
+        payload,
+      };
+      for (const pf of pendingFallbacks) {
+        const rule = matchFallbackRules(def.fallback, pf.trigger, pf.fromChannel, attempted);
+        if (!rule) continue;
+        attempted.add(rule.then.type);
+        try {
+          const result = await executeFallbackChannel(rule.then, fallbackCtx);
+          if (result.inboxItem) inboxItems.push(result.inboxItem);
+          if (result.delivery) deliveries.push(result.delivery);
+        } catch {
+          // Swallow to avoid masking the original skip/missing-address.
+        }
       }
     }
 
@@ -1207,7 +1558,7 @@ export function createNotifyKit<
             subject: job.subject,
             body: job.body,
           });
-        } else {
+        } else if (job.channel === "webhook") {
           const provider = providers!.webhook!;
           result = await provider.send({
             url: job.url,
@@ -1220,6 +1571,12 @@ export function createNotifyKit<
               payload: job.payload,
               sentAt: new Date().toISOString(),
             },
+          });
+        } else {
+          const provider = providers!.sms!;
+          result = await provider.send({
+            to: job.to,
+            body: job.body,
           });
         }
 
@@ -1264,67 +1621,67 @@ export function createNotifyKit<
       });
     }
 
-    // Fallback channel: when a primary delivery terminally fails, drop an
-    // inbox item so the user still sees the message. Uses the full layered
-    // preference engine so app/category/tenant/global/required all apply.
     const def = byId.get(job.notificationId);
     if (def?.fallback) {
       try {
-        const fallbackScope: SecurityScope = {
-          tenantId: job.tenantId,
-          workspaceId: job.workspaceId,
-        };
-        const fallbackRecipient = await database.recipients.findById(job.recipientId);
-        const [fbGlobal, fbCategory, fbNotification, fbTenant] = await Promise.all([
-          database.preferences.get(job.recipientId, GLOBAL_PREFERENCE_KEY, fallbackScope),
-          def.category
-            ? database.preferences.get(job.recipientId, categoryPreferenceKey(def.category), fallbackScope)
-            : Promise.resolve(null),
-          database.preferences.get(job.recipientId, def.id, fallbackScope),
-          fallbackScope.tenantId && config.tenantDefaults
-            ? Promise.resolve(config.tenantDefaults(fallbackScope.tenantId))
-            : Promise.resolve(null),
-        ]);
-        const inboxResolution = resolveChannel("inbox", {
-          def,
-          recipient: fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
-          scope: fallbackScope,
-          appDefaults: config.defaults?.channels,
-          categoryDefaults: config.defaults?.categories,
-          tenantChannels: fbTenant,
-          userGlobal: fbGlobal,
-          userCategory: fbCategory,
-          userNotification: fbNotification,
-        });
-        const inboxAllowed = inboxResolution.allowed;
-        if (inboxAllowed) {
-          const fallback = def.fallback;
-          const item = await database.inbox.create({
-            notificationRecordId: job.notificationRecordId,
-            recipientId: job.recipientId,
+        if (isLegacyFallback(def.fallback)) {
+          const fallbackScope: SecurityScope = {
             tenantId: job.tenantId,
             workspaceId: job.workspaceId,
-            notificationId: job.notificationId,
-            title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
-            body:
-              fallback.body !== undefined
-                ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
-                : undefined,
-            actionUrl: (() => {
-              if (fallback.actionUrl === undefined) return undefined;
-              const rendered = renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false });
-              return isSafeUrl(rendered) ? rendered : undefined;
-            })(),
-          });
-          await runHook("inbox.created", { inboxItem: item });
-          await realtimeAdapter?.publish(job.recipientId, fallbackScope, {
-            type: "inbox.created",
-            item,
-          });
+          };
+          const fallbackRecipient = await database.recipients.findById(job.recipientId);
+          const resCtx = await buildResolutionCtx(
+            fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
+            def,
+            fallbackScope,
+          );
+          const inboxResolution = resolveChannel("inbox", resCtx);
+          if (inboxResolution.allowed) {
+            const fallback = def.fallback;
+            const item = await database.inbox.create({
+              notificationRecordId: job.notificationRecordId,
+              recipientId: job.recipientId,
+              tenantId: job.tenantId,
+              workspaceId: job.workspaceId,
+              notificationId: job.notificationId,
+              title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
+              body:
+                fallback.body !== undefined
+                  ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
+                  : undefined,
+              actionUrl: (() => {
+                if (fallback.actionUrl === undefined) return undefined;
+                const rendered = renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false });
+                return isSafeUrl(rendered) ? rendered : undefined;
+              })(),
+            });
+            await runHook("inbox.created", { inboxItem: item });
+            await realtimeAdapter?.publish(job.recipientId, fallbackScope, {
+              type: "inbox.created",
+              item,
+            });
+          }
+        } else {
+          const attempted = new Set<ChannelType>(
+            def.channels.map((c) => c.type),
+          );
+          attempted.add(job.channel);
+          const rule = matchFallbackRules(def.fallback, "channel.failed", job.channel, attempted);
+          if (rule) {
+            attempted.add(rule.then.type);
+            await executeFallbackChannel(rule.then, {
+              notificationRecordId: job.notificationRecordId,
+              recipientId: job.recipientId,
+              tenantId: job.tenantId,
+              workspaceId: job.workspaceId,
+              notificationId: job.notificationId,
+              payload: job.payload,
+              insideQueue: true,
+            });
+          }
         }
       } catch {
-        // Fallback inbox creation failed — swallow to avoid masking the
-        // original delivery failure that triggered the fallback attempt.
+        // Fallback failed — swallow to avoid masking the original delivery failure.
       }
     }
   }
