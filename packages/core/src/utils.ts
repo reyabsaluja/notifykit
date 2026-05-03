@@ -121,13 +121,9 @@ function isNumericIp(hostname: string): boolean {
   if (/^0[0-7]+$/.test(hostname)) return true;
   if (/^\d{8,}$/.test(hostname)) return true;
   const parts = hostname.split(".");
-  if (
-    parts.length >= 2 &&
-    parts.length <= 4 &&
-    parts.every((p) => /^\d+$/.test(p)) &&
-    parts.length < 4
-  ) {
-    return true;
+  if (parts.length >= 2 && parts.length <= 4) {
+    if (parts.every((p) => /^\d+$/.test(p)) && parts.length < 4) return true;
+    if (parts.some((p) => /^0[0-7]*$/.test(p) && p !== "0") || parts.some((p) => /^0x[0-9a-f]+$/i.test(p))) return true;
   }
   return false;
 }
