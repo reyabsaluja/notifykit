@@ -663,10 +663,12 @@ export function createNotifyKit<
     // until the window ends — but only if the channel is preference-allowed.
     const deferChannels: ChannelType[] = [];
     if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
+      const deferSeen = new Set<ChannelType>();
       for (const ch of def.channels) {
-        if (ch.type === "email" || ch.type === "webhook") {
+        if ((ch.type === "email" || ch.type === "webhook") && !deferSeen.has(ch.type)) {
           const resolution = prefResult.channels.find((e) => e.channel === ch.type);
           if (resolution?.allowed) {
+            deferSeen.add(ch.type);
             deferChannels.push(ch.type);
           }
         }
