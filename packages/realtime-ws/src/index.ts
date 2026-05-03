@@ -16,6 +16,12 @@ export type WebSocketRealtimeAdapterOptions = {
     request: Request,
   ) => Promise<WebSocketIdentity | null> | WebSocketIdentity | null;
   /**
+   * Allowed origins for WebSocket upgrade requests. When set, the adapter
+   * rejects connections whose `Origin` header does not match any entry.
+   * Mitigates cross-site WebSocket hijacking (CSWSH).
+   */
+  allowedOrigins?: string[];
+  /**
    * Interval in milliseconds between server-sent ping frames. Clients that
    * don't respond within one interval are considered dead. Defaults to 30000.
    */
@@ -119,6 +125,10 @@ export function webSocketRealtimeAdapter(
     ws: WebSocketLike,
   ): Promise<{ recipientId: string; scope: SecurityScope } | null> {
     if (connections.size >= maxConnections) return null;
+    if (options.allowedOrigins && options.allowedOrigins.length > 0) {
+      const origin = request.headers.get("origin");
+      if (!origin || !options.allowedOrigins.includes(origin)) return null;
+    }
     const identity = await options.authenticate(request);
     if (!identity) return null;
 
