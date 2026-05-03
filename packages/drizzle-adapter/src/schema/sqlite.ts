@@ -69,7 +69,7 @@ export const inboxItems = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => ({
-    recipientIdx: index("idx_notifykit_inbox_items_recipient").on(
+    recipientIdx: index("idx_notifykit_inbox_recipient").on(
       table.recipientId,
     ),
   }),
@@ -131,25 +131,34 @@ export const preferences = sqliteTable(
   }),
 );
 
-export const scheduledSends = sqliteTable("notifykit_scheduled_sends", {
-  id: text("id").primaryKey(),
-  recipientId: text("recipient_id").notNull(),
-  tenantId: text("tenant_id"),
-  workspaceId: text("workspace_id"),
-  notificationId: text("notification_id").notNull(),
-  notificationRecordId: text("notification_record_id"),
-  payload: text("payload", { mode: "json" })
-    .$type<Record<string, unknown>>()
-    .notNull(),
-  scheduledFor: integer("scheduled_for", { mode: "timestamp_ms" }).notNull(),
-  reason: text("reason").notNull().$type<"quiet_hours">(),
-  status: text("status")
-    .notNull()
-    .$type<"pending" | "claimed">()
-    .default("pending"),
-  claimedAt: integer("claimed_at", { mode: "timestamp_ms" }),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const scheduledSends = sqliteTable(
+  "notifykit_scheduled_sends",
+  {
+    id: text("id").primaryKey(),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    notificationRecordId: text("notification_record_id"),
+    payload: text("payload", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    scheduledFor: integer("scheduled_for", { mode: "timestamp_ms" }).notNull(),
+    reason: text("reason").notNull().$type<"quiet_hours">(),
+    status: text("status")
+      .notNull()
+      .$type<"pending" | "claimed">()
+      .default("pending"),
+    claimedAt: integer("claimed_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    statusDueIdx: index("idx_notifykit_scheduled_sends_status_due").on(
+      table.status,
+      table.scheduledFor,
+    ),
+  }),
+);
 
 export const rateLimitEvents = sqliteTable(
   "notifykit_rate_limit_events",
@@ -170,19 +179,25 @@ export const rateLimitEvents = sqliteTable(
   }),
 );
 
-export const digestBuffers = sqliteTable("notifykit_digest_buffers", {
-  key: text("key").primaryKey(),
-  recipientId: text("recipient_id").notNull(),
-  tenantId: text("tenant_id"),
-  workspaceId: text("workspace_id"),
-  notificationId: text("notification_id").notNull(),
-  payloads: text("payloads", { mode: "json" })
-    .$type<Record<string, unknown>[]>()
-    .notNull(),
-  flushAt: integer("flush_at", { mode: "timestamp_ms" }).notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const digestBuffers = sqliteTable(
+  "notifykit_digest_buffers",
+  {
+    key: text("key").primaryKey(),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    payloads: text("payloads", { mode: "json" })
+      .$type<Record<string, unknown>[]>()
+      .notNull(),
+    flushAt: integer("flush_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    flushAtIdx: index("idx_notifykit_digests_flush_at").on(table.flushAt),
+  }),
+);
 
 export const notifyKitSchema = {
   recipients,
