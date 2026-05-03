@@ -39,7 +39,7 @@ import {
 } from "./preference-keys.js";
 import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, assertSafeWebhookUrl, extractTemplateVars, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
@@ -1040,6 +1040,7 @@ export function createNotifyKit<
         const provider = providers!.webhook!;
 
         const url = renderTemplate(ch.url, payload);
+        assertSafeWebhookUrl(url);
         const headers: Record<string, string> = {};
         if (ch.headers) {
           for (const [k, v] of Object.entries(ch.headers)) {

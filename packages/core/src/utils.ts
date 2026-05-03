@@ -82,6 +82,18 @@ export function validatePayload(
   return result;
 }
 
+export function assertSafeWebhookUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new NotifyKitError(`Invalid webhook URL: ${url}`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new NotifyKitError(`Webhook URL must use http or https: ${url}`);
+  }
+}
+
 const REDACTED = "[REDACTED]" as const;
 
 export function redactPayload(
