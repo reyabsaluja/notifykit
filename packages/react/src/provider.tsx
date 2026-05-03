@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useRef, type ReactNode } from "react";
 import {
   createNotifyKitClient,
   type CreateNotifyKitClientOptions,
@@ -10,7 +10,13 @@ import {
 const NotifyKitContext = createContext<NotifyKitClient | null>(null);
 
 export type NotifyKitProviderProps = {
+  /** Pre-built client instance. Takes precedence over `options`. */
   client?: NotifyKitClient;
+  /**
+   * Options for creating a client. The client is created once on mount;
+   * subsequent option changes are ignored. Ensure `fetch` and callback
+   * props are stable references.
+   */
   options?: CreateNotifyKitClientOptions;
   children: ReactNode;
 };
@@ -20,14 +26,12 @@ export function NotifyKitProvider({
   options,
   children,
 }: NotifyKitProviderProps) {
-  const optionsKey = client ? null : JSON.stringify(options);
-  const resolved = useMemo(
-    () => client ?? createNotifyKitClient(options),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [client, optionsKey],
-  );
+  const clientRef = useRef<NotifyKitClient | null>(client ?? null);
+  if (!clientRef.current) {
+    clientRef.current = createNotifyKitClient(options);
+  }
   return (
-    <NotifyKitContext.Provider value={resolved}>
+    <NotifyKitContext.Provider value={clientRef.current}>
       {children}
     </NotifyKitContext.Provider>
   );
