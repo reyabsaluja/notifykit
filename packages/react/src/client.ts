@@ -274,8 +274,13 @@ export function createNotifyKitClient(
         } catch {
           if (controller.signal.aborted) break;
         }
+        if (controller.signal.aborted) break;
         setRtStatus("connecting");
-        await new Promise((r) => setTimeout(r, retryMs));
+        await new Promise((r) => {
+          const timer = setTimeout(r, retryMs);
+          controller.signal.addEventListener("abort", () => { clearTimeout(timer); r(undefined); }, { once: true });
+        });
+        if (controller.signal.aborted) break;
         retryMs = Math.min(retryMs * 2, 30_000);
       }
     })();
