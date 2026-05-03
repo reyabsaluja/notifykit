@@ -6,7 +6,8 @@ export type RealtimeEvent =
   | { type: "inbox.archived"; item: InboxItem }
   | { type: "inbox.unarchived"; item: InboxItem }
   | { type: "inbox.deleted"; itemId: string }
-  | { type: "inbox.all_read"; count: number };
+  | { type: "inbox.all_read"; count: number }
+  | { type: "inbox.refetch" };
 
 export type RealtimeListener = (event: RealtimeEvent) => void;
 

@@ -98,10 +98,9 @@ export function pgRealtimeAdapter(
       const key = scopeKey(recipientId, scope);
       const payload = JSON.stringify({ key, event });
       if (payload.length > 7999) {
-        const itemId = "item" in event ? event.item.id : "itemId" in event ? event.itemId : undefined;
         const trimmed = JSON.stringify({
           key,
-          event: { type: event.type, itemId },
+          event: { type: "inbox.refetch" },
         });
         void Promise.resolve(conn.notify(pgChannel, trimmed)).catch((err: unknown) => {
           console.error("[notifykit:realtime-pg] publish failed:", err);

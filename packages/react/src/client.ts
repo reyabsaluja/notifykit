@@ -215,6 +215,17 @@ export function createNotifyKitClient(
             : prev.unreadCount,
         },
       });
+    } else if (event.type === "inbox.refetch") {
+      request("GET", "/inbox")
+        .then((raw) => {
+          const items = reviveInbox(raw);
+          const unreadCount = items.filter((it) => !it.readAt).length;
+          setState({
+            ...state,
+            inbox: { ...state.inbox, items, unreadCount },
+          });
+        })
+        .catch(() => {});
     } else if (event.type === "inbox.all_read") {
       const now = new Date();
       const items = prev.items.map((it) =>
