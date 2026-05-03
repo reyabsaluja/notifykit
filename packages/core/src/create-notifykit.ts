@@ -640,12 +640,7 @@ export function createNotifyKit<
           if (!scheduled) return;
           scheduledFlushes.delete(key);
           flushDigestKey(key, def)
-            .catch((err) => {
-              runHook("delivery.failed", {
-                channel: "email",
-                error: err instanceof Error ? err : new Error(String(err)),
-              }).catch(() => {});
-            })
+            .catch(() => {})
             .finally(() => scheduled.resolve());
         }, delay);
         scheduledFlushes.set(key, { timer, resolve: resolveTask, def });
@@ -1247,11 +1242,9 @@ export function createNotifyKit<
             item,
           });
         }
-      } catch (fallbackErr) {
-        await runHook("delivery.failed", {
-          channel: "inbox",
-          error: fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr)),
-        }).catch(() => {});
+      } catch {
+        // Fallback inbox creation failed — swallow to avoid masking the
+        // original delivery failure that triggered the fallback attempt.
       }
     }
   }
