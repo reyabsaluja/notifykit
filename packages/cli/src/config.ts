@@ -46,11 +46,7 @@ export async function loadConfig(
     throw new ConfigError(`Config file not found: ${candidate}`);
   }
 
-  const url = pathToFileURL(candidate).href;
-  const mod = (await import(url)) as {
-    default?: NotifyKitConfig;
-    config?: NotifyKitConfig;
-  };
+  const mod = await importConfigModule(candidate);
   const config = mod.default ?? mod.config;
   if (!config) {
     throw new ConfigError(
@@ -59,6 +55,39 @@ export async function loadConfig(
   }
   validateConfigShape(config, candidate);
   return { config, path: candidate };
+}
+
+async function importConfigModule(candidate: string): Promise<{
+  default?: NotifyKitConfig;
+  config?: NotifyKitConfig;
+}> {
+  const url = pathToFileURL(candidate).href;
+  if (candidate.endsWith(".ts") || candidate.endsWith(".tsx")) {
+    if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
+      return (await import(url)) as {
+        default?: NotifyKitConfig;
+        config?: NotifyKitConfig;
+      };
+    }
+    try {
+      const { tsImport } = (await import("tsx/esm/api")) as {
+        tsImport: (specifier: string, parentURL: string) => Promise<unknown>;
+      };
+      return (await tsImport(candidate, import.meta.url)) as {
+        default?: NotifyKitConfig;
+        config?: NotifyKitConfig;
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ConfigError(
+        `Failed to load TypeScript config ${candidate}: ${message}`,
+      );
+    }
+  }
+  return (await import(url)) as {
+    default?: NotifyKitConfig;
+    config?: NotifyKitConfig;
+  };
 }
 
 function findDefaultConfigPath(cwd: string): string | null {
