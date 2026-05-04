@@ -68,6 +68,64 @@ describe("drizzleSqliteAdapter", () => {
     await ctx.notify.upsertRecipient({ id: "user_1" });
   });
 
+  test("createSqliteTables migrates old preference primary key to include scope", async () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec(`
+      CREATE TABLE notifykit_preferences (
+        recipient_id TEXT NOT NULL,
+        notification_id TEXT NOT NULL,
+        channels TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (recipient_id, notification_id)
+      );
+      INSERT INTO notifykit_preferences (recipient_id, notification_id, channels, updated_at)
+      VALUES ('user_1', 'comment_mentioned', '{"email":false}', 1);
+    `);
+    const db = drizzle(sqlite);
+
+    await createSqliteTables(db);
+
+    const pkColumns = sqlite
+      .query<{ name: string; pk: number }, []>(
+        "PRAGMA table_info(notifykit_preferences)",
+      )
+      .all()
+      .filter((col) => col.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((col) => col.name);
+    expect(pkColumns).toEqual([
+      "recipient_id",
+      "notification_id",
+      "tenant_id",
+      "workspace_id",
+    ]);
+
+    const adapter = drizzleSqliteAdapter(db);
+    await adapter.preferences.upsert({
+      recipientId: "user_1",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      channels: { email: true },
+    });
+    await adapter.preferences.upsert({
+      recipientId: "user_1",
+      tenantId: "tenant_b",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+
+    await expect(adapter.preferences.get(
+      "user_1",
+      "comment_mentioned",
+      { tenantId: "tenant_a" },
+    )).resolves.toMatchObject({ channels: { email: true } });
+    await expect(adapter.preferences.get(
+      "user_1",
+      "comment_mentioned",
+      { tenantId: "tenant_b" },
+    )).resolves.toMatchObject({ channels: { email: false } });
+  });
+
   test("upsertRecipient creates then updates", async () => {
     const created = await ctx.notify.upsertRecipient({
       id: "user_1",

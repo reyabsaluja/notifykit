@@ -161,11 +161,21 @@ export async function createSqliteTables(
   // Migrate preferences PK from (recipient_id, notification_id) to
   // (recipient_id, notification_id, tenant_id, workspace_id) for pre-tenant
   // databases. SQLite can't ALTER a PK, so we rebuild via a temp table.
-  const tableInfo = await db.all<{ name: string }>(
+  const tableInfo = await db.all<{ name: string; pk: number }>(
     sql.raw(`PRAGMA table_info(notifykit_preferences)`),
   );
-  const colNames = tableInfo.map((c) => c.name);
-  if (!colNames.includes("tenant_id")) {
+  const pkCols = tableInfo
+    .filter((c) => c.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((c) => c.name);
+  if (!pkCols.includes("tenant_id") || !pkCols.includes("workspace_id")) {
+    const colNames = tableInfo.map((c) => c.name);
+    const tenantSelect = colNames.includes("tenant_id")
+      ? "COALESCE(tenant_id, '')"
+      : "''";
+    const workspaceSelect = colNames.includes("workspace_id")
+      ? "COALESCE(workspace_id, '')"
+      : "''";
     await db.run(sql.raw(`ALTER TABLE notifykit_preferences RENAME TO _notifykit_preferences_old`));
     await db.run(sql.raw(`CREATE TABLE notifykit_preferences (
       recipient_id TEXT NOT NULL,
@@ -177,7 +187,7 @@ export async function createSqliteTables(
       PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id)
     )`));
     await db.run(sql.raw(`INSERT INTO notifykit_preferences (recipient_id, notification_id, channels, updated_at, tenant_id, workspace_id)
-      SELECT recipient_id, notification_id, channels, updated_at, '', '' FROM _notifykit_preferences_old`));
+      SELECT recipient_id, notification_id, channels, updated_at, ${tenantSelect}, ${workspaceSelect} FROM _notifykit_preferences_old`));
     await db.run(sql.raw(`DROP TABLE _notifykit_preferences_old`));
   }
 }
