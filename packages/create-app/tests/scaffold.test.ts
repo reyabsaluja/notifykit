@@ -28,6 +28,7 @@ describe("scaffold()", () => {
       "tsconfig.json",
       "next.config.ts",
       "README.md",
+      ".gitignore",
       ".env.example",
       "lib/notifykit.ts",
       "lib/session.ts",
