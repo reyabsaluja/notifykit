@@ -66,6 +66,25 @@ describe("notifykit CLI", () => {
     expect(result.stdout).toContain("email: sent");
   });
 
+  test("send supports SMS configs with a phone number", async () => {
+    const result = await runCli([
+      "send",
+      "--config",
+      "sms.config.ts",
+      "--to",
+      "user_1",
+      "--id",
+      "login_code",
+      "--phone",
+      "+15555550123",
+      "--payload",
+      JSON.stringify({ code: "123456" }),
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('Sent "login_code"');
+    expect(result.stdout).toContain("sms: sent");
+  });
+
   test("send with missing required payload key exits 1", async () => {
     const result = await runCli([
       "send",

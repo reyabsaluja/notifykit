@@ -10,7 +10,7 @@ notifykit — app-native notification framework CLI
 Usage:
   notifykit check  [--config <path>] [--strict]
   notifykit serve  [--config <path>] [--port <n>] [--dev-user <id>] [--base-path <p>]
-  notifykit send   --to <recipientId> --id <notificationId> [--payload <json>] [--email <addr>] [--config <path>]
+  notifykit send   --to <recipientId> --id <notificationId> [--payload <json>] [--email <addr>] [--phone <number>] [--config <path>]
 
 Examples:
   notifykit check
@@ -97,6 +97,7 @@ async function handleSend(args: string[]): Promise<number> {
       id: { type: "string" },
       payload: { type: "string", default: "{}" },
       email: { type: "string" },
+      phone: { type: "string" },
     },
     allowPositionals: false,
     strict: true,
@@ -123,5 +124,6 @@ async function handleSend(args: string[]): Promise<number> {
     recipientId: values.to,
     payload,
     recipientEmail: values.email,
+    recipientPhone: values.phone,
   });
 }

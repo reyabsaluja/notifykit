@@ -13,6 +13,7 @@ export type SendOptions = {
   recipientId: string;
   payload: Record<string, unknown>;
   recipientEmail?: string;
+  recipientPhone?: string;
 };
 
 export async function runSend(options: SendOptions): Promise<number> {
@@ -23,13 +24,15 @@ export async function runSend(options: SendOptions): Promise<number> {
     database: memoryAdapter(),
     providers: {
       email: config.providers?.email ?? fakeEmailProvider(),
-      webhook: fakeWebhookProvider(),
+      webhook: config.providers?.webhook ?? fakeWebhookProvider(),
+      sms: config.providers?.sms,
     },
   });
 
   await notify.upsertRecipient({
     id: options.recipientId,
     email: options.recipientEmail,
+    phone: options.recipientPhone,
     name: options.recipientId,
   });
 

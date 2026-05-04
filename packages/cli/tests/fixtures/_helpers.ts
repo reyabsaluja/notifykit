@@ -1,4 +1,4 @@
-export { channel, fakeEmailProvider } from "notifykit";
+export { channel, fakeEmailProvider, fakeSmsProvider } from "notifykit";
 import { defineConfig, type NotifyKitConfig } from "../../src/config.js";
 
 export function defineNotifyKitConfig(config: NotifyKitConfig): NotifyKitConfig {
