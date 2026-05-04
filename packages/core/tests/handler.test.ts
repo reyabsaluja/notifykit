@@ -510,6 +510,35 @@ describe("handler debug option", () => {
     expect(body.fix).toBeUndefined();
   });
 
+  test("NotifyKitError responses omit fix guidance by default", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "user_1" });
+    const handler = createHandler(notify, {
+      identify: () => "user_1",
+    });
+
+    const res = await handler(new Request(`${BASE}/preferences`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        notificationId: "unknown",
+        channels: { email: false },
+      }),
+    }));
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("UNKNOWN_NOTIFICATION");
+    expect(body.error).toBe('Unknown notification id: "unknown".');
+    expect(body.error).not.toContain("Registered ids");
+    expect(body.fix).toBeUndefined();
+  });
+
   test("error responses include fix field when debug: true", async () => {
     const database = memoryAdapter();
     const notify = createNotifyKit({
@@ -527,5 +556,34 @@ describe("handler debug option", () => {
     expect(body.code).toBe("UNAUTHENTICATED");
     expect(body.fix).toBeTypeOf("string");
     expect(body.fix.length).toBeGreaterThan(0);
+  });
+
+  test("NotifyKitError responses include fix guidance when debug: true", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "user_1" });
+    const handler = createHandler(notify, {
+      identify: () => "user_1",
+      debug: true,
+    });
+
+    const res = await handler(new Request(`${BASE}/preferences`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        notificationId: "unknown",
+        channels: { email: false },
+      }),
+    }));
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("UNKNOWN_NOTIFICATION");
+    expect(body.error).toBe('Unknown notification id: "unknown".');
+    expect(body.fix).toContain("Registered ids: comment_mentioned");
   });
 });

@@ -756,10 +756,18 @@ export function createHandler<
       }
     } catch (err) {
       if (err instanceof PayloadValidationError) {
-        return withCors(json({ error: err.message }, 400));
+        return withCors(errorJson({
+          error: err.message,
+          code: err.code,
+          fix: err.fix,
+        }, 400));
       }
       if (err instanceof NotifyKitError) {
-        return withCors(json({ error: err.message }, 400));
+        return withCors(errorJson({
+          error: err.message,
+          code: err.code,
+          fix: err.fix,
+        }, 400));
       }
       return withCors(json({ error: "Internal error" }, 500));
     }

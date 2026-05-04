@@ -62,8 +62,7 @@ export class NotifyKitError extends Error {
 
   constructor(message: string, context?: NotifyKitErrorContext) {
     const fix = context?.fix;
-    const full = fix ? `${message} ${fix}` : message;
-    super(full);
+    super(message);
     this.name = "NotifyKitError";
     this.code = context?.code ?? "NOTIFYKIT_ERROR";
     this.notificationId = context?.notificationId;
