@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type {
+  ChannelType,
   ChannelPreferenceMap,
   InboxItem,
   RecipientPreference,
@@ -94,7 +95,7 @@ export type UsePreferencesResult = {
     notificationId: string;
     channels: ChannelPreferenceMap;
   }): Promise<RecipientPreference>;
-  isEnabled(notificationId: string, channel: "inbox" | "email" | "webhook"): boolean;
+  isEnabled(notificationId: string, channel: ChannelType): boolean;
 };
 
 export function usePreferences(
@@ -122,7 +123,7 @@ export function usePreferences(
   );
 
   const isEnabled = useCallback(
-    (notificationId: string, channel: "inbox" | "email" | "webhook") => {
+    (notificationId: string, channel: ChannelType) => {
       const pref = items.find((p) => p.notificationId === notificationId);
       if (!pref) return true;
       return pref.channels[channel] !== false;
