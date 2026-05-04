@@ -491,3 +491,41 @@ describe("explain endpoint", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("handler debug option", () => {
+  test("error responses omit fix field by default", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+    });
+    const res = await handler(new Request(`${BASE}/inbox`));
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.code).toBe("UNAUTHENTICATED");
+    expect(body.fix).toBeUndefined();
+  });
+
+  test("error responses include fix field when debug: true", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      debug: true,
+    });
+    const res = await handler(new Request(`${BASE}/inbox`));
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.code).toBe("UNAUTHENTICATED");
+    expect(body.fix).toBeTypeOf("string");
+    expect(body.fix.length).toBeGreaterThan(0);
+  });
+});
