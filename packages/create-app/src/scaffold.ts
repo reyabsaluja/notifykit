@@ -1,6 +1,6 @@
 import { cp, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type ScaffoldOptions = {
@@ -85,11 +85,8 @@ export async function scaffold(options: ScaffoldOptions): Promise<ScaffoldResult
 
 export function defaultTemplateDir(): string {
   // Resolve relative to this file in both source (src/) and compiled (dist/) runs.
-  const here = fileURLToPath(import.meta.url);
-  const fromSrc = resolve(here, "../../template");
-  if (existsSync(fromSrc)) return fromSrc;
-  const fromDist = resolve(here, "../../../template");
-  return fromDist;
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, "../template");
 }
 
 export async function listScaffoldedFiles(root: string): Promise<string[]> {
