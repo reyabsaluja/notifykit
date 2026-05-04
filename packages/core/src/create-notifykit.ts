@@ -813,10 +813,12 @@ export function createNotifyKit<
       }
       const scope = resolveScope(record, recipient);
       // The payload was already validated (and potentially transformed) by
-      // send() before being stored. Re-running a custom validator could
-      // apply a non-idempotent transform a second time, so we only run the
-      // built-in schema check here as a corruption guard.
-      const payload = validatePayload(def.payload, record.payload, def.id);
+      // send() before being stored. Re-running a custom validator could apply
+      // a non-idempotent transform a second time, and custom validators may
+      // deliberately accept a different input shape than the primitive schema.
+      const payload = def.validate
+        ? record.payload
+        : validatePayload(def.payload, record.payload, def.id);
       const existingNotification = record.notificationRecordId
         ? {
             id: record.notificationRecordId,

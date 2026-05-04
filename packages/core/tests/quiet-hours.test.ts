@@ -296,4 +296,48 @@ describe("quiet hours in send()", () => {
     expect(provider.sent).toHaveLength(1);
     expect(provider.sent[0]!.subject).toBe("Count: 1");
   });
+
+  test("deferred send preserves custom-validated payload shape", async () => {
+    const transforming = notification({
+      id: "custom_shape",
+      payload: { count: "number" },
+      channels: [
+        inbox({ title: "Count: {{count}}" }),
+        email({ subject: "Count: {{count}}", body: "Count: {{count}}" }),
+      ],
+      validate: (payload) => {
+        const p = payload as { rawCount: unknown };
+        if (typeof p.rawCount !== "string") {
+          throw new Error("rawCount must be a string");
+        }
+        return { count: Number(p.rawCount) };
+      },
+    });
+
+    const { qh } = kitWithQuietSelf("in");
+    const db = memoryAdapter();
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [transforming] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: qh,
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "custom_shape",
+      payload: { rawCount: "7" } as never,
+    });
+
+    await notify.flushScheduledSends();
+
+    expect(provider.sent).toHaveLength(1);
+    expect(provider.sent[0]!.subject).toBe("Count: 7");
+    expect(db._state.scheduledSends).toEqual([]);
+  });
 });
