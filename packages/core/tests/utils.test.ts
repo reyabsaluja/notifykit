@@ -8,6 +8,11 @@ describe("assertSafeWebhookUrl", () => {
     expect(result.hostHeader).toContain("hooks.slack.com");
   });
 
+  test("preserves custom port once in Host header", async () => {
+    const result = await assertSafeWebhookUrl("https://example.com:8443/hook");
+    expect(result.hostHeader).toBe("example.com:8443");
+  });
+
   test("rejects non-http protocols", async () => {
     await expect(assertSafeWebhookUrl("ftp://example.com")).rejects.toThrow(/http or https/);
     await expect(assertSafeWebhookUrl("javascript:alert(1)")).rejects.toThrow();

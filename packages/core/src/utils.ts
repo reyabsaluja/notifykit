@@ -270,9 +270,8 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
       }
       const pinnedIp = allAddresses[0]!;
       const pinnedHost = pinnedIp.includes(":") ? `[${pinnedIp}]` : pinnedIp;
-      const port = parsed.port ? `:${parsed.port}` : "";
       parsed.hostname = pinnedHost;
-      return { pinnedUrl: parsed.toString(), hostHeader: originalHost + port };
+      return { pinnedUrl: parsed.toString(), hostHeader: originalHost };
     } catch (err) {
       if (err instanceof NotifyKitError) throw err;
       throw new NotifyKitError(
