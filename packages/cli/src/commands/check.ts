@@ -30,8 +30,9 @@ export async function runCheck(options: CheckOptions): Promise<number> {
   if (warnings.length > 0) {
     console.warn(`\n${warnings.length} warning(s):`);
     for (const issue of warnings) {
+      const loc = [issue.notificationId, issue.channel].filter(Boolean).join(" → ");
       console.warn(
-        `  WARN  ${issue.notificationId} · ${issue.channel}.${issue.field}: ${issue.message}${issue.fix ? ` ${issue.fix}` : ""}`,
+        `  WARN  ${loc ? `${loc} · ` : ""}${issue.field}: ${issue.message}${issue.fix ? ` ${issue.fix}` : ""}`,
       );
     }
   }
@@ -39,8 +40,9 @@ export async function runCheck(options: CheckOptions): Promise<number> {
   if (errors.length > 0) {
     console.error(`\n${errors.length} error(s):`);
     for (const issue of errors) {
+      const loc = [issue.notificationId, issue.channel].filter(Boolean).join(" → ");
       console.error(
-        `  ERROR ${issue.notificationId} · ${issue.channel}.${issue.field}: ${issue.message}${issue.fix ? ` ${issue.fix}` : ""}`,
+        `  ERROR ${loc ? `${loc} · ` : ""}${issue.field}: ${issue.message}${issue.fix ? ` ${issue.fix}` : ""}`,
       );
     }
     return 1;

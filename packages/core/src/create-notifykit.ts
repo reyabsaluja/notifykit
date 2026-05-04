@@ -324,7 +324,7 @@ export function createNotifyKit<
   }
   if (warnings.length > 0) {
     for (const w of warnings) {
-      const loc = w.notificationId !== "-" ? `[${w.notificationId}] ` : "";
+      const loc = w.notificationId ? `[${w.notificationId}] ` : "";
       console.warn(`[notifykit] ${loc}${w.message}${w.fix ? ` ${w.fix}` : ""}`);
     }
   }

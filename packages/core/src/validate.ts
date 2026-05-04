@@ -20,8 +20,8 @@ export type ValidationSeverity = "error" | "warning";
 export type ValidationIssue = {
   severity: ValidationSeverity;
   code: string;
-  notificationId: string;
-  channel: string;
+  notificationId?: string;
+  channel?: string;
   field: string;
   message: string;
   fix?: string;
@@ -182,8 +182,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
     issues.push({
       severity: "error",
       code: "WEAK_UNSUBSCRIBE_SECRET",
-      notificationId: "-",
-      channel: "-",
       field: "unsubscribe.secret",
       message: `unsubscribe.secret must be at least 32 characters (got ${input.unsubscribe.secret.length}).`,
       fix: `Generate one: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
@@ -197,7 +195,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
         severity: "error",
         code: "RESERVED_ID",
         notificationId: def.id,
-        channel: "-",
         field: "id",
         message: `Notification id "${def.id}" is reserved for internal preference keys.`,
         fix: "Choose a different id that does not start with \"__\".",
@@ -209,7 +206,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
         severity: "error",
         code: "DUPLICATE_ID",
         notificationId: def.id,
-        channel: "-",
         field: "id",
         message: `Duplicate notification id "${def.id}".`,
         fix: "Notification ids must be unique across all definitions.",
@@ -223,7 +219,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
         severity: "warning",
         code: "ID_NAMING_CONVENTION",
         notificationId: def.id,
-        channel: "-",
         field: "id",
         message: `Notification id "${def.id}" does not match recommended convention (lowercase, dot/dash/underscore separators).`,
         fix: `Consider renaming to something like "${def.id.toLowerCase().replace(/[^a-z0-9._-]/g, "-")}".`,
@@ -237,7 +232,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
           severity: "error",
           code: "INVALID_SCHEMA_TYPE",
           notificationId: def.id,
-          channel: "-",
           field: `payload.${key}`,
           message: `Payload field "${key}" has unsupported type "${schemaType}".`,
           fix: `Supported types: "string", "number", "boolean". Change "${key}" to one of these.`,
@@ -251,7 +245,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
         severity: "error",
         code: "NO_CHANNELS",
         notificationId: def.id,
-        channel: "-",
         field: "channels",
         message: `Notification "${def.id}" has no channels configured.`,
         fix: "Add at least one channel (e.g. channel.inbox({ title: \"...\" })).",
@@ -347,7 +340,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
             severity: "error",
             code: "UNKNOWN_REDACT_FIELD",
             notificationId: def.id,
-            channel: "-",
             field: "redact",
             message: `Redact list includes "${key}" but it is not in the payload schema.`,
             fix: `Payload keys: ${[...schemaKeys].join(", ") || "(none)"}. Remove "${key}" or add it to the schema.`,
@@ -362,7 +354,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
         severity: "error",
         code: "INVALID_VERSION",
         notificationId: def.id,
-        channel: "-",
         field: "version",
         message: `Version must be a positive integer, got ${def.version}.`,
         fix: "Set version to a positive integer (e.g. version: 1) or remove it to leave unversioned.",
@@ -457,7 +448,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
         severity: "error",
         code: "INVALID_CLASSIFICATION",
         notificationId: def.id,
-        channel: "-",
         field: "classification",
         message: `Notification "${def.id}" has invalid classification "${def.classification}".`,
         fix: `Must be "transactional", "product", or "marketing".`,
@@ -532,8 +522,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
         issues.push({
           severity: "error",
           code: "UNKNOWN_CATEGORY",
-          notificationId: "-",
-          channel: "-",
           field: "defaults.categories",
           message: `Category default "${cat}" does not match any registered notification category.`,
           fix: `Known categories: ${[...allCategories].join(", ") || "(none)"}. Remove "${cat}" or add it to a notification definition.`,
@@ -550,8 +538,8 @@ export function formatValidationIssues(issues: ValidationIssue[]): string {
   const lines: string[] = [];
   for (const issue of issues) {
     const prefix = issue.severity === "error" ? "ERROR" : "WARN";
-    const loc = issue.notificationId !== "-"
-      ? issue.channel !== "-"
+    const loc = issue.notificationId
+      ? issue.channel
         ? `[${issue.notificationId} → ${issue.channel}]`
         : `[${issue.notificationId}]`
       : "";
