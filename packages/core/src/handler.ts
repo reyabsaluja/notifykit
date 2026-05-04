@@ -113,6 +113,13 @@ export type CreateHandlerOptions = {
     windowMs: number;
   };
   /**
+   * When `true`, error responses include a `fix` field with actionable
+   * guidance. Disable in production to avoid leaking internal identifiers
+   * (recipient IDs, item IDs, permission names) to HTTP clients.
+   * Defaults to `false`.
+   */
+  debug?: boolean;
+  /**
    * Inbound provider webhook configuration. Maps provider names to a verifier
    * function. When set, a `POST /webhooks/:provider` route is exposed. The
    * verifier receives the request headers and raw body and must return `true` for
@@ -173,10 +180,17 @@ export function createHandler<
   const unsubscribeSecret = options.unsubscribeSecret;
   const corsOrigin = options.cors ?? null;
   const requestRateLimit = options.requestRateLimit ?? null;
+  const debug = options.debug ?? false;
   const rateLimitBuckets = new Map<string, number[]>();
   let lastSweep = Date.now();
   const SWEEP_INTERVAL = 60_000;
   const MAX_BUCKETS = 10_000;
+
+  function errorJson(body: { error: string; code: string; fix?: string }, status: number): Response {
+    const out: { error: string; code: string; fix?: string } = { error: body.error, code: body.code };
+    if (debug && body.fix) out.fix = body.fix;
+    return json(out, status);
+  }
 
   /** Returns true when the caller should be rejected with 429. */
   function checkRateLimit(recipientId: string): boolean {
@@ -276,7 +290,7 @@ export function createHandler<
       if (options.protectNotifications) {
         const identity = normalizeIdentity(await options.identify(request));
         if (!identity) {
-          return withCors(json({
+          return withCors(errorJson({
             error: "Unauthenticated",
             code: "UNAUTHENTICATED",
             fix: "The /notifications route is protected. Ensure the request includes valid authentication.",
@@ -284,7 +298,7 @@ export function createHandler<
         }
         if (requestRateLimit) {
           if (checkRateLimit(identity.recipientId)) {
-            return withCors(json({
+            return withCors(errorJson({
               error: "Too many requests",
               code: "RATE_LIMITED",
               fix: `Rate limit exceeded for recipient "${identity.recipientId}".`,
@@ -308,7 +322,7 @@ export function createHandler<
         if (origin) {
           const expected = new URL(url.href).origin;
           if (origin !== expected) {
-            return withCors(json({
+            return withCors(errorJson({
               error: "Forbidden",
               code: "ORIGIN_MISMATCH",
               fix: `Unsubscribe POST origin "${origin}" does not match expected "${expected}". The request must originate from the same host.`,
@@ -372,7 +386,7 @@ export function createHandler<
         verified = false;
       }
       if (!verified) {
-        return withCors(json({
+        return withCors(errorJson({
           error: "Unauthorized",
           code: "WEBHOOK_VERIFICATION_FAILED",
           fix: `Webhook signature verification failed for provider "${route.provider}". Ensure the signing secret matches the one configured in your provider dashboard.`,
@@ -396,7 +410,7 @@ export function createHandler<
 
     const identity = normalizeIdentity(await options.identify(request));
     if (!identity) {
-      return withCors(json({
+      return withCors(errorJson({
         error: "Unauthenticated",
         code: "UNAUTHENTICATED",
         fix: "The identify() function returned null. Ensure the request includes valid authentication (e.g. session cookie, Bearer token) and that identify() returns a recipientId.",
@@ -405,7 +419,7 @@ export function createHandler<
 
     if (requestRateLimit) {
       if (checkRateLimit(identity.recipientId)) {
-        return withCors(json({
+        return withCors(errorJson({
           error: "Too many requests",
           code: "RATE_LIMITED",
           fix: `Rate limit exceeded for recipient "${identity.recipientId}". Wait before retrying. Limit: ${requestRateLimit.max} requests per ${requestRateLimit.windowMs}ms.`,
@@ -497,10 +511,10 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return withCors(json({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists. It may have been deleted.` }, 404));
+            return withCors(errorJson({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists. It may have been deleted.` }, 404));
           }
           if (result.status === "forbidden") {
-            return withCors(json({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
+            return withCors(errorJson({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
           }
           return withCors(json({ data: result.item }));
         }
@@ -525,10 +539,10 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return withCors(json({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
+            return withCors(errorJson({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
           }
           if (result.status === "forbidden") {
-            return withCors(json({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
+            return withCors(errorJson({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
           }
           return withCors(json({ data: result.item }));
         }
@@ -539,10 +553,10 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return withCors(json({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
+            return withCors(errorJson({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
           }
           if (result.status === "forbidden") {
-            return withCors(json({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
+            return withCors(errorJson({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
           }
           return withCors(json({ data: result.item }));
         }
@@ -553,10 +567,10 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return withCors(json({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
+            return withCors(errorJson({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
           }
           if (result.status === "forbidden") {
-            return withCors(json({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
+            return withCors(errorJson({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
           }
           return withCors(json({ data: { deleted: true } }));
         }
@@ -725,7 +739,7 @@ export function createHandler<
             "deliveries.list",
           );
           if (!allowed) {
-            return withCors(json({
+            return withCors(errorJson({
               error: "Forbidden",
               code: "FORBIDDEN",
               fix: `Recipient "${context.recipientId}" lacks the "deliveries.list" or "admin" permission. Grant it via identify() permissions or the authorize() hook.`,
