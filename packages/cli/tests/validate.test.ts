@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { channel, notification } from "notifykit";
+import { channel, notification, fakeEmailProvider } from "notifykit";
 import { validateNotifications } from "../src/validate.js";
 
 const inbox = channel.inbox();
@@ -15,7 +15,7 @@ describe("validateNotifications", () => {
         email({ subject: "Hi {{name}}", body: "Welcome, {{name}}!" }),
       ],
     });
-    expect(validateNotifications([ok])).toEqual([]);
+    expect(validateNotifications([ok], { providers: { email: fakeEmailProvider() } })).toEqual([]);
   });
 
   test("flags unknown template key in inbox title", () => {
@@ -44,7 +44,7 @@ describe("validateNotifications", () => {
         email({ subject: "{{a}} {{d}}", body: "plain {{a}}" }),
       ],
     });
-    const issues = validateNotifications([bad]);
+    const issues = validateNotifications([bad], { providers: { email: fakeEmailProvider() } });
     const keys = issues.map((i) => `${i.field}:${i.message.match(/"\{\{(\w+)\}\}"/)?.[1] ?? ""}`);
     expect(keys).toContain("body:b");
     expect(keys).toContain("actionUrl:c");
@@ -75,5 +75,64 @@ describe("validateNotifications", () => {
     });
     const issues = validateNotifications([a, b]);
     expect(issues.some((i) => i.message.includes("Duplicate"))).toBe(true);
+  });
+
+  test("flags missing provider when email channel used without providers", () => {
+    const def = notification({
+      id: "need_email",
+      payload: { x: "string" },
+      channels: [
+        inbox({ title: "{{x}}" }),
+        email({ subject: "{{x}}", body: "body" }),
+      ],
+    });
+    const issues = validateNotifications([def]);
+    expect(issues.some((i) => i.code === "MISSING_PROVIDER")).toBe(true);
+  });
+
+  test("no missing provider error when email provider is passed", () => {
+    const def = notification({
+      id: "has_email",
+      payload: { x: "string" },
+      channels: [
+        email({ subject: "{{x}}", body: "body" }),
+      ],
+    });
+    const issues = validateNotifications([def], { providers: { email: fakeEmailProvider() } });
+    expect(issues.filter((i) => i.code === "MISSING_PROVIDER")).toEqual([]);
+  });
+
+  test("flags unsupported payload schema type", () => {
+    const def = notification({
+      id: "bad_schema",
+      payload: { count: "integer" as never },
+      channels: [inbox({ title: "hi" })],
+    });
+    const issues = validateNotifications([def]);
+    expect(issues.some((i) => i.code === "INVALID_SCHEMA_TYPE")).toBe(true);
+    expect(issues[0]!.message).toMatch(/integer/);
+  });
+
+  test("flags missing email subject (channel shape)", () => {
+    const def = notification({
+      id: "bad_email",
+      payload: { x: "string" },
+      channels: [{ type: "email", subject: "", body: "ok" } as never],
+    });
+    const issues = validateNotifications([def], { providers: { email: fakeEmailProvider() } });
+    expect(issues.some((i) => i.code === "INVALID_CHANNEL_SHAPE")).toBe(true);
+  });
+
+  test("flags invalid fallback from channel", () => {
+    const def = notification({
+      id: "bad_fb",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+      fallback: [
+        { if: "channel.failed", from: "push" as never, then: inbox({ title: "fallback" }) },
+      ],
+    });
+    const issues = validateNotifications([def]);
+    expect(issues.some((i) => i.code === "INVALID_FALLBACK_FROM")).toBe(true);
   });
 });

@@ -99,10 +99,24 @@ export type WebhookChannelConfig = {
   headers?: Record<string, string>;
 };
 
+export type SmsChannelConfig = {
+  type: "sms";
+  body: string;
+};
+
 export type ChannelConfig =
   | InboxChannelConfig
   | EmailChannelConfig
-  | WebhookChannelConfig;
+  | WebhookChannelConfig
+  | SmsChannelConfig;
+
+export type FallbackTrigger = "channel.failed" | "missing_address" | "skipped";
+
+export type FallbackRule = {
+  if: FallbackTrigger;
+  then: ChannelConfig;
+  from?: ChannelType;
+};
 
 export type RateLimitConfig = {
   /** Maximum sends allowed within `windowMs`. */
@@ -173,11 +187,12 @@ export type NotificationDefinition<
   digest?: AnyDigestConfig;
   rateLimit?: RateLimitConfig;
   /**
-   * Channel used when every primary delivery has terminally failed. Only
-   * inbox is supported today — it runs after retries are exhausted so users
-   * always see the message even if their email bounces.
+   * Fallback behavior when a channel fails, is skipped, or the recipient
+   * lacks a destination address. Pass a single `InboxChannelConfig` for the
+   * legacy inbox-only fallback, or an array of `FallbackRule` objects for
+   * rule-based routing (e.g. email fails → send SMS).
    */
-  fallback?: InboxChannelConfig;
+  fallback?: InboxChannelConfig | FallbackRule[];
   /** Human-readable description for docs, studio, and generated contracts. */
   description?: string;
   /**
@@ -247,6 +262,7 @@ export type Recipient = {
   tenantId?: string;
   workspaceId?: string;
   email?: string;
+  phone?: string;
   name?: string;
   quietHours?: QuietHours | null;
   createdAt: Date;
@@ -256,6 +272,7 @@ export type Recipient = {
 export type UpsertRecipientInput = SecurityScope & {
   id: string;
   email?: string;
+  phone?: string;
   name?: string;
   /** Pass `null` to clear. Pass `undefined` (omit) to leave as-is. */
   quietHours?: QuietHours | null;
@@ -379,7 +396,7 @@ export type DigestBufferEntry = {
 
 export type DeliveryStatus = "pending" | "sent" | "failed";
 
-export type DeliveryChannel = "email" | "webhook";
+export type DeliveryChannel = "email" | "webhook" | "sms";
 
 export type DeliveryRecord = {
   id: string;
@@ -431,6 +448,14 @@ export type WebhookProvider = {
   }): Promise<{ providerMessageId?: string }>;
 };
 
+export type SmsProvider = {
+  id: string;
+  send(input: {
+    to: string;
+    body: string;
+  }): Promise<{ providerMessageId?: string }>;
+};
+
 export type DeliveryJob =
   | {
       deliveryId: string;
@@ -457,6 +482,19 @@ export type DeliveryJob =
       provider: string;
       url: string;
       headers: Record<string, string>;
+      payload: Record<string, unknown>;
+    }
+  | {
+      deliveryId: string;
+      notificationRecordId: string;
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      notificationId: string;
+      channel: "sms";
+      provider: string;
+      to: string;
+      body: string;
       payload: Record<string, unknown>;
     };
 

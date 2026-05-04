@@ -543,7 +543,7 @@ describe("drizzlePostgresAdapter", () => {
     });
 
     await expect(notify.flushDigests()).rejects.toThrow(
-      /expected "count" to be number/,
+      /Expected "count" to be number/,
     );
 
     const buffered = await db.execute(

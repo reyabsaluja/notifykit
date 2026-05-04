@@ -17,6 +17,7 @@ export const recipients = pgTable("notifykit_recipients", {
   tenantId: text("tenant_id"),
   workspaceId: text("workspace_id"),
   email: text("email"),
+  phone: text("phone"),
   name: text("name"),
   quietHours: jsonb("quiet_hours").$type<{
     start: string;
@@ -84,7 +85,7 @@ export const deliveries = pgTable(
     tenantId: text("tenant_id"),
     workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
-    channel: text("channel").notNull().$type<"email" | "webhook">(),
+    channel: text("channel").notNull().$type<"email" | "webhook" | "sms">(),
     provider: text("provider").notNull(),
     status: text("status").notNull().$type<"pending" | "sent" | "failed">(),
     to: text("to"),

@@ -407,7 +407,7 @@ describe("createHandler", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           notificationId: "comment_mentioned",
-          channels: { sms: false },
+          channels: { push: false },
         }),
       }),
     );

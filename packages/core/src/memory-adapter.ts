@@ -77,6 +77,7 @@ export function memoryAdapter(): MemoryAdapter {
             existing.workspaceId = input.workspaceId;
           }
           if (input.email !== undefined) existing.email = input.email;
+          if (input.phone !== undefined) existing.phone = input.phone;
           if (input.name !== undefined) existing.name = input.name;
           if (input.quietHours !== undefined) {
             existing.quietHours = input.quietHours;
@@ -89,6 +90,7 @@ export function memoryAdapter(): MemoryAdapter {
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
           email: input.email,
+          phone: input.phone,
           name: input.name,
           quietHours: input.quietHours ?? undefined,
           createdAt: now,

@@ -8,12 +8,13 @@ const USAGE = `
 notifykit — app-native notification framework CLI
 
 Usage:
-  notifykit check  [--config <path>]
+  notifykit check  [--config <path>] [--strict]
   notifykit serve  [--config <path>] [--port <n>] [--dev-user <id>] [--base-path <p>]
   notifykit send   --to <recipientId> --id <notificationId> [--payload <json>] [--email <addr>] [--config <path>]
 
 Examples:
   notifykit check
+  notifykit check --strict
   notifykit serve --port 4000 --dev-user me
   notifykit send --to user_1 --id comment_mentioned --payload '{"actorName":"Rey","postTitle":"Plan","postUrl":"/p"}' --email me@x.com
 `.trim();
@@ -54,11 +55,12 @@ async function handleCheck(args: string[]): Promise<number> {
     args,
     options: {
       config: { type: "string" },
+      strict: { type: "boolean", default: false },
     },
     allowPositionals: false,
     strict: true,
   });
-  return runCheck({ cwd: process.cwd(), config: values.config });
+  return runCheck({ cwd: process.cwd(), config: values.config, strict: values.strict });
 }
 
 async function handleServe(args: string[]): Promise<number> {

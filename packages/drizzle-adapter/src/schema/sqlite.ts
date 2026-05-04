@@ -15,6 +15,7 @@ export const recipients = sqliteTable("notifykit_recipients", {
   tenantId: text("tenant_id"),
   workspaceId: text("workspace_id"),
   email: text("email"),
+  phone: text("phone"),
   name: text("name"),
   quietHours: text("quiet_hours", { mode: "json" }).$type<{
     start: string;
@@ -87,7 +88,7 @@ export const deliveries = sqliteTable(
     tenantId: text("tenant_id"),
     workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
-    channel: text("channel").notNull().$type<"email" | "webhook">(),
+    channel: text("channel").notNull().$type<"email" | "webhook" | "sms">(),
     provider: text("provider").notNull(),
     status: text("status")
       .notNull()

@@ -2008,7 +2008,7 @@ describe("recipient tenant immutability", () => {
 
     await expect(
       notify.upsertRecipient({ id: "alice", tenantId: "orgB" }),
-    ).rejects.toThrow(/Cannot reassign to tenant/);
+    ).rejects.toThrow(/cannot reassign/);
   });
 
   test("upsertRecipient allows re-upserting same tenant", async () => {

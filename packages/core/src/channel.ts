@@ -1,6 +1,7 @@
 import type {
   EmailChannelConfig,
   InboxChannelConfig,
+  SmsChannelConfig,
   WebhookChannelConfig,
 } from "./types.js";
 
@@ -22,9 +23,14 @@ export type WebhookChannelInput = {
   headers?: Record<string, string>;
 };
 
+export type SmsChannelInput = {
+  body: string;
+};
+
 export type InboxChannelFactory = (input: InboxChannelInput) => InboxChannelConfig;
 export type EmailChannelFactory = (input: EmailChannelInput) => EmailChannelConfig;
 export type WebhookChannelFactory = (input: WebhookChannelInput) => WebhookChannelConfig;
+export type SmsChannelFactory = (input: SmsChannelInput) => SmsChannelConfig;
 
 function inboxFactory(): InboxChannelFactory {
   return (input) => ({
@@ -52,8 +58,16 @@ function webhookFactory(): WebhookChannelFactory {
   });
 }
 
+function smsFactory(): SmsChannelFactory {
+  return (input) => ({
+    type: "sms",
+    body: input.body,
+  });
+}
+
 export const channel = {
   inbox: inboxFactory,
   email: emailFactory,
   webhook: webhookFactory,
+  sms: smsFactory,
 };

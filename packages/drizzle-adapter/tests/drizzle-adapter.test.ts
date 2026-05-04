@@ -544,7 +544,7 @@ describe("drizzleSqliteAdapter", () => {
     });
 
     await expect(notify.flushDigests()).rejects.toThrow(
-      /expected "count" to be number/,
+      /Expected "count" to be number/,
     );
 
     const buffered = sqlite

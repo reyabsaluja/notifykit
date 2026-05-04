@@ -5,13 +5,18 @@ import type {
   EmailProvider,
   NotificationDefinition,
   PayloadSchema,
+  SmsProvider,
+  WebhookProvider,
 } from "notifykit";
 
 export type NotifyKitConfig = {
   notifications: readonly NotificationDefinition<string, PayloadSchema>[];
   providers?: {
     email?: EmailProvider;
+    webhook?: WebhookProvider;
+    sms?: SmsProvider;
   };
+  unsubscribe?: { secret: string; baseUrl: string };
 };
 
 export function defineConfig(config: NotifyKitConfig): NotifyKitConfig {

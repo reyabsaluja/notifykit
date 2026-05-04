@@ -276,11 +276,19 @@ export function createHandler<
       if (options.protectNotifications) {
         const identity = normalizeIdentity(await options.identify(request));
         if (!identity) {
-          return withCors(json({ error: "Unauthenticated" }, 401));
+          return withCors(json({
+            error: "Unauthenticated",
+            code: "UNAUTHENTICATED",
+            fix: "The /notifications route is protected. Ensure the request includes valid authentication.",
+          }, 401));
         }
         if (requestRateLimit) {
           if (checkRateLimit(identity.recipientId)) {
-            return withCors(json({ error: "Too many requests" }, 429));
+            return withCors(json({
+              error: "Too many requests",
+              code: "RATE_LIMITED",
+              fix: `Rate limit exceeded for recipient "${identity.recipientId}".`,
+            }, 429));
           }
         }
       }
@@ -300,7 +308,11 @@ export function createHandler<
         if (origin) {
           const expected = new URL(url.href).origin;
           if (origin !== expected) {
-            return withCors(json({ error: "Forbidden" }, 403));
+            return withCors(json({
+              error: "Forbidden",
+              code: "ORIGIN_MISMATCH",
+              fix: `Unsubscribe POST origin "${origin}" does not match expected "${expected}". The request must originate from the same host.`,
+            }, 403));
           }
         }
       }
@@ -360,7 +372,11 @@ export function createHandler<
         verified = false;
       }
       if (!verified) {
-        return withCors(json({ error: "Unauthorized" }, 401));
+        return withCors(json({
+          error: "Unauthorized",
+          code: "WEBHOOK_VERIFICATION_FAILED",
+          fix: `Webhook signature verification failed for provider "${route.provider}". Ensure the signing secret matches the one configured in your provider dashboard.`,
+        }, 401));
       }
       let payload: unknown;
       try {
@@ -380,12 +396,20 @@ export function createHandler<
 
     const identity = normalizeIdentity(await options.identify(request));
     if (!identity) {
-      return withCors(json({ error: "Unauthenticated" }, 401));
+      return withCors(json({
+        error: "Unauthenticated",
+        code: "UNAUTHENTICATED",
+        fix: "The identify() function returned null. Ensure the request includes valid authentication (e.g. session cookie, Bearer token) and that identify() returns a recipientId.",
+      }, 401));
     }
 
     if (requestRateLimit) {
       if (checkRateLimit(identity.recipientId)) {
-        return withCors(json({ error: "Too many requests" }, 429));
+        return withCors(json({
+          error: "Too many requests",
+          code: "RATE_LIMITED",
+          fix: `Rate limit exceeded for recipient "${identity.recipientId}". Wait before retrying. Limit: ${requestRateLimit.max} requests per ${requestRateLimit.windowMs}ms.`,
+        }, 429));
       }
     }
 
@@ -473,10 +497,10 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return withCors(json({ error: "Inbox item not found" }, 404));
+            return withCors(json({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists. It may have been deleted.` }, 404));
           }
           if (result.status === "forbidden") {
-            return withCors(json({ error: "Forbidden" }, 403));
+            return withCors(json({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
           }
           return withCors(json({ data: result.item }));
         }
@@ -501,10 +525,10 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return withCors(json({ error: "Inbox item not found" }, 404));
+            return withCors(json({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
           }
           if (result.status === "forbidden") {
-            return withCors(json({ error: "Forbidden" }, 403));
+            return withCors(json({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
           }
           return withCors(json({ data: result.item }));
         }
@@ -515,10 +539,10 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return withCors(json({ error: "Inbox item not found" }, 404));
+            return withCors(json({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
           }
           if (result.status === "forbidden") {
-            return withCors(json({ error: "Forbidden" }, 403));
+            return withCors(json({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
           }
           return withCors(json({ data: result.item }));
         }
@@ -529,10 +553,10 @@ export function createHandler<
             context,
           );
           if (result.status === "not_found") {
-            return withCors(json({ error: "Inbox item not found" }, 404));
+            return withCors(json({ error: "Inbox item not found", code: "NOT_FOUND", fix: `No inbox item with id "${route.id}" exists.` }, 404));
           }
           if (result.status === "forbidden") {
-            return withCors(json({ error: "Forbidden" }, 403));
+            return withCors(json({ error: "Forbidden", code: "FORBIDDEN", fix: `Inbox item "${route.id}" does not belong to recipient "${context.recipientId}".` }, 403));
           }
           return withCors(json({ data: { deleted: true } }));
         }
@@ -701,7 +725,11 @@ export function createHandler<
             "deliveries.list",
           );
           if (!allowed) {
-            return withCors(json({ error: "Forbidden" }, 403));
+            return withCors(json({
+              error: "Forbidden",
+              code: "FORBIDDEN",
+              fix: `Recipient "${context.recipientId}" lacks the "deliveries.list" or "admin" permission. Grant it via identify() permissions or the authorize() hook.`,
+            }, 403));
           }
           const isAdmin = await isAdminIdentity(options, context);
           const recipientId = isAdmin
@@ -939,7 +967,7 @@ function normalizeBasePath(input: string): string {
   return p;
 }
 
-const VALID_CHANNEL_TYPES = new Set<string>(["inbox", "email", "webhook"]);
+const VALID_CHANNEL_TYPES = new Set<string>(["inbox", "email", "webhook", "sms"]);
 
 function toChannelPreferenceMap(input: unknown): ChannelPreferenceMap | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;

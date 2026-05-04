@@ -1,146 +1,16 @@
-import type {
-  NotificationDefinition,
-  PayloadSchema,
-} from "notifykit";
+import type { PayloadSchema, NotificationDefinition } from "notifykit";
+import {
+  validateConfig,
+  type ValidateConfigInput,
+  type ValidationIssue,
+  type ValidationSeverity,
+} from "notifykit/validate";
 
-export type ValidationIssue = {
-  notificationId: string;
-  channel: string;
-  field: string;
-  message: string;
-};
-
-const TEMPLATE_RE = /\{\{\s*([\w.$]+)\s*\}\}/g;
+export type { ValidationIssue, ValidationSeverity };
 
 export function validateNotifications(
   notifications: readonly NotificationDefinition<string, PayloadSchema>[],
+  options?: Omit<ValidateConfigInput, "notifications">,
 ): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
-  const seenIds = new Set<string>();
-
-  for (const def of notifications) {
-    if (seenIds.has(def.id)) {
-      issues.push({
-        notificationId: def.id,
-        channel: "-",
-        field: "id",
-        message: `Duplicate notification id "${def.id}".`,
-      });
-      continue;
-    }
-    seenIds.add(def.id);
-
-    if (def.channels.length === 0) {
-      issues.push({
-        notificationId: def.id,
-        channel: "-",
-        field: "channels",
-        message: `No channels configured. Add at least one channel.`,
-      });
-    }
-
-    // `_unsubscribeUrl` is injected by the engine at render time for email
-    // templates. It's valid to reference it even though it's not declared in
-    // the payload schema.
-    const payloadKeys = new Set([...Object.keys(def.payload), "_unsubscribeUrl"]);
-
-    for (const [i, ch] of def.channels.entries()) {
-      const label = `${ch.type}[${i}]`;
-      if (ch.type === "inbox") {
-        collectIssues(def, label, "title", ch.title, payloadKeys, issues);
-        if (ch.body !== undefined) {
-          collectIssues(def, label, "body", ch.body, payloadKeys, issues);
-        }
-        if (ch.actionUrl !== undefined) {
-          collectIssues(
-            def,
-            label,
-            "actionUrl",
-            ch.actionUrl,
-            payloadKeys,
-            issues,
-          );
-        }
-      } else if (ch.type === "email") {
-        collectIssues(def, label, "subject", ch.subject, payloadKeys, issues);
-        collectIssues(def, label, "body", ch.body, payloadKeys, issues);
-      } else if (ch.type === "webhook") {
-        collectIssues(def, label, "url", ch.url, payloadKeys, issues);
-        if (ch.headers) {
-          for (const [hk, hv] of Object.entries(ch.headers)) {
-            collectIssues(
-              def,
-              label,
-              `headers.${hk}`,
-              hv,
-              payloadKeys,
-              issues,
-            );
-          }
-        }
-      }
-    }
-
-    if (def.fallback) {
-      const label = "fallback";
-      collectIssues(def, label, "title", def.fallback.title, payloadKeys, issues);
-      if (def.fallback.body !== undefined) {
-        collectIssues(def, label, "body", def.fallback.body, payloadKeys, issues);
-      }
-      if (def.fallback.actionUrl !== undefined) {
-        collectIssues(def, label, "actionUrl", def.fallback.actionUrl, payloadKeys, issues);
-      }
-    }
-
-    if (def.redact) {
-      for (const field of def.redact) {
-        const key = String(field);
-        if (!payloadKeys.has(key) || key === "_unsubscribeUrl") {
-          issues.push({
-            notificationId: def.id,
-            channel: "-",
-            field: "redact",
-            message: `Redact list includes "${key}" but it is not in the payload schema.`,
-          });
-        }
-      }
-    }
-
-    if (def.version !== undefined && (!Number.isInteger(def.version) || def.version < 1)) {
-      issues.push({
-        notificationId: def.id,
-        channel: "-",
-        field: "version",
-        message: `Version must be a positive integer, got ${def.version}.`,
-      });
-    }
-  }
-  return issues;
-}
-
-function collectIssues(
-  def: NotificationDefinition<string, PayloadSchema>,
-  channel: string,
-  field: string,
-  template: string,
-  payloadKeys: Set<string>,
-  out: ValidationIssue[],
-): void {
-  TEMPLATE_RE.lastIndex = 0;
-  const referenced = new Set<string>();
-  let match: RegExpExecArray | null;
-  while ((match = TEMPLATE_RE.exec(template)) !== null) {
-    const key = match[1];
-    if (key) referenced.add(key);
-  }
-  for (const key of referenced) {
-    if (!payloadKeys.has(key)) {
-      out.push({
-        notificationId: def.id,
-        channel,
-        field,
-        message: `Template references "{{${key}}}" but payload has no "${key}" field.`,
-      });
-    }
-  }
+  return validateConfig({ notifications, ...options });
 }

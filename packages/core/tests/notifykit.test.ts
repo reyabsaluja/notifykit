@@ -294,7 +294,7 @@ describe("NotifyKit core", () => {
         // @ts-expect-error — deliberately wrong type
         payload: { name: 123 },
       }),
-    ).rejects.toThrow(/expected "name" to be string/);
+    ).rejects.toThrow(/Expected "name" to be string/);
 
     await expect(
       notify.send({
@@ -303,7 +303,7 @@ describe("NotifyKit core", () => {
         // @ts-expect-error — missing key
         payload: {},
       }),
-    ).rejects.toThrow(/missing "name"/);
+    ).rejects.toThrow(/Missing "name"/);
   });
 
   test("event hooks are called", async () => {

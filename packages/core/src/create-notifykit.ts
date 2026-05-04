@@ -45,7 +45,8 @@ import {
 } from "./preference-keys.js";
 import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, assertSafeWebhookUrl, extractTemplateVars, isSafeUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, assertSafeWebhookUrl, isSafeUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
+import { validateConfig, formatValidationIssues } from "./validate.js";
 
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
@@ -304,13 +305,29 @@ export function createNotifyKit<
     delayMs: config.retry?.delayMs ?? defaultRetryPolicy.delayMs,
   };
   const unsubscribeConfig = config.unsubscribe ?? null;
-  if (unsubscribeConfig && unsubscribeConfig.secret.length < 32) {
+  const realtimeAdapter = config.realtime;
+
+  // --- Startup validation: fail fast with all errors at once ---
+  const startupIssues = validateConfig({
+    notifications,
+    providers,
+    unsubscribe: config.unsubscribe,
+    defaults: config.defaults,
+  });
+  const errors = startupIssues.filter((i) => i.severity === "error");
+  const warnings = startupIssues.filter((i) => i.severity === "warning");
+  if (errors.length > 0) {
     throw new NotifyKitError(
-      "unsubscribe.secret must be at least 32 characters. " +
-      "Generate one: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+      `Invalid NotifyKit configuration (${errors.length} error${errors.length > 1 ? "s" : ""}):\n${formatValidationIssues(errors)}`,
+      { code: "INVALID_CONFIG" },
     );
   }
-  const realtimeAdapter = config.realtime;
+  if (warnings.length > 0) {
+    for (const w of warnings) {
+      const loc = w.notificationId !== "-" ? `[${w.notificationId}] ` : "";
+      console.warn(`[notifykit] ${loc}${w.message}${w.fix ? ` ${w.fix}` : ""}`);
+    }
+  }
 
   function buildUnsubscribeUrl(
     recipient: Recipient,
@@ -333,199 +350,7 @@ export function createNotifyKit<
 
   const byId = new Map<string, NotificationDefinition<string, PayloadSchema>>();
   for (const def of notifications) {
-    if (isSyntheticPreferenceKey(def.id)) {
-      throw new NotifyKitError(
-        `Notification id "${def.id}" is reserved for internal preference keys. ` +
-          `Choose a different id.`,
-      );
-    }
-    if (byId.has(def.id)) {
-      throw new NotifyKitError(
-        `Duplicate notification id: "${def.id}". Notification ids must be unique.`,
-      );
-    }
     byId.set(def.id, def);
-
-    if (def.channels.length === 0) {
-      throw new NotifyKitError(
-        `Notification "${def.id}" has no channels. Add at least one channel.`,
-      );
-    }
-    const seenTypes = new Set<string>();
-    for (const ch of def.channels) {
-      if (seenTypes.has(ch.type)) {
-        throw new NotifyKitError(
-          `Notification "${def.id}" has duplicate "${ch.type}" channel configs. Each channel type may only appear once.`,
-        );
-      }
-      seenTypes.add(ch.type);
-    }
-    const schemaKeys = new Set(Object.keys(def.payload));
-    const builtInVars = new Set(["_unsubscribeUrl"]);
-    for (const ch of def.channels) {
-      const templates: string[] = [];
-      if (ch.type === "inbox") {
-        templates.push(ch.title);
-        if (ch.body) templates.push(ch.body);
-        if (ch.actionUrl) templates.push(ch.actionUrl);
-      } else if (ch.type === "email") {
-        templates.push(ch.subject, ch.body);
-      } else if (ch.type === "webhook") {
-        templates.push(ch.url);
-        if (ch.headers) {
-          for (const v of Object.values(ch.headers)) templates.push(v);
-        }
-      } else if (ch.type === "sms") {
-        templates.push(ch.body);
-      }
-      for (const tmpl of templates) {
-        const vars = extractTemplateVars(tmpl);
-        for (const v of vars) {
-          if (!schemaKeys.has(v) && !builtInVars.has(v)) {
-            throw new NotifyKitError(
-              `Notification "${def.id}" references template variable "{{${v}}}" ` +
-                `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}. ` +
-                `Add "${v}" to the payload schema or fix the template.`,
-            );
-          }
-        }
-      }
-    }
-    if (def.fallback) {
-      const fallbackConfigs = isLegacyFallback(def.fallback)
-        ? [def.fallback]
-        : def.fallback.map((r) => r.then);
-      for (const fb of fallbackConfigs) {
-        const templates: string[] = [];
-        if (fb.type === "inbox") {
-          templates.push(fb.title);
-          if (fb.body) templates.push(fb.body);
-          if (fb.actionUrl) templates.push(fb.actionUrl);
-        } else if (fb.type === "email") {
-          templates.push(fb.subject, fb.body);
-        } else if (fb.type === "webhook") {
-          templates.push(fb.url);
-          if (fb.headers) {
-            for (const v of Object.values(fb.headers)) templates.push(v);
-          }
-        } else if (fb.type === "sms") {
-          templates.push(fb.body);
-        }
-        for (const tmpl of templates) {
-          const vars = extractTemplateVars(tmpl);
-          for (const v of vars) {
-            if (!schemaKeys.has(v) && !builtInVars.has(v)) {
-              throw new NotifyKitError(
-                `Notification "${def.id}" fallback references template variable "{{${v}}}" ` +
-                  `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}.`,
-              );
-            }
-          }
-        }
-      }
-      if (!isLegacyFallback(def.fallback)) {
-        const validTriggers = new Set<string>(["channel.failed", "missing_address", "skipped"]);
-        for (const rule of def.fallback) {
-          if (!validTriggers.has(rule.if)) {
-            throw new NotifyKitError(
-              `Notification "${def.id}" fallback rule has unknown trigger "${rule.if}".`,
-            );
-          }
-        }
-      }
-    }
-    if (def.redact) {
-      for (const field of def.redact) {
-        if (!schemaKeys.has(String(field))) {
-          throw new NotifyKitError(
-            `Notification "${def.id}" redact list includes "${String(field)}" ` +
-              `but the payload schema only defines: ${[...schemaKeys].join(", ") || "(none)"}.`,
-          );
-        }
-      }
-    }
-    if (def.version !== undefined && (!Number.isInteger(def.version) || def.version < 1)) {
-      throw new NotifyKitError(
-        `Notification "${def.id}" version must be a positive integer, got ${def.version}.`,
-      );
-    }
-
-    const channelTypes = new Set(def.channels.map((ch) => ch.type));
-    if (channelTypes.has("email") && !providers?.email) {
-      throw new NotifyKitError(
-        `Notification "${def.id}" has an email channel but no email provider is configured. ` +
-          `Pass a provider via createNotifyKit({ providers: { email: ... } }).`,
-      );
-    }
-    if (channelTypes.has("webhook") && !providers?.webhook) {
-      throw new NotifyKitError(
-        `Notification "${def.id}" has a webhook channel but no webhook provider is configured. ` +
-          `Pass a provider via createNotifyKit({ providers: { webhook: ... } }).`,
-      );
-    }
-    if (channelTypes.has("sms") && !providers?.sms) {
-      throw new NotifyKitError(
-        `Notification "${def.id}" has an sms channel but no sms provider is configured. ` +
-          `Pass a provider via createNotifyKit({ providers: { sms: ... } }).`,
-      );
-    }
-    if (def.fallback) {
-      const fallbackTypes = new Set(
-        isLegacyFallback(def.fallback)
-          ? [def.fallback.type]
-          : def.fallback.map((r) => r.then.type),
-      );
-      if (fallbackTypes.has("email") && !providers?.email) {
-        throw new NotifyKitError(
-          `Notification "${def.id}" has a fallback targeting email but no email provider is configured.`,
-        );
-      }
-      if (fallbackTypes.has("webhook") && !providers?.webhook) {
-        throw new NotifyKitError(
-          `Notification "${def.id}" has a fallback targeting webhook but no webhook provider is configured.`,
-        );
-      }
-      if (fallbackTypes.has("sms") && !providers?.sms) {
-        throw new NotifyKitError(
-          `Notification "${def.id}" has a fallback targeting sms but no sms provider is configured.`,
-        );
-      }
-    }
-    if (
-      def.classification &&
-      def.classification !== "transactional" &&
-      def.classification !== "product" &&
-      def.classification !== "marketing"
-    ) {
-      throw new NotifyKitError(
-        `Notification "${def.id}" has invalid classification "${def.classification}". ` +
-          `Must be "transactional", "product", or "marketing".`,
-      );
-    }
-    if (def.defaultChannels) {
-      for (const ch of Object.keys(def.defaultChannels)) {
-        if (!channelTypes.has(ch as ChannelType)) {
-          throw new NotifyKitError(
-            `Notification "${def.id}" defaultChannels references "${ch}" but the notification ` +
-              `only declares channels: ${[...channelTypes].join(", ")}.`,
-          );
-        }
-      }
-    }
-  }
-
-  if (config.defaults?.categories) {
-    const allCategories = new Set(
-      notifications.map((n) => n.category).filter(Boolean) as string[],
-    );
-    for (const cat of Object.keys(config.defaults.categories)) {
-      if (!allCategories.has(cat)) {
-        throw new NotifyKitError(
-          `Category default "${cat}" does not match any registered notification category. ` +
-            `Known categories: ${[...allCategories].join(", ") || "(none)"}.`,
-        );
-      }
-    }
   }
 
   async function runHook<K extends keyof Hooks>(
@@ -572,6 +397,11 @@ export function createNotifyKit<
     if (input.tenantId && recipient.tenantId && input.tenantId !== recipient.tenantId) {
       throw new NotifyKitError(
         `Recipient "${recipient.id}" does not belong to the specified tenant.`,
+        {
+          code: "TENANT_MISMATCH",
+          recipientId: recipient.id,
+          fix: "Ensure the tenantId matches the recipient's registered tenant.",
+        },
       );
     }
     if (
@@ -581,6 +411,11 @@ export function createNotifyKit<
     ) {
       throw new NotifyKitError(
         `Recipient "${recipient.id}" does not belong to the specified workspace.`,
+        {
+          code: "WORKSPACE_MISMATCH",
+          recipientId: recipient.id,
+          fix: "Ensure the workspaceId matches the recipient's registered workspace.",
+        },
       );
     }
     return compactScope({ tenantId, workspaceId });
@@ -649,15 +484,29 @@ export function createNotifyKit<
     };
     const def = byId.get(input.notificationId);
     if (!def) {
+      const known = [...byId.keys()];
       throw new NotifyKitError(
         `Unknown notification id: "${input.notificationId}".`,
+        {
+          code: "UNKNOWN_NOTIFICATION",
+          notificationId: input.notificationId,
+          fix: known.length > 0
+            ? `Registered ids: ${known.join(", ")}.`
+            : "No notifications are registered. Check your createNotifyKit({ notifications: [...] }) call.",
+        },
       );
     }
 
     const recipient = await database.recipients.findById(input.recipientId);
     if (!recipient) {
       throw new NotifyKitError(
-        `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+        `Unknown recipient: "${input.recipientId}".`,
+        {
+          code: "UNKNOWN_RECIPIENT",
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          fix: "Call upsertRecipient({ id: \"...\", ... }) before sending.",
+        },
       );
     }
 
@@ -666,8 +515,6 @@ export function createNotifyKit<
       : validatePayload(def.payload, input.payload, def.id);
     const scope = resolveScope(input, recipient);
 
-    // Resolve preferences once, early. This determines which channels are
-    // allowed before we spend rate-limit budget or create digest entries.
     const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
     const prefResult = resolvePreferences(resolutionCtx);
     const hasAnyAllowed = prefResult.channels.some((ch) => ch.allowed);
@@ -828,12 +675,23 @@ export function createNotifyKit<
     if (!def) {
       throw new NotifyKitError(
         `Unknown notification id: "${input.notificationId}".`,
+        {
+          code: "UNKNOWN_NOTIFICATION",
+          notificationId: input.notificationId,
+          fix: `Registered ids: ${[...byId.keys()].join(", ") || "(none)"}.`,
+        },
       );
     }
     const recipient = await database.recipients.findById(input.recipientId);
     if (!recipient) {
       throw new NotifyKitError(
-        `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+        `Unknown recipient: "${input.recipientId}".`,
+        {
+          code: "UNKNOWN_RECIPIENT",
+          recipientId: input.recipientId,
+          notificationId: input.notificationId,
+          fix: "Call upsertRecipient({ id: \"...\", ... }) before calling explain().",
+        },
       );
     }
     const scope = resolveScope(input, recipient);
@@ -994,14 +852,16 @@ export function createNotifyKit<
     try {
       if (!def.digest) {
         throw new NotifyKitError(
-          `Notification "${def.id}" has no digest config.`,
+          `Notification "${def.id}" has no digest config but a digest flush was triggered.`,
+          { code: "MISSING_DIGEST_CONFIG", notificationId: def.id },
         );
       }
 
       const recipient = await database.recipients.findById(entry.recipientId);
       if (!recipient) {
         throw new NotifyKitError(
-          `Unknown recipient: "${entry.recipientId}". Cannot flush digest "${key}".`,
+          `Cannot flush digest "${key}": recipient "${entry.recipientId}" no longer exists.`,
+          { code: "UNKNOWN_RECIPIENT", recipientId: entry.recipientId, notificationId: def.id },
         );
       }
       const scope = resolveScope(entry, recipient);
@@ -1017,19 +877,25 @@ export function createNotifyKit<
         ? def.validate(combined)
         : validatePayload(def.payload, combined, def.id);
 
+      const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
+      const prefResult = resolvePreferences(resolutionCtx);
+
       const deferChannels: ChannelType[] = [];
       if (recipient.quietHours && isWithinQuietHours(recipient.quietHours)) {
         const deferSeen = new Set<ChannelType>();
         for (const ch of def.channels) {
           if ((ch.type === "email" || ch.type === "webhook" || ch.type === "sms") && !deferSeen.has(ch.type)) {
-            deferSeen.add(ch.type);
-            deferChannels.push(ch.type);
+            const resolution = prefResult.channels.find((e) => e.channel === ch.type);
+            if (resolution?.allowed) {
+              deferSeen.add(ch.type);
+              deferChannels.push(ch.type);
+            }
           }
         }
       }
 
       if (deferChannels.length > 0) {
-        const result = await deliver(recipient, def, validated, { deferChannels, scope });
+        const result = await deliver(recipient, def, validated, { deferChannels, scope, prefResult });
         const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
         const record = await database.scheduledSends.create({
           recipientId: recipient.id,
@@ -1045,7 +911,7 @@ export function createNotifyKit<
         return;
       }
 
-      await deliver(recipient, def, validated, { scope });
+      await deliver(recipient, def, validated, { scope, prefResult });
     } catch (err) {
       await database.digests.restore(entry);
       throw err;
@@ -1359,6 +1225,9 @@ export function createNotifyKit<
         const provider = providers!.email!;
         if (!recipient.email) {
           skippedChannels.push("email");
+          if (def.fallback && !isLegacyFallback(def.fallback)) {
+            pendingFallbacks.push({ trigger: "missing_address", fromChannel: "email" });
+          }
           continue;
         }
 
@@ -1695,12 +1564,22 @@ export function createNotifyKit<
     if (!byId.has(input.notificationId)) {
       throw new NotifyKitError(
         `Unknown notification id: "${input.notificationId}".`,
+        {
+          code: "UNKNOWN_NOTIFICATION",
+          notificationId: input.notificationId,
+          fix: `Registered ids: ${[...byId.keys()].join(", ") || "(none)"}.`,
+        },
       );
     }
     const recipient = await database.recipients.findById(input.recipientId);
     if (!recipient) {
       throw new NotifyKitError(
-        `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+        `Unknown recipient: "${input.recipientId}".`,
+        {
+          code: "UNKNOWN_RECIPIENT",
+          recipientId: input.recipientId,
+          fix: "Call upsertRecipient({ id: \"...\", ... }) before updating preferences.",
+        },
       );
     }
     const scope = resolveScope(input, recipient);
@@ -1764,8 +1643,12 @@ export function createNotifyKit<
       const existing = await database.recipients.findById(input.id);
       if (existing && existing.tenantId && tenantId && existing.tenantId !== tenantId) {
         throw new NotifyKitError(
-          `Recipient "${input.id}" already belongs to tenant "${existing.tenantId}". ` +
-            `Cannot reassign to tenant "${tenantId}".`,
+          `Recipient "${input.id}" already belongs to tenant "${existing.tenantId}", cannot reassign to "${tenantId}".`,
+          {
+            code: "TENANT_REASSIGNMENT",
+            recipientId: input.id,
+            fix: "Create a new recipient for the target tenant instead of reassigning an existing one.",
+          },
         );
       }
       return database.recipients.upsert({
@@ -1875,8 +1758,12 @@ export function createNotifyKit<
         );
         if (!knownCategories.has(input.category)) {
           throw new NotifyKitError(
-            `Unknown category: "${input.category}". ` +
-              `Known categories: ${[...knownCategories].join(", ") || "(none)"}.`,
+            `Unknown category: "${input.category}".`,
+            {
+              code: "UNKNOWN_CATEGORY",
+              field: "category",
+              fix: `Known categories: ${[...knownCategories].join(", ") || "(none)"}. Add a category to a notification definition first.`,
+            },
           );
         }
         const recipient = await database.recipients.findById(input.recipientId);
@@ -1899,7 +1786,12 @@ export function createNotifyKit<
         const recipient = await database.recipients.findById(input.recipientId);
         if (!recipient) {
           throw new NotifyKitError(
-            `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+            `Unknown recipient: "${input.recipientId}".`,
+            {
+              code: "UNKNOWN_RECIPIENT",
+              recipientId: input.recipientId,
+              fix: "Call upsertRecipient({ id: \"...\", ... }) before updating global preferences.",
+            },
           );
         }
         const scope = resolveScope(input, recipient);
@@ -1915,7 +1807,12 @@ export function createNotifyKit<
         const recipient = await database.recipients.findById(input.recipientId);
         if (!recipient) {
           throw new NotifyKitError(
-            `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+            `Unknown recipient: "${input.recipientId}".`,
+            {
+              code: "UNKNOWN_RECIPIENT",
+              recipientId: input.recipientId,
+              fix: "Call upsertRecipient({ id: \"...\", ... }) before updating category preferences.",
+            },
           );
         }
         const knownCategories = new Set(
@@ -1923,8 +1820,12 @@ export function createNotifyKit<
         );
         if (!knownCategories.has(input.category)) {
           throw new NotifyKitError(
-            `Unknown category: "${input.category}". ` +
-              `Known categories: ${[...knownCategories].join(", ") || "(none)"}.`,
+            `Unknown category: "${input.category}".`,
+            {
+              code: "UNKNOWN_CATEGORY",
+              field: "category",
+              fix: `Known categories: ${[...knownCategories].join(", ") || "(none)"}. Add a category to a notification definition first.`,
+            },
           );
         }
         const scope = resolveScope(input, recipient);
@@ -1941,12 +1842,22 @@ export function createNotifyKit<
         if (!def) {
           throw new NotifyKitError(
             `Unknown notification id: "${input.notificationId}".`,
+            {
+              code: "UNKNOWN_NOTIFICATION",
+              notificationId: input.notificationId,
+              fix: `Registered ids: ${[...byId.keys()].join(", ") || "(none)"}.`,
+            },
           );
         }
         const recipient = await database.recipients.findById(input.recipientId);
         if (!recipient) {
           throw new NotifyKitError(
-            `Unknown recipient: "${input.recipientId}". Call upsertRecipient() first.`,
+            `Unknown recipient: "${input.recipientId}".`,
+            {
+              code: "UNKNOWN_RECIPIENT",
+              recipientId: input.recipientId,
+              fix: "Call upsertRecipient({ id: \"...\", ... }) before calling preferences.explain().",
+            },
           );
         }
         const scope = resolveScope(input, recipient);
@@ -2007,7 +1918,12 @@ export function createNotifyKit<
       const def = byId.get(notificationId);
       if (!def) {
         throw new NotifyKitError(
-          `Unknown notification id: "${notificationId}". Cannot redact payload for an unregistered definition.`,
+          `Unknown notification id: "${notificationId}".`,
+          {
+            code: "UNKNOWN_NOTIFICATION",
+            notificationId,
+            fix: `Registered ids: ${[...byId.keys()].join(", ") || "(none)"}.`,
+          },
         );
       }
       if (!def.redact || def.redact.length === 0) return payload;

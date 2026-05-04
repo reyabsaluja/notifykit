@@ -104,6 +104,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
             tenantId: input.tenantId ?? null,
             workspaceId: input.workspaceId ?? null,
             email: input.email ?? null,
+            phone: input.phone ?? null,
             name: input.name ?? null,
             quietHours: input.quietHours ?? null,
             createdAt: now,
@@ -124,6 +125,10 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
                 input.email !== undefined
                   ? input.email ?? null
                   : sql`${recipients.email}`,
+              phone:
+                input.phone !== undefined
+                  ? input.phone ?? null
+                  : sql`${recipients.phone}`,
               name:
                 input.name !== undefined
                   ? input.name ?? null
@@ -142,6 +147,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           tenantId: row.tenantId ?? undefined,
           workspaceId: row.workspaceId ?? undefined,
           email: row.email ?? undefined,
+          phone: row.phone ?? undefined,
           name: row.name ?? undefined,
           quietHours:
             (row.quietHours as QuietHours | null | undefined) ?? undefined,
@@ -163,6 +169,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           tenantId: row.tenantId ?? undefined,
           workspaceId: row.workspaceId ?? undefined,
           email: row.email ?? undefined,
+          phone: row.phone ?? undefined,
           name: row.name ?? undefined,
           quietHours:
             (row.quietHours as QuietHours | null | undefined) ?? undefined,

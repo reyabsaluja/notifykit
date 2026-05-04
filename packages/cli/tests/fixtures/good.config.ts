@@ -1,4 +1,4 @@
-import { channel, defineNotifyKitConfig } from "./_helpers.js";
+import { channel, defineNotifyKitConfig, fakeEmailProvider } from "./_helpers.js";
 
 const inbox = channel.inbox();
 const email = channel.email();
@@ -25,4 +25,7 @@ export default defineNotifyKitConfig({
       ],
     },
   ],
+  providers: {
+    email: fakeEmailProvider(),
+  },
 });

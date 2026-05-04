@@ -29,6 +29,10 @@
     "./arktype": {
       "types": "./dist/arktype.d.ts",
       "import": "./dist/arktype.js"
+    },
+    "./validate": {
+      "types": "./dist/validate.d.ts",
+      "import": "./dist/validate.js"
     }
   },
   "files": [

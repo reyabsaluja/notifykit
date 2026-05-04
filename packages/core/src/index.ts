@@ -13,6 +13,7 @@ export { memoryAdapter } from "./memory-adapter.js";
 export { memoryRealtimeAdapter, normalizeScope } from "./realtime.js";
 export {
   fakeEmailProvider,
+  fakeSmsProvider,
   fakeWebhookProvider,
   verifyWebhookSignature,
   webhookProvider,
@@ -35,6 +36,10 @@ export {
   redactPayload,
   renderTemplate,
 } from "./utils.js";
+export {
+  validateConfig,
+  formatValidationIssues,
+} from "./validate.js";
 
 export type {
   Authorize,
@@ -60,6 +65,8 @@ export type {
   EmailChannelInput,
   InboxChannelFactory,
   InboxChannelInput,
+  SmsChannelFactory,
+  SmsChannelInput,
   WebhookChannelFactory,
   WebhookChannelInput,
 } from "./channel.js";
@@ -75,14 +82,28 @@ export type {
 export type {
   FakeEmailProvider,
   FakeEmailProviderOptions,
+  FakeSmsProvider,
+  FakeSmsProviderOptions,
   FakeWebhookProvider,
   FakeWebhookProviderOptions,
   SentEmail,
+  SentSms,
   SentWebhook,
   WebhookProviderOptions,
 } from "./providers.js";
 
 export type { ResolutionContext } from "./resolve-preferences.js";
+
+export type {
+  NotifyKitErrorContext,
+  PayloadFieldError,
+  SafeWebhookResult,
+} from "./utils.js";
+export type {
+  ValidateConfigInput,
+  ValidationIssue,
+  ValidationSeverity,
+} from "./validate.js";
 
 export type {
   CategoryDefaults,
@@ -101,6 +122,8 @@ export type {
   DigestConfig,
   EmailChannelConfig,
   EmailProvider,
+  FallbackRule,
+  FallbackTrigger,
   GetPreferenceInput,
   Hooks,
   InboxChannelConfig,
@@ -129,6 +152,8 @@ export type {
   ScheduledSendStatus,
   SecurityScope,
   SendInput,
+  SmsChannelConfig,
+  SmsProvider,
   UpdatePreferenceInput,
   UpsertRecipientInput,
   WebhookChannelConfig,

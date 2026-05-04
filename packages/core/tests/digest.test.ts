@@ -291,7 +291,7 @@ describe("digests", () => {
       payload: { count: 1 },
     });
     await expect(notify.flushDigests()).rejects.toThrow(
-      /expected "count" to be number/,
+      /Expected "count" to be number/,
     );
     // Inbox should be empty because validation failed
     expect(db._state.inboxItems).toEqual([]);

@@ -4,6 +4,7 @@ import { validateNotifications } from "../validate.js";
 export type CheckOptions = {
   cwd: string;
   config?: string;
+  strict?: boolean;
 };
 
 export async function runCheck(options: CheckOptions): Promise<number> {
@@ -19,17 +20,37 @@ export async function runCheck(options: CheckOptions): Promise<number> {
     console.log(`  - ${def.id}  channels=[${channels}]  payload={${payload}}`);
   }
 
-  const issues = validateNotifications(config.notifications);
-  if (issues.length === 0) {
-    console.log("\nAll notifications look good.");
-    return 0;
+  const issues = validateNotifications(config.notifications, {
+    providers: config.providers,
+    unsubscribe: config.unsubscribe,
+  });
+  const errors = issues.filter((i) => i.severity === "error");
+  const warnings = issues.filter((i) => i.severity === "warning");
+
+  if (warnings.length > 0) {
+    console.warn(`\n${warnings.length} warning(s):`);
+    for (const issue of warnings) {
+      console.warn(
+        `  WARN  ${issue.notificationId} · ${issue.channel}.${issue.field}: ${issue.message}${issue.fix ? ` ${issue.fix}` : ""}`,
+      );
+    }
   }
 
-  console.error(`\nFound ${issues.length} issue(s):`);
-  for (const issue of issues) {
-    console.error(
-      `  ${issue.notificationId} · ${issue.channel}.${issue.field}: ${issue.message}`,
-    );
+  if (errors.length > 0) {
+    console.error(`\n${errors.length} error(s):`);
+    for (const issue of errors) {
+      console.error(
+        `  ERROR ${issue.notificationId} · ${issue.channel}.${issue.field}: ${issue.message}${issue.fix ? ` ${issue.fix}` : ""}`,
+      );
+    }
+    return 1;
   }
-  return 1;
+
+  if (options.strict && warnings.length > 0) {
+    console.error(`\n--strict: ${warnings.length} warning(s) treated as errors.`);
+    return 1;
+  }
+
+  console.log("\nAll notifications look good.");
+  return 0;
 }

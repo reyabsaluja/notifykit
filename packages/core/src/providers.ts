@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { EmailProvider, WebhookProvider } from "./types.js";
-import { createId } from "./utils.js";
+import type { EmailProvider, SmsProvider, WebhookProvider } from "./types.js";
+import { NotifyKitError, createId } from "./utils.js";
 
 export type SentEmail = {
   to: string;
@@ -71,8 +71,13 @@ export function webhookProvider(
   const timeoutMs = options.timeoutMs ?? 10_000;
   const fetchImpl = options.fetch ?? globalThis.fetch;
   if (!fetchImpl) {
-    throw new Error(
-      "webhookProvider: no fetch implementation available. Pass `fetch` in options.",
+    throw new NotifyKitError(
+      "webhookProvider requires a fetch implementation but none is available.",
+      {
+        code: "MISSING_FETCH",
+        channel: "webhook",
+        fix: "Pass { fetch: globalThis.fetch } in options, or use Node >= 18 which has built-in fetch.",
+      },
     );
   }
 
@@ -111,8 +116,13 @@ export function webhookProvider(
 
       if (!res.ok) {
         await res.body?.cancel().catch(() => {});
-        throw new Error(
-          `Webhook ${input.url} returned HTTP ${res.status} ${res.statusText}`,
+        throw new NotifyKitError(
+          `Webhook delivery to ${input.url} failed: HTTP ${res.status} ${res.statusText}.`,
+          {
+            code: "WEBHOOK_HTTP_ERROR",
+            channel: "webhook",
+            fix: `The remote server returned ${res.status}. Verify the URL is correct and the endpoint is healthy.`,
+          },
         );
       }
       await res.body?.cancel().catch(() => {});
@@ -166,6 +176,55 @@ export function fakeWebhookProvider(
         url: input.url,
         headers: input.headers,
         payload: input.payload,
+        providerMessageId,
+        sentAt: new Date(),
+      });
+      return { providerMessageId };
+    },
+  };
+}
+
+export type SentSms = {
+  to: string;
+  body: string;
+  providerMessageId: string;
+  sentAt: Date;
+};
+
+export type FakeSmsProviderOptions = {
+  failOnNext?: boolean;
+};
+
+export type FakeSmsProvider = SmsProvider & {
+  sent: SentSms[];
+  setFailOnNext(value: boolean): void;
+  clear(): void;
+};
+
+export function fakeSmsProvider(
+  options: FakeSmsProviderOptions = {},
+): FakeSmsProvider {
+  const sent: SentSms[] = [];
+  let failOnNext = options.failOnNext ?? false;
+
+  return {
+    id: "fake-sms",
+    sent,
+    setFailOnNext(value: boolean) {
+      failOnNext = value;
+    },
+    clear() {
+      sent.length = 0;
+    },
+    async send(input) {
+      if (failOnNext) {
+        failOnNext = false;
+        throw new Error("fakeSmsProvider: simulated failure");
+      }
+      const providerMessageId = createId("fsms");
+      sent.push({
+        to: input.to,
+        body: input.body,
         providerMessageId,
         sentAt: new Date(),
       });

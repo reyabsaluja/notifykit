@@ -2,6 +2,7 @@ import type {
   ChannelConfig,
   ChannelPreferenceMap,
   DigestConfig,
+  FallbackRule,
   InboxChannelConfig,
   NotificationClassification,
   NotificationDefinition,
@@ -24,7 +25,7 @@ export type NotificationInput<
   channels: ChannelConfig[];
   digest?: DigestConfig<S>;
   rateLimit?: RateLimitConfig;
-  fallback?: InboxChannelConfig;
+  fallback?: InboxChannelConfig | FallbackRule[];
   description?: string;
   category?: string;
   version?: number;

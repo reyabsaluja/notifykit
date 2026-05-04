@@ -143,6 +143,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
                   ? input.workspaceId
                   : current.workspaceId,
               email: input.email !== undefined ? input.email : current.email,
+              phone: input.phone !== undefined ? input.phone : current.phone,
               name: input.name !== undefined ? input.name : current.name,
               quietHours:
                 input.quietHours !== undefined
@@ -159,6 +160,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
               tenantId: next.tenantId ?? undefined,
               workspaceId: next.workspaceId ?? undefined,
               email: next.email ?? undefined,
+              phone: next.phone ?? undefined,
               name: next.name ?? undefined,
               quietHours: (next.quietHours as QuietHours | null | undefined) ?? undefined,
               createdAt: current.createdAt,
@@ -171,6 +173,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
             tenantId: input.tenantId,
             workspaceId: input.workspaceId,
             email: input.email,
+            phone: input.phone,
             name: input.name,
             quietHours: input.quietHours ?? null,
             createdAt: now,
@@ -181,6 +184,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
             tenantId: input.tenantId,
             workspaceId: input.workspaceId,
             email: input.email,
+            phone: input.phone,
             name: input.name,
             quietHours: input.quietHours ?? undefined,
             createdAt: now,
@@ -202,6 +206,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           tenantId: row.tenantId ?? undefined,
           workspaceId: row.workspaceId ?? undefined,
           email: row.email ?? undefined,
+          phone: row.phone ?? undefined,
           name: row.name ?? undefined,
           quietHours: (row.quietHours as QuietHours | null | undefined) ?? undefined,
           createdAt: row.createdAt,

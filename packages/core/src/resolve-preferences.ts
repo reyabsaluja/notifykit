@@ -75,6 +75,12 @@ export function resolveChannel(
     resolvedBy = "destination_unavailable";
   }
 
+  if (channel === "sms" && !ctx.recipient.phone) {
+    trail.push({ layer: "destination_unavailable", value: false });
+    allowed = false;
+    resolvedBy = "destination_unavailable";
+  }
+
   return {
     channel,
     allowed,

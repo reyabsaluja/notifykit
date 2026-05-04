@@ -43,17 +43,54 @@ export function extractTemplateVars(template: string): string[] {
   return vars;
 }
 
+export type NotifyKitErrorContext = {
+  code?: string;
+  notificationId?: string;
+  channel?: string;
+  recipientId?: string;
+  field?: string;
+  fix?: string;
+};
+
 export class NotifyKitError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly code: string;
+  readonly notificationId?: string;
+  readonly channel?: string;
+  readonly recipientId?: string;
+  readonly field?: string;
+  readonly fix?: string;
+
+  constructor(message: string, context?: NotifyKitErrorContext) {
+    const fix = context?.fix;
+    const full = fix ? `${message} ${fix}` : message;
+    super(full);
     this.name = "NotifyKitError";
+    this.code = context?.code ?? "NOTIFYKIT_ERROR";
+    this.notificationId = context?.notificationId;
+    this.channel = context?.channel;
+    this.recipientId = context?.recipientId;
+    this.field = context?.field;
+    this.fix = fix;
   }
 }
 
+export type PayloadFieldError = {
+  key: string;
+  expected: string;
+  actual: string;
+  message: string;
+};
+
 export class PayloadValidationError extends NotifyKitError {
-  constructor(message: string) {
-    super(message);
+  readonly fields: PayloadFieldError[];
+
+  constructor(
+    message: string,
+    context?: NotifyKitErrorContext & { fields?: PayloadFieldError[] },
+  ) {
+    super(message, { code: "PAYLOAD_VALIDATION_ERROR", ...context });
     this.name = "PayloadValidationError";
+    this.fields = context?.fields ?? [];
   }
 }
 
@@ -65,34 +102,61 @@ export function validatePayload(
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     throw new PayloadValidationError(
       `Invalid payload for notification "${notificationId}": expected an object.`,
+      {
+        notificationId,
+        fix: `Pass a plain object matching the schema: { ${Object.entries(schema).map(([k, v]) => `${k}: ${v}`).join(", ")} }.`,
+      },
     );
   }
 
   const data = payload as Record<string, unknown>;
   const result: Record<string, unknown> = {};
+  const fieldErrors: PayloadFieldError[] = [];
 
   for (const key of Object.keys(schema)) {
-    const expected = schema[key];
+    const expected = schema[key]!;
     const value = data[key];
 
     if (value === undefined) {
-      throw new PayloadValidationError(
-        `Invalid payload for "${notificationId}": missing "${key}" (expected ${expected}).`,
-      );
+      fieldErrors.push({
+        key,
+        expected,
+        actual: "undefined",
+        message: `Missing "${key}" (expected ${expected}).`,
+      });
+      continue;
     }
 
     const actual = typeof value;
+    const isNan = actual === "number" && Number.isNaN(value);
     if (
       (expected === "string" && actual !== "string") ||
-      (expected === "number" && (actual !== "number" || Number.isNaN(value))) ||
+      (expected === "number" && (actual !== "number" || isNan)) ||
       (expected === "boolean" && actual !== "boolean")
     ) {
-      throw new PayloadValidationError(
-        `Invalid payload for "${notificationId}": expected "${key}" to be ${expected}, got ${actual}.`,
-      );
+      const displayActual = isNan ? "NaN" : actual;
+      fieldErrors.push({
+        key,
+        expected,
+        actual: displayActual,
+        message: `Expected "${key}" to be ${expected}, got ${displayActual}.`,
+      });
+      continue;
     }
 
     result[key] = value;
+  }
+
+  if (fieldErrors.length > 0) {
+    const details = fieldErrors.map((e) => `  - ${e.message}`).join("\n");
+    throw new PayloadValidationError(
+      `Invalid payload for notification "${notificationId}":\n${details}`,
+      {
+        notificationId,
+        fields: fieldErrors,
+        fix: `Check the payload matches schema: { ${Object.entries(schema).map(([k, v]) => `${k}: ${v}`).join(", ")} }.`,
+      },
+    );
   }
 
   return result;
@@ -147,14 +211,27 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
   try {
     parsed = new URL(url);
   } catch {
-    throw new NotifyKitError(`Invalid webhook URL: ${url}`);
+    throw new NotifyKitError(`Invalid webhook URL: ${url}`, {
+      code: "INVALID_WEBHOOK_URL",
+      channel: "webhook",
+      fix: "Provide a valid absolute URL starting with https:// or http://.",
+    });
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new NotifyKitError(`Webhook URL must use http or https: ${url}`);
+    throw new NotifyKitError(`Webhook URL must use http or https: ${url}`, {
+      code: "INVALID_WEBHOOK_URL",
+      channel: "webhook",
+      fix: `Change the protocol from "${parsed.protocol}" to "https://".`,
+    });
   }
   if (isBlockedHostname(parsed.hostname)) {
     throw new NotifyKitError(
       `Webhook URL points to a blocked address: ${url}`,
+      {
+        code: "BLOCKED_WEBHOOK_URL",
+        channel: "webhook",
+        fix: "Webhook URLs cannot target private/internal networks (localhost, 10.x, 192.168.x, etc.).",
+      },
     );
   }
   const originalHost = parsed.host;
@@ -173,12 +250,22 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
       if (allAddresses.length === 0) {
         throw new NotifyKitError(
           `Webhook URL failed DNS resolution: ${url}`,
+          {
+            code: "WEBHOOK_DNS_FAILURE",
+            channel: "webhook",
+            fix: `Ensure "${parsed.hostname}" resolves to a public IP address.`,
+          },
         );
       }
       for (const addr of allAddresses) {
         if (isBlockedHostname(addr)) {
           throw new NotifyKitError(
             `Webhook URL resolves to a blocked address: ${url}`,
+            {
+              code: "BLOCKED_WEBHOOK_URL",
+              channel: "webhook",
+              fix: `"${parsed.hostname}" resolves to ${addr}, which is a private/internal address. Use a publicly reachable hostname.`,
+            },
           );
         }
       }
@@ -191,6 +278,11 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
       if (err instanceof NotifyKitError) throw err;
       throw new NotifyKitError(
         `Webhook URL failed DNS resolution: ${url}`,
+        {
+          code: "WEBHOOK_DNS_FAILURE",
+          channel: "webhook",
+          fix: `Ensure "${parsed.hostname}" resolves to a public IP address.`,
+        },
       );
     }
   }
