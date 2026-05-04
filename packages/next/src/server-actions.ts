@@ -63,6 +63,8 @@ function normalizeIdentity(
   return value;
 }
 
+const VALID_CHANNEL_KEYS = new Set(["inbox", "email", "webhook", "sms"]);
+
 export function createServerActions<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 >(options: ServerActionsOptions<T>): NotifyKitServerActions<T> {
@@ -82,9 +84,8 @@ export function createServerActions<
     if (!channels || typeof channels !== "object" || Array.isArray(channels)) {
       throw new Error("Invalid channels");
     }
-    const validChannelKeys = new Set(["inbox", "email", "webhook"]);
     for (const [key, value] of Object.entries(channels as Record<string, unknown>)) {
-      if (!validChannelKeys.has(key)) throw new Error("Invalid channel key");
+      if (!VALID_CHANNEL_KEYS.has(key)) throw new Error("Invalid channel key");
       if (typeof value !== "boolean") throw new Error("Invalid channel value");
     }
   }
@@ -106,14 +107,7 @@ export function createServerActions<
       }
       const channels = (input as Record<string, unknown>).channels;
       if (channels !== undefined) {
-        if (!channels || typeof channels !== "object" || Array.isArray(channels)) {
-          throw new Error("Invalid channels");
-        }
-        const validChannelKeys = new Set(["inbox", "email", "webhook"]);
-        for (const [key, value] of Object.entries(channels as Record<string, unknown>)) {
-          if (!validChannelKeys.has(key)) throw new Error("Invalid channel key");
-          if (typeof value !== "boolean") throw new Error("Invalid channel value");
-        }
+        assertChannelMap(channels);
       }
       const { recipientId, ...scope } = await resolveIdentity();
       return notifykit.preferences.update({

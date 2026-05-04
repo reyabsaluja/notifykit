@@ -93,6 +93,27 @@ describe("createServerActions", () => {
     expect(pref.channels.email).toBe(false);
   });
 
+  test("preference actions accept sms channel preferences", async () => {
+    const { notifykit } = buildKit();
+    await notifykit.upsertRecipient({ id: "user-1", email: "u@x.com" });
+
+    const actions = createServerActions({
+      notifykit,
+      identify: () => "user-1",
+    });
+
+    const notificationPref = await actions.updatePreference({
+      notificationId: "comment_mentioned",
+      channels: { sms: false },
+    });
+    const globalPref = await actions.updateGlobalPreference({
+      channels: { sms: true },
+    });
+
+    expect(notificationPref.channels.sms).toBe(false);
+    expect(globalPref.channels.sms).toBe(true);
+  });
+
   test("identify is called for every user-scoped action", async () => {
     const { notifykit } = buildKit();
     await notifykit.upsertRecipient({ id: "user-1", email: "u@x.com" });
