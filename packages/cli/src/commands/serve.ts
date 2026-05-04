@@ -24,7 +24,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
     database: memoryAdapter(),
     providers: {
       email: config.providers?.email ?? fakeEmailProvider(),
-      webhook: fakeWebhookProvider(),
+      webhook: config.providers?.webhook ?? fakeWebhookProvider(),
+      sms: config.providers?.sms,
     },
     on: {
       "notification.created": ({ notification }) => {

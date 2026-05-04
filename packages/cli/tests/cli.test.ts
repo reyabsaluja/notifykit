@@ -20,6 +20,43 @@ async function runCli(
   });
 }
 
+async function runCliUntil(
+  args: string[],
+  marker: string,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("bun", [BIN, ...args], { cwd: FIXTURES });
+    let stdout = "";
+    let stderr = "";
+    let sawMarker = false;
+    const timeout = setTimeout(() => {
+      proc.kill("SIGTERM");
+      reject(new Error(`Timed out waiting for CLI output: ${marker}`));
+    }, 5_000);
+
+    proc.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+      if (!sawMarker && stdout.includes(marker)) {
+        sawMarker = true;
+        proc.kill("SIGTERM");
+      }
+    });
+    proc.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    proc.on("close", (code) => {
+      clearTimeout(timeout);
+      if (!sawMarker) {
+        reject(new Error(`CLI exited before output marker: ${marker}\n${stderr}`));
+        return;
+      }
+      resolve({ code: code ?? -1, stdout, stderr });
+    });
+    proc.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+}
+
 describe("notifykit CLI", () => {
   test("check on good config exits 0 and prints summary", async () => {
     const result = await runCli(["check", "--config", "good.config.ts"]);
@@ -83,6 +120,16 @@ describe("notifykit CLI", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('Sent "login_code"');
     expect(result.stdout).toContain("sms: sent");
+  });
+
+  test("serve supports SMS configs", async () => {
+    const result = await runCliUntil(
+      ["serve", "--config", "sms.config.ts", "--port", "0"],
+      "NotifyKit dev server:",
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Loaded config:");
+    expect(result.stderr).toBe("");
   });
 
   test("send with missing required payload key exits 1", async () => {
