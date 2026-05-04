@@ -90,6 +90,27 @@ describe("createNotifyKitMiddleware", () => {
     expect(result!.headers.get("Access-Control-Allow-Credentials")).toBe("true");
   });
 
+  test("reflects requested headers on CORS preflight", () => {
+    const middleware = createNotifyKitMiddleware({
+      cors: { origin: "http://app.example.com" },
+    });
+
+    const request = mockNextRequest(
+      "http://localhost/api/notifykit/inbox",
+      "OPTIONS",
+      {
+        origin: "http://app.example.com",
+        "access-control-request-headers": "x-session-id, x-tenant-id",
+      },
+    );
+
+    const result = middleware(request);
+    expect(result).not.toBeNull();
+    expect(result!.headers.get("Access-Control-Allow-Headers")).toBe(
+      "x-session-id, x-tenant-id",
+    );
+  });
+
   test("rejects disallowed origins on preflight", () => {
     const middleware = createNotifyKitMiddleware({
       cors: { origin: "http://app.example.com" },

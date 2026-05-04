@@ -43,7 +43,8 @@ export function createNotifyKitMiddleware(
         );
         response.headers.set(
           "Access-Control-Allow-Headers",
-          "Content-Type, Authorization",
+          request.headers.get("access-control-request-headers") ??
+            "Content-Type, Authorization",
         );
         response.headers.set("Access-Control-Max-Age", "86400");
         if (!allowedOrigins.includes("*")) {
