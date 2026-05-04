@@ -13,7 +13,7 @@ Requires `notifykit` as a peer dependency.
 ## Usage
 
 ```bash
-npx notifykit validate
+npx notifykit check
 ```
 
 Loads your `notifykit.config.ts` and validates all notification definitions — catches missing template variables, invalid channel configurations, and payload mismatches before they reach production.
@@ -23,9 +23,18 @@ Loads your `notifykit.config.ts` and validates all notification definitions — 
 ```ts
 // notifykit.config.ts
 import { defineConfig } from "notifykit-cli";
+import { channel, notification } from "notifykit";
+
+const inbox = channel.inbox();
 
 export default defineConfig({
-  notifications: "./lib/notifykit.ts",
+  notifications: [
+    notification({
+      id: "comment_mentioned",
+      payload: { actorName: "string" },
+      channels: [inbox({ title: "{{actorName}} mentioned you" })],
+    }),
+  ],
 });
 ```
 
