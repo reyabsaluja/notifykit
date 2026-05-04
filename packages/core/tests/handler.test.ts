@@ -76,6 +76,18 @@ describe("createHandler", () => {
     expect(res.status).toBe(404);
   });
 
+  test("malformed encoded route parameters return 404", async () => {
+    const inboxRes = await ctx.handler(
+      new Request(`${BASE}/inbox/%E0%A4%A/read`, { method: "POST" }),
+    );
+    expect(inboxRes.status).toBe(404);
+
+    const webhookRes = await ctx.handler(
+      new Request(`${BASE}/webhooks/%E0%A4%A`, { method: "POST" }),
+    );
+    expect(webhookRes.status).toBe(404);
+  });
+
   test("GET /notifications lists notification metadata (no auth required)", async () => {
     const unauth = await buildHarness(null);
     const res = await unauth.handler(new Request(`${BASE}/notifications`));

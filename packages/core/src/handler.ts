@@ -826,8 +826,12 @@ function buildNotificationsIndex<
 }
 
 function decodeParam(raw: string): string | null {
-  const decoded = decodeURIComponent(raw);
-  return decoded.length <= MAX_ID_LENGTH ? decoded : null;
+  try {
+    const decoded = decodeURIComponent(raw);
+    return decoded.length <= MAX_ID_LENGTH ? decoded : null;
+  } catch {
+    return null;
+  }
 }
 
 function matchRoute(method: string, sub: string): Route {
