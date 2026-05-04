@@ -89,10 +89,10 @@ export function pgRealtimeAdapter(
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
+      subs.clear();
       if (!listening) return;
       await conn.unlisten(pgChannel);
       listening = false;
-      subs.clear();
     },
 
     publish(recipientId, scope, event) {

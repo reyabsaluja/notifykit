@@ -50,6 +50,24 @@ describe("pgRealtimeAdapter", () => {
     expect(conn.listeningChannels.size).toBe(0);
   });
 
+  test("stop() clears subscribers even before start", async () => {
+    const conn = fakePgConnection();
+    const adapter = pgRealtimeAdapter({ connection: conn });
+    const events: any[] = [];
+
+    adapter.subscribe("user_1", {}, (event) => events.push(event));
+    await adapter.stop();
+    await adapter.start();
+
+    adapter.publish("user_1", {}, {
+      type: "inbox.deleted",
+      itemId: "inb_1",
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(events).toHaveLength(0);
+  });
+
   test("custom channel name", async () => {
     const conn = fakePgConnection();
     const adapter = pgRealtimeAdapter({
