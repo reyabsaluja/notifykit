@@ -3,6 +3,7 @@ import {
   channel,
   createNotifyKit,
   fakeEmailProvider,
+  fakeSmsProvider,
   memoryAdapter,
   notification,
 } from "../src/index.js";
@@ -707,5 +708,123 @@ describe("NotifyKit core", () => {
     expect(result.deliveries[0]!.status).toBe("failed");
     expect(result.deliveries[0]!.error).toMatch(/simulated failure/);
     expect(result.deliveries[0]!.attempts).toBe(2);
+  });
+});
+
+describe("SMS channel", () => {
+  const smsChannel = channel.sms();
+  const inboxChannel = channel.inbox();
+
+  test("sends SMS to recipient with phone number", async () => {
+    const sms = fakeSmsProvider();
+    const def = notification({
+      id: "otp",
+      payload: { code: "string" },
+      channels: [smsChannel({ body: "Your code is {{code}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { sms },
+    });
+    await notify.upsertRecipient({ id: "u1", phone: "+15551234567" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "otp",
+      payload: { code: "9042" },
+    });
+
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.channel).toBe("sms");
+    expect(result.deliveries[0]!.status).toBe("sent");
+    expect(sms.sent).toHaveLength(1);
+    expect(sms.sent[0]!.to).toBe("+15551234567");
+    expect(sms.sent[0]!.body).toBe("Your code is 9042");
+  });
+
+  test("skips SMS when recipient has no phone", async () => {
+    const sms = fakeSmsProvider();
+    const def = notification({
+      id: "otp",
+      payload: { code: "string" },
+      channels: [smsChannel({ body: "Code: {{code}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { sms },
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "otp",
+      payload: { code: "1111" },
+    });
+
+    expect(result.skippedChannels).toContain("sms");
+    expect(sms.sent).toHaveLength(0);
+  });
+
+  test("triggers missing_address fallback when no phone", async () => {
+    const sms = fakeSmsProvider();
+    const def = notification({
+      id: "otp",
+      payload: { code: "string" },
+      channels: [smsChannel({ body: "Code: {{code}}" })],
+      fallback: [
+        { if: "missing_address", from: "sms", then: inboxChannel({ title: "Your code: {{code}}" }) },
+      ],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { sms },
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "otp",
+      payload: { code: "7777" },
+    });
+
+    expect(sms.sent).toHaveLength(0);
+    const items = await notify.inbox.list("u1");
+    expect(items).toHaveLength(1);
+    expect(items[0]!.title).toBe("Your code: 7777");
+  });
+
+  test("SMS + inbox multi-channel delivery", async () => {
+    const sms = fakeSmsProvider();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [
+        inboxChannel({ title: "{{msg}}" }),
+        smsChannel({ body: "Alert: {{msg}}" }),
+      ],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { sms },
+    });
+    await notify.upsertRecipient({ id: "u1", phone: "+15559876543" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "Server down" },
+    });
+
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.channel).toBe("sms");
+    expect(result.deliveries[0]!.status).toBe("sent");
+    const items = await notify.inbox.list("u1");
+    expect(items).toHaveLength(1);
+    expect(items[0]!.title).toBe("Server down");
+    expect(sms.sent[0]!.body).toBe("Alert: Server down");
   });
 });
