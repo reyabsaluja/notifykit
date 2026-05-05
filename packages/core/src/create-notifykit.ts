@@ -977,26 +977,29 @@ export function createNotifyKit<
           err.code === "MISSING_DIGEST_CONFIG" ||
           err.code === "INVALID_DIGEST_RENDER" ||
           err.code === "INVALID_VALIDATE_RETURN");
+      const retryable =
+        !permanent &&
+        !(err instanceof NotifyKitError && err.code === "PAYLOAD_VALIDATION_ERROR");
       if (!permanent) {
         await database.digests.restore(entry);
-        if (!scheduledFlushes.has(key)) {
-          const retryDelay = 30_000;
-          let resolveTask!: () => void;
-          const task = new Promise<void>((resolve) => {
-            resolveTask = resolve;
-          });
-          const timer = setTimeout(() => {
-            const scheduled = scheduledFlushes.get(key);
-            if (!scheduled) return;
-            scheduledFlushes.delete(key);
-            flushDigestKey(key, def)
-              .catch((retryErr) => { console.error("[notifykit] digest retry flush error:", retryErr); })
-              .finally(() => scheduled.resolve());
-          }, retryDelay);
-          scheduledFlushes.set(key, { timer, resolve: resolveTask, def });
-          pendingFlushes.add(task);
-          task.finally(() => pendingFlushes.delete(task));
-        }
+      }
+      if (retryable && !scheduledFlushes.has(key)) {
+        const retryDelay = 30_000;
+        let resolveTask!: () => void;
+        const task = new Promise<void>((resolve) => {
+          resolveTask = resolve;
+        });
+        const timer = setTimeout(() => {
+          const scheduled = scheduledFlushes.get(key);
+          if (!scheduled) return;
+          scheduledFlushes.delete(key);
+          flushDigestKey(key, def)
+            .catch((retryErr) => { console.error("[notifykit] digest retry flush error:", retryErr); })
+            .finally(() => scheduled.resolve());
+        }, retryDelay);
+        scheduledFlushes.set(key, { timer, resolve: resolveTask, def });
+        pendingFlushes.add(task);
+        task.finally(() => pendingFlushes.delete(task));
       }
       throw err;
     }
