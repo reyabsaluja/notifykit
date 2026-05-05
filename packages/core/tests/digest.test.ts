@@ -317,4 +317,26 @@ describe("digests", () => {
     // Digest bucket still has the buffered payload
     expect(db._state.digests).toHaveLength(1);
   });
+
+  test("digest flush discards bucket when recipient is deleted (permanent error)", async () => {
+    const { notify, db } = buildKit();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.local" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: basePayload,
+    });
+    expect(db._state.digests).toHaveLength(1);
+
+    // Delete the recipient directly from the adapter
+    const idx = db._state.recipients.findIndex((r: { id: string }) => r.id === "u1");
+    db._state.recipients.splice(idx, 1);
+
+    // Wait for digest window + flush
+    await new Promise((r) => setTimeout(r, 80));
+    await notify.flushDigests();
+
+    // Bucket should NOT be restored — it's a permanent error
+    expect(db._state.digests).toHaveLength(0);
+  });
 });

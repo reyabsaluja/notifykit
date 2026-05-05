@@ -842,4 +842,36 @@ describe("sms channel and sms fallback", () => {
     expect(result.deliveries).toHaveLength(0);
     expect(smsProvider.sent).toHaveLength(0);
   });
+
+  test("fallback delivery failure does not trigger further fallbacks (single-hop)", async () => {
+    const alwaysFailSms = {
+      id: "always-fail-sms",
+      async send() {
+        throw new Error("simulated sms failure");
+      },
+    };
+    const def = notification({
+      id: "chain-test",
+      payload: { msg: "string" },
+      channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+      fallback: [
+        { if: "channel.failed", from: "email", then: sms({ body: "{{msg}}" }) },
+        { if: "channel.failed", from: "sms", then: webhook({ url: "https://hook.test/x" }) },
+      ],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: alwaysFail, sms: alwaysFailSms, webhook: fakeWebhookProvider() },
+      retry: { maxAttempts: 1 },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@t.co", phone: "+1" });
+    await notify.send({ recipientId: "u1", notificationId: "chain-test", payload: { msg: "hi" } });
+
+    const deliveries = await notify.deliveries.list("u1");
+    const channels = deliveries.map((d) => d.channel);
+    expect(channels).toContain("email");
+    expect(channels).toContain("sms");
+    expect(channels).not.toContain("webhook");
+  });
 });
