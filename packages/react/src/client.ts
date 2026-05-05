@@ -521,10 +521,14 @@ export function createNotifyKitClient(
         });
         try {
           const qs = options?.archived ? "?archived=true" : "";
-          const items = reviveInbox(await request("GET", `/inbox${qs}`));
+          const fetched = reviveInbox(await request("GET", `/inbox${qs}`));
+          const fetchedIds = new Set(fetched.map((it) => it.id));
+          const current = state.inbox.items;
+          const extras = current.filter((it) => !fetchedIds.has(it.id));
+          const items = [...extras, ...fetched];
           const unreadCount = options?.archived
             ? state.inbox.unreadCount
-            : items.filter((it) => !it.readAt).length;
+            : items.filter((it) => !it.readAt && !it.archivedAt).length;
           setState({
             ...state,
             inbox: { items, unreadCount, status: "ready", error: null },
@@ -584,7 +588,7 @@ export function createNotifyKitClient(
               items: state.inbox.items.map((it) =>
                 it.id === inboxItemId ? { ...it, readAt: originalReadAt } : it,
               ),
-              unreadCount: wasUnread ? state.inbox.unreadCount + 1 : state.inbox.unreadCount,
+              unreadCount: wasUnread ? prevUnreadCount : state.inbox.unreadCount,
               error: err instanceof Error ? err.message : String(err),
             },
           });
@@ -676,7 +680,7 @@ export function createNotifyKitClient(
               inbox: {
                 ...state.inbox,
                 items: exists ? current : [target, ...current],
-                unreadCount: shouldDecrementCount ? state.inbox.unreadCount + 1 : state.inbox.unreadCount,
+                unreadCount: shouldDecrementCount ? prevUnreadCount : state.inbox.unreadCount,
                 error: err instanceof Error ? err.message : String(err),
               },
             });
@@ -719,7 +723,7 @@ export function createNotifyKitClient(
               inbox: {
                 ...state.inbox,
                 items: exists ? current : [target, ...current],
-                unreadCount: shouldIncrementCount ? Math.max(0, state.inbox.unreadCount - 1) : state.inbox.unreadCount,
+                unreadCount: shouldIncrementCount ? prevUnreadCount : state.inbox.unreadCount,
                 error: err instanceof Error ? err.message : String(err),
               },
             });
@@ -732,12 +736,13 @@ export function createNotifyKitClient(
         const prevItems = state.inbox.items;
         const target = prevItems.find((it) => it.id === inboxItemId);
         const wasUnread = target && !target.readAt && !target.archivedAt;
+        const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
           inbox: {
             ...state.inbox,
             items: prevItems.filter((it) => it.id !== inboxItemId),
-            unreadCount: wasUnread ? Math.max(0, state.inbox.unreadCount - 1) : state.inbox.unreadCount,
+            unreadCount: wasUnread ? Math.max(0, prevUnreadCount - 1) : prevUnreadCount,
           },
         });
         try {
@@ -754,7 +759,7 @@ export function createNotifyKitClient(
               inbox: {
                 ...state.inbox,
                 items: exists ? current : [target, ...current],
-                unreadCount: wasUnread ? state.inbox.unreadCount + 1 : state.inbox.unreadCount,
+                unreadCount: wasUnread ? prevUnreadCount : state.inbox.unreadCount,
                 error: err instanceof Error ? err.message : String(err),
               },
             });

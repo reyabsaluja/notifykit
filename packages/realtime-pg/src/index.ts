@@ -18,6 +18,8 @@ export type PgRealtimeAdapterOptions = {
   connection: PgNotifyConnection;
   channel?: string;
   reconnectMs?: number;
+  /** Interval in ms to send a self-notify heartbeat to detect dead connections. 0 disables. Default: 60000. */
+  heartbeatMs?: number;
   onError?: (err: unknown) => void;
 };
 
@@ -37,12 +39,21 @@ export function pgRealtimeAdapter(
   const conn = options.connection;
   const pgChannel = options.channel ?? DEFAULT_CHANNEL;
   const reconnectMs = options.reconnectMs ?? 5_000;
+  const heartbeatMs = options.heartbeatMs ?? 60_000;
   const subs = new Map<string, Set<RealtimeListener>>();
   let listening = false;
   let stopped = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let lastHeartbeatAt = 0;
+
+  const HEARTBEAT_PAYLOAD = JSON.stringify({ key: "__heartbeat__", event: { type: "heartbeat" } });
 
   function handleNotification(raw: string) {
+    if (raw === HEARTBEAT_PAYLOAD) {
+      lastHeartbeatAt = Date.now();
+      return;
+    }
     let parsed: {
       key: string;
       event: RealtimeEvent;
@@ -57,10 +68,41 @@ export function pgRealtimeAdapter(
     for (const fn of set) fn(parsed.event);
   }
 
+  function startHeartbeat() {
+    stopHeartbeat();
+    if (heartbeatMs <= 0) return;
+    lastHeartbeatAt = Date.now();
+    heartbeatTimer = setInterval(() => {
+      if (!listening || stopped) return;
+      const elapsed = Date.now() - lastHeartbeatAt;
+      if (elapsed > heartbeatMs * 3) {
+        listening = false;
+        options.onError?.(new Error("PG realtime heartbeat timeout — connection appears dead. Reconnecting."));
+        stopHeartbeat();
+        scheduleReconnect();
+        return;
+      }
+      void Promise.resolve(conn.notify(pgChannel, HEARTBEAT_PAYLOAD)).catch(() => {
+        listening = false;
+        options.onError?.(new Error("PG realtime heartbeat notify failed. Reconnecting."));
+        stopHeartbeat();
+        scheduleReconnect();
+      });
+    }, heartbeatMs);
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
   async function tryListen() {
     try {
       await conn.listen(pgChannel, handleNotification);
       listening = true;
+      startHeartbeat();
     } catch (err) {
       listening = false;
       options.onError?.(err);
@@ -85,6 +127,7 @@ export function pgRealtimeAdapter(
 
     async stop() {
       stopped = true;
+      stopHeartbeat();
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;

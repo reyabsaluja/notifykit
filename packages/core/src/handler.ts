@@ -748,9 +748,11 @@ export function createHandler<
               400,
             ));
           }
+          const def = notify.definitions.find((d) => d.id === notificationId);
           const payload: Record<string, unknown> = {};
           for (const [key, value] of url.searchParams.entries()) {
-            if (key !== "notificationId") payload[key] = value;
+            if (key === "notificationId") continue;
+            payload[key] = coerceQueryParam(value, def?.payload?.[key]);
           }
           const result = await notify.explain({
             recipientId: context.recipientId,
@@ -1008,6 +1010,18 @@ async function isAdminIdentity(
   }
   const permissions = context.identity.permissions ?? [];
   return permissions.includes("admin");
+}
+
+function coerceQueryParam(value: string, schemaType?: string): unknown {
+  if (schemaType === "number") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : value;
+  }
+  if (schemaType === "boolean") {
+    if (value === "true") return true;
+    if (value === "false") return false;
+  }
+  return value;
 }
 
 function parseLimit(value: string | null): number | undefined {

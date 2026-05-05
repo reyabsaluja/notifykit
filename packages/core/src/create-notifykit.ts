@@ -973,6 +973,24 @@ export function createNotifyKit<
           err.code === "INVALID_VALIDATE_RETURN");
       if (!permanent) {
         await database.digests.restore(entry);
+        if (!scheduledFlushes.has(key)) {
+          const retryDelay = 30_000;
+          let resolveTask!: () => void;
+          const task = new Promise<void>((resolve) => {
+            resolveTask = resolve;
+          });
+          const timer = setTimeout(() => {
+            const scheduled = scheduledFlushes.get(key);
+            if (!scheduled) return;
+            scheduledFlushes.delete(key);
+            flushDigestKey(key, def)
+              .catch((retryErr) => { console.error("[notifykit] digest retry flush error:", retryErr); })
+              .finally(() => scheduled.resolve());
+          }, retryDelay);
+          scheduledFlushes.set(key, { timer, resolve: resolveTask, def });
+          pendingFlushes.add(task);
+          task.finally(() => pendingFlushes.delete(task));
+        }
       }
       throw err;
     }
@@ -1216,7 +1234,7 @@ export function createNotifyKit<
       ?? resolvePreferences(await buildResolutionCtx(recipient, def, scope));
     const isChannelAllowed = (type: ChannelType): boolean => {
       const entry = explanation.channels.find((e) => e.channel === type);
-      return entry?.allowed ?? true;
+      return entry?.allowed ?? false;
     };
 
     const deferSet = new Set(options.deferChannels ?? []);
