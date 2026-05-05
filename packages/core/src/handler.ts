@@ -288,7 +288,12 @@ export function createHandler<
 
     if (route.kind === "notifications.list") {
       if (options.protectNotifications) {
-        const identity = normalizeIdentity(await options.identify(request));
+        let identity: HandlerIdentity | null;
+        try {
+          identity = normalizeIdentity(await options.identify(request));
+        } catch {
+          return withCors(json({ error: "Internal error" }, 500));
+        }
         if (!identity) {
           return withCors(errorJson({
             error: "Unauthenticated",
@@ -414,7 +419,12 @@ export function createHandler<
       return withCors(json({ ok: true }));
     }
 
-    const identity = normalizeIdentity(await options.identify(request));
+    let identity: HandlerIdentity | null;
+    try {
+      identity = normalizeIdentity(await options.identify(request));
+    } catch {
+      return withCors(json({ error: "Internal error" }, 500));
+    }
     if (!identity) {
       return withCors(errorJson({
         error: "Unauthenticated",
