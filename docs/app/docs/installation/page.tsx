@@ -62,7 +62,7 @@ export const commentMentioned = notification({
 })
 
 export const notify = createNotifyKit({
-  notifications: [commentMentioned],
+  notifications: [commentMentioned] as const,
   database: memoryAdapter(),
   providers: { email: fakeEmailProvider() },
   unsubscribe: {
@@ -77,7 +77,7 @@ import { createRouteHandler } from "@notifykit/next"
 import { notify } from "@/lib/notifykit"
 import { getCurrentUserId } from "@/lib/session"
 
-export const { GET, POST, DELETE, OPTIONS } = createRouteHandler({
+export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
   notifykit: notify,
   identify: () => getCurrentUserId(),
   unsubscribeSecret: process.env.NOTIFYKIT_SECRET,
