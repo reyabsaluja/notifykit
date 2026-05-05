@@ -615,14 +615,18 @@ export function createNotifyKitClient(
           };
           return raw?.count ?? 0;
         } catch (err) {
+          const rolledBackItems = state.inbox.items.map((it) =>
+            readAtSnapshot.has(it.id) ? { ...it, readAt: readAtSnapshot.get(it.id)! } : it,
+          );
+          const restoredCount = rolledBackItems.filter(
+            (it) => readAtSnapshot.has(it.id) && !it.archivedAt,
+          ).length;
           setState({
             ...state,
             inbox: {
               ...state.inbox,
-              items: state.inbox.items.map((it) =>
-                readAtSnapshot.has(it.id) ? { ...it, readAt: readAtSnapshot.get(it.id)! } : it,
-              ),
-              unreadCount: prevUnread,
+              items: rolledBackItems,
+              unreadCount: state.inbox.unreadCount + restoredCount,
               error: err instanceof Error ? err.message : String(err),
             },
           });
