@@ -185,6 +185,8 @@ export function createHandler<
   let lastSweep = Date.now();
   const SWEEP_INTERVAL = 60_000;
   const MAX_BUCKETS = 10_000;
+  const sseConnections = new Map<string, number>();
+  const MAX_SSE_PER_RECIPIENT = 10;
 
   function errorJson(body: { error: string; code: string; fix?: string }, status: number): Response {
     const out: { error: string; code: string; fix?: string } = { error: body.error, code: body.code };
@@ -455,6 +457,11 @@ export function createHandler<
       if (!notify.realtime) {
         return withCors(json({ error: "Realtime not configured" }, 404));
       }
+      const currentConns = sseConnections.get(context.recipientId) ?? 0;
+      if (currentConns >= MAX_SSE_PER_RECIPIENT) {
+        return withCors(errorJson({ error: "Too many concurrent connections", code: "SSE_LIMIT" }, 429));
+      }
+      sseConnections.set(context.recipientId, currentConns + 1);
       const scope = normalizeScope(context);
       let cleanup: (() => void) | null = null;
       const stream = new ReadableStream({
@@ -494,6 +501,11 @@ export function createHandler<
             unsub();
             clearInterval(heartbeat);
             clearTimeout(maxLifetime);
+            const count = sseConnections.get(context.recipientId);
+            if (count !== undefined) {
+              if (count <= 1) sseConnections.delete(context.recipientId);
+              else sseConnections.set(context.recipientId, count - 1);
+            }
             try { controller.close(); } catch {}
           };
           request.signal.addEventListener("abort", () => cleanup?.(), { once: true });
