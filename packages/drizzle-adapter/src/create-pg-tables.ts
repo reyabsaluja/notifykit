@@ -168,42 +168,37 @@ export async function createPgTables(
     (r) => r.attname,
   );
   if (!pkCols.includes("tenant_id")) {
-    await db.execute(sql.raw(`BEGIN`));
-    try {
-      await db.execute(sql.raw(
+    await db.transaction(async (tx) => {
+      await tx.execute(sql.raw(
         `ALTER TABLE notifykit_preferences ADD COLUMN IF NOT EXISTS tenant_id TEXT`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `ALTER TABLE notifykit_preferences ADD COLUMN IF NOT EXISTS workspace_id TEXT`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `UPDATE notifykit_preferences SET tenant_id = '' WHERE tenant_id IS NULL`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `UPDATE notifykit_preferences SET workspace_id = '' WHERE workspace_id IS NULL`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `ALTER TABLE notifykit_preferences ALTER COLUMN tenant_id SET NOT NULL`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `ALTER TABLE notifykit_preferences ALTER COLUMN tenant_id SET DEFAULT ''`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `ALTER TABLE notifykit_preferences ALTER COLUMN workspace_id SET NOT NULL`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `ALTER TABLE notifykit_preferences ALTER COLUMN workspace_id SET DEFAULT ''`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `ALTER TABLE notifykit_preferences DROP CONSTRAINT IF EXISTS notifykit_preferences_pkey`
       ));
-      await db.execute(sql.raw(
+      await tx.execute(sql.raw(
         `ALTER TABLE notifykit_preferences ADD PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id)`
       ));
-      await db.execute(sql.raw(`COMMIT`));
-    } catch (e: unknown) {
-      await db.execute(sql.raw(`ROLLBACK`)).catch(() => {});
-      throw e;
-    }
+    });
   }
 }
