@@ -259,6 +259,10 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
     );
   }
   const originalHost = parsed.host;
+  const isIpLiteral = /^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname) || parsed.hostname.includes(":");
+  if (isIpLiteral) {
+    return { pinnedUrl: url, hostHeader: originalHost };
+  }
   if (typeof globalThis.process !== "undefined") {
     try {
       const dns = await import("node:dns");
