@@ -174,6 +174,29 @@ describe("quiet hours in send()", () => {
     expect(inboxItems).toHaveLength(1);
   });
 
+  test("recoverScheduledSends leaves active future quiet-hours timers alone", async () => {
+    const { notify, db, provider, qh } = kitWithQuietSelf("in");
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: qh,
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+
+    await notify.recoverScheduledSends();
+
+    expect(provider.sent).toEqual([]);
+    expect(db._state.scheduledSends).toHaveLength(1);
+    expect(db._state.scheduledSends[0]!.status).toBe("pending");
+
+    await notify.close();
+  });
+
   test("flushed deferred send respects preference changes made during quiet hours", async () => {
     const { notify, db, provider, qh } = kitWithQuietSelf("in");
     await notify.upsertRecipient({

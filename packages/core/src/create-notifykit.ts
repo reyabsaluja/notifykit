@@ -400,6 +400,7 @@ export function createNotifyKit<
   type ScheduledSendTimer = {
     timer: ReturnType<typeof setTimeout>;
     resolve: () => void;
+    scheduledFor: Date;
   };
   const scheduledSendTimers = new Map<string, ScheduledSendTimer>();
   const fallbackDeliveryIds = new Set<string>();
@@ -844,7 +845,7 @@ export function createNotifyKit<
         .catch((err) => { console.error("[notifykit] scheduled send flush error:", err); })
         .finally(() => entry.resolve());
     }, delay);
-    scheduledSendTimers.set(id, { timer, resolve: resolveTask });
+    scheduledSendTimers.set(id, { timer, resolve: resolveTask, scheduledFor });
     pendingFlushes.add(task);
     task.finally(() => pendingFlushes.delete(task));
   }
@@ -1733,10 +1734,13 @@ export function createNotifyKit<
     force?: boolean;
   }): Promise<void> {
     const force = options?.force ?? true;
-    // Cancel in-memory timers. Any row that still had a pending timer is
-    // by definition due or near-due; flush it inline.
+    const now = new Date();
+    // Cancel in-memory timers that are eligible for this sweep. Forced flushes
+    // intentionally bypass scheduledFor; recovery sweeps leave future timers
+    // armed so periodic boot/recovery calls do not defeat quiet hours.
     const scheduled = Array.from(scheduledSendTimers.entries());
     for (const [id, entry] of scheduled) {
+      if (!force && entry.scheduledFor.getTime() > now.getTime()) continue;
       clearTimeout(entry.timer);
       scheduledSendTimers.delete(id);
       await flushScheduledSend(id).catch(() => {});
@@ -1747,7 +1751,7 @@ export function createNotifyKit<
     // rows don't fire early.
     const leftover = force
       ? await database.scheduledSends.list()
-      : await database.scheduledSends.listDue(new Date());
+      : await database.scheduledSends.listDue(now);
     for (const row of leftover) {
       // A claimed row from a crashed prior run stays claimed — skip it
       // rather than double-delivering. Operators wanting to recover stuck
@@ -1755,8 +1759,10 @@ export function createNotifyKit<
       if (row.status !== "pending") continue;
       await flushScheduledSend(row.id).catch(() => {});
     }
-    while (pendingFlushes.size > 0) {
-      await Promise.all(Array.from(pendingFlushes));
+    if (force) {
+      while (pendingFlushes.size > 0) {
+        await Promise.all(Array.from(pendingFlushes));
+      }
     }
     await queue.drain();
   }
