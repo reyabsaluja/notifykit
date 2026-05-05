@@ -513,6 +513,12 @@ export function createNotifyKit<
     const payload = def.validate
       ? def.validate(input.payload)
       : validatePayload(def.payload, input.payload, def.id);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new NotifyKitError(
+        `Custom validate for "${def.id}" must return a plain object, got ${payload === null ? "null" : typeof payload}.`,
+        { code: "INVALID_VALIDATE_RETURN", notificationId: def.id },
+      );
+    }
     const scope = resolveScope(input, recipient);
 
     const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
@@ -884,6 +890,12 @@ export function createNotifyKit<
       const validated = def.validate
         ? def.validate(combined)
         : validatePayload(def.payload, combined as Record<string, unknown>, def.id);
+      if (!validated || typeof validated !== "object" || Array.isArray(validated)) {
+        throw new NotifyKitError(
+          `Custom validate for "${def.id}" must return a plain object, got ${validated === null ? "null" : typeof validated}.`,
+          { code: "INVALID_VALIDATE_RETURN", notificationId: def.id },
+        );
+      }
 
       const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
       const prefResult = resolvePreferences(resolutionCtx);
