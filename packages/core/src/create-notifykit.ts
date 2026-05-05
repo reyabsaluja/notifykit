@@ -889,9 +889,12 @@ export function createNotifyKit<
     }
   }
 
+  const MAX_DIGEST_RETRIES = 3;
+
   async function flushDigestKey(
     key: string,
     def: NotificationDefinition<string, PayloadSchema>,
+    retryCount = 0,
   ): Promise<void> {
     const entry = await database.digests.take(key);
     if (!entry) return;
@@ -983,7 +986,7 @@ export function createNotifyKit<
       if (!permanent) {
         await database.digests.restore(entry);
       }
-      if (retryable && !scheduledFlushes.has(key)) {
+      if (retryable && retryCount < MAX_DIGEST_RETRIES && !scheduledFlushes.has(key)) {
         const retryDelay = 30_000;
         let resolveTask!: () => void;
         const task = new Promise<void>((resolve) => {
@@ -993,7 +996,7 @@ export function createNotifyKit<
           const scheduled = scheduledFlushes.get(key);
           if (!scheduled) return;
           scheduledFlushes.delete(key);
-          flushDigestKey(key, def)
+          flushDigestKey(key, def, retryCount + 1)
             .catch((retryErr) => { console.error("[notifykit] digest retry flush error:", retryErr); })
             .finally(() => scheduled.resolve());
         }, retryDelay);
@@ -1549,16 +1552,19 @@ export function createNotifyKit<
           sentAt: new Date(),
           error: undefined,
         });
-        if (updated) {
-          const jobDef = byId.get(job.notificationId);
-          await runHook("delivery.sent", {
-            delivery: updated,
-            redactedPayload: jobDef
-              ? redactForDef(jobDef, job.payload)
-              : job.payload,
-          });
+        try {
+          if (updated) {
+            const jobDef = byId.get(job.notificationId);
+            await runHook("delivery.sent", {
+              delivery: updated,
+              redactedPayload: jobDef
+                ? redactForDef(jobDef, job.payload)
+                : job.payload,
+            });
+          }
+        } finally {
+          fallbackDeliveryIds.delete(job.deliveryId);
         }
-        fallbackDeliveryIds.delete(job.deliveryId);
         return;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -1576,6 +1582,8 @@ export function createNotifyKit<
       status: "failed",
       failedAt: new Date(),
     });
+    const isFallbackDelivery = fallbackDeliveryIds.has(job.deliveryId);
+    fallbackDeliveryIds.delete(job.deliveryId);
     if (failed) {
       const failedDef = byId.get(job.notificationId);
       await runHook("delivery.failed", {
@@ -1587,8 +1595,7 @@ export function createNotifyKit<
       });
     }
 
-    if (fallbackDeliveryIds.has(job.deliveryId)) {
-      fallbackDeliveryIds.delete(job.deliveryId);
+    if (isFallbackDelivery) {
       return;
     }
 
