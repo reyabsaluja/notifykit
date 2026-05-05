@@ -8,6 +8,12 @@ describe("assertSafeWebhookUrl", () => {
     expect(result.hostHeader).toContain("hooks.slack.com");
   });
 
+  test("keeps https hostname after DNS validation so TLS still verifies", async () => {
+    const result = await assertSafeWebhookUrl("https://example.com/hook");
+    expect(result.pinnedUrl).toBe("https://example.com/hook");
+    expect(result.hostHeader).toBe("example.com");
+  });
+
   test("preserves custom port once in Host header", async () => {
     const result = await assertSafeWebhookUrl("https://example.com:8443/hook");
     expect(result.hostHeader).toBe("example.com:8443");

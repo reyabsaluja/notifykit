@@ -297,6 +297,9 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
           );
         }
       }
+      if (parsed.protocol === "https:") {
+        return { pinnedUrl: parsed.toString(), hostHeader: originalHost };
+      }
       const pinnedIp = allAddresses[0]!;
       const pinnedHost = pinnedIp.includes(":") ? `[${pinnedIp}]` : pinnedIp;
       parsed.hostname = pinnedHost;
