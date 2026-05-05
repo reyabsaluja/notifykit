@@ -91,9 +91,8 @@ export type CreateHandlerOptions = {
    *
    * When the origin is not `"*"`, `Access-Control-Allow-Credentials: true`
    * is included so that cross-origin requests with cookies or custom auth
-   * headers work. The preflight reflects the request's
-   * `Access-Control-Request-Headers` so that custom headers passed via
-   * `createNotifyKitClient({ headers })` are permitted.
+   * headers work. The preflight allows NotifyKit's fixed request headers:
+   * `Content-Type`, `Authorization`, and `X-NotifyKit-Token`.
    */
   cors?: string;
   /**

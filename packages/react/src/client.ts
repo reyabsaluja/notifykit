@@ -1,6 +1,7 @@
 import type {
   ChannelPreferenceMap,
   InboxItem,
+  NotificationClassification,
   RecipientPreference,
 } from "notifykit";
 
@@ -13,6 +14,9 @@ export type NotificationMetadata = {
   description?: string;
   category?: string;
   version?: number;
+  required?: boolean;
+  defaultChannels?: ChannelPreferenceMap;
+  classification?: NotificationClassification;
 };
 
 export type ClientState = {

@@ -235,6 +235,9 @@ describe("createNotifyKitClient", () => {
               description: "A comment",
               category: "social",
               version: 2,
+              required: true,
+              defaultChannels: { email: false },
+              classification: "transactional",
             },
           ],
         },
@@ -246,6 +249,9 @@ describe("createNotifyKitClient", () => {
     expect(notifs[0]!.description).toBe("A comment");
     expect(notifs[0]!.category).toBe("social");
     expect(notifs[0]!.version).toBe(2);
+    expect(notifs[0]!.required).toBe(true);
+    expect(notifs[0]!.defaultChannels).toEqual({ email: false });
+    expect(notifs[0]!.classification).toBe("transactional");
   });
 
   test("subscribe notifies on state changes", async () => {
