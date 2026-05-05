@@ -334,11 +334,16 @@ export function createNotifyKitClient(
       let retryMs = 1000;
       let retries = 0;
       let wasError = false;
+      let hasConnectedBefore = false;
       const MAX_RETRIES = 20;
       while (!controller.signal.aborted) {
+        if (hasConnectedBefore) {
+          applyRealtimeEvent({ type: "inbox.refetch" });
+        }
         const connStart = Date.now();
         try {
           await readSSEStream(controller.signal);
+          hasConnectedBefore = true;
           if (Date.now() - connStart < 2000) {
             retries++;
             wasError = true;
@@ -624,17 +629,14 @@ export function createNotifyKitClient(
           return raw?.count ?? 0;
         } catch (err) {
           const rolledBackItems = state.inbox.items.map((it) =>
-            readAtSnapshot.has(it.id) ? { ...it, readAt: readAtSnapshot.get(it.id)! } : it,
+            readAtSnapshot.has(it.id) ? { ...it, readAt: readAtSnapshot.get(it.id) ?? null } : it,
           );
-          const restoredCount = rolledBackItems.filter(
-            (it) => readAtSnapshot.has(it.id) && !it.archivedAt,
-          ).length;
           setState({
             ...state,
             inbox: {
               ...state.inbox,
               items: rolledBackItems,
-              unreadCount: state.inbox.unreadCount + restoredCount,
+              unreadCount: prevUnread,
               error: err instanceof Error ? err.message : String(err),
             },
           });
