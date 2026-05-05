@@ -1097,6 +1097,8 @@ async function readBody(request: Request): Promise<string | null> {
 const TOO_LARGE = Symbol("too_large");
 
 async function readJson(request: Request): Promise<unknown> {
+  const ct = request.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return null;
   const text = await readBody(request);
   if (text === null) return TOO_LARGE;
   try {
