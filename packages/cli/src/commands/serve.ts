@@ -79,8 +79,18 @@ export async function runServe(options: ServeOptions): Promise<number> {
     }
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(options.port, "127.0.0.1", resolve);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(options.port, "127.0.0.1", () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  }).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Port ${options.port} is already in use. Try a different port with --port.`);
+      process.exit(1);
+    }
+    throw err;
   });
   const address = server.address();
   const actualPort =
