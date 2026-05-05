@@ -270,7 +270,9 @@ export function createNotifyKitClient(
       signal,
     });
     if (!res.ok || !res.body) {
-      throw new Error(`SSE connect failed: ${res.status}`);
+      const err = new Error(`SSE connect failed: ${res.status}`);
+      (err as any).status = res.status;
+      throw err;
     }
     setRtStatus("connected");
     const reader = res.body.getReader();
@@ -326,6 +328,12 @@ export function createNotifyKitClient(
           wasError = false;
         } catch (err) {
           if (controller.signal.aborted) break;
+          const status = (err as any)?.status;
+          if (status === 401 || status === 403) {
+            onRealtimeError?.(err);
+            setRtStatus("disconnected");
+            break;
+          }
           retries++;
           wasError = true;
           onRealtimeError?.(err);
@@ -434,10 +442,13 @@ export function createNotifyKitClient(
 
   function revivePreferences(raw: unknown): RecipientPreference[] {
     if (!Array.isArray(raw)) return [];
-    return raw.map(revivePreference);
+    return raw.filter((r) => r != null).map(revivePreference);
   }
 
   function revivePreference(raw: unknown): RecipientPreference {
+    if (!raw || typeof raw !== "object") {
+      return { recipientId: "", notificationId: "", channels: {}, updatedAt: new Date() };
+    }
     const r = raw as Record<string, unknown>;
     return {
       recipientId: String(r.recipientId),

@@ -101,6 +101,7 @@ export function createServerActions<
         !input ||
         typeof input !== "object" ||
         typeof (input as Record<string, unknown>).notificationId !== "string" ||
+        ((input as Record<string, unknown>).notificationId as string).length === 0 ||
         ((input as Record<string, unknown>).notificationId as string).length > 512
       ) {
         throw new Error("Invalid notificationId");
@@ -150,6 +151,7 @@ export function createServerActions<
         !input ||
         typeof input !== "object" ||
         typeof (input as Record<string, unknown>).category !== "string" ||
+        ((input as Record<string, unknown>).category as string).length === 0 ||
         ((input as Record<string, unknown>).category as string).length > 512
       ) {
         throw new Error("Invalid category");
@@ -166,6 +168,15 @@ export function createServerActions<
 
     inbox: {
       async list(filter?) {
+        if (filter !== undefined) {
+          if (typeof filter !== "object" || filter === null || Array.isArray(filter)) {
+            throw new Error("Invalid filter");
+          }
+          const f = filter as Record<string, unknown>;
+          if ("archived" in f && typeof f.archived !== "boolean") {
+            throw new Error("Invalid filter.archived");
+          }
+        }
         const { recipientId, ...scope } = await resolveIdentity();
         return notifykit.inbox.list(recipientId, scope, filter);
       },

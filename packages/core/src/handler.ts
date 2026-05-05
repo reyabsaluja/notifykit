@@ -320,12 +320,18 @@ export function createHandler<
       if (route.kind === "unsubscribe.post") {
         const origin = request.headers.get("origin");
         if (origin) {
-          const expected = new URL(url.href).origin;
-          if (origin !== expected) {
+          const expectedOrigins = new Set<string>();
+          expectedOrigins.add(new URL(url.href).origin);
+          const fwdHost = request.headers.get("x-forwarded-host");
+          const fwdProto = request.headers.get("x-forwarded-proto") ?? "https";
+          if (fwdHost) {
+            expectedOrigins.add(`${fwdProto}://${fwdHost}`);
+          }
+          if (!expectedOrigins.has(origin)) {
             return withCors(errorJson({
               error: "Forbidden",
               code: "ORIGIN_MISMATCH",
-              fix: `Unsubscribe POST origin "${origin}" does not match expected "${expected}". The request must originate from the same host.`,
+              fix: `Unsubscribe POST origin "${origin}" does not match expected origins. The request must originate from the same host.`,
             }, 403));
           }
         }

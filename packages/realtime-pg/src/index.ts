@@ -91,14 +91,18 @@ export function pgRealtimeAdapter(
       }
       subs.clear();
       if (!listening) return;
-      await conn.unlisten(pgChannel);
+      try {
+        await conn.unlisten(pgChannel);
+      } catch {
+        // Connection may already be closed during shutdown
+      }
       listening = false;
     },
 
     publish(recipientId, scope, event) {
       const key = scopeKey(recipientId, scope);
       const payload = JSON.stringify({ key, event });
-      if (payload.length > 7999) {
+      if (Buffer.byteLength(payload, "utf8") > 7999) {
         const trimmed = JSON.stringify({
           key,
           event: { type: "inbox.refetch" },

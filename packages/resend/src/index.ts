@@ -75,6 +75,12 @@ export function resendProvider(options: ResendProviderOptions): EmailProvider {
           body: JSON.stringify(body),
           signal: controller.signal,
         });
+      } catch (err) {
+        clearTimeout(timer);
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new Error(`Resend request timed out after ${timeoutMs}ms`);
+        }
+        throw err;
       } finally {
         clearTimeout(timer);
       }

@@ -276,6 +276,23 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
     for (const [i, ch] of def.channels.entries()) {
       const label = `${ch.type}[${i}]`;
       collectChannelTemplateIssues(def.id, ch, label, payloadKeys, issues);
+      if (ch.type === "email" && !input.unsubscribe) {
+        const templates = [ch.subject, ch.body];
+        for (const t of templates) {
+          if (t.includes("{{_unsubscribeUrl}}")) {
+            issues.push({
+              severity: "warning",
+              code: "UNSUBSCRIBE_URL_WITHOUT_CONFIG",
+              notificationId: def.id,
+              channel: "email",
+              field: "unsubscribe",
+              message: `Notification "${def.id}" uses {{_unsubscribeUrl}} but unsubscribe is not configured.`,
+              fix: `Add unsubscribe: { secret: "...", baseUrl: "..." } to createNotifyKit() or remove the template variable.`,
+            });
+            break;
+          }
+        }
+      }
     }
 
     // --- fallback checks ---
