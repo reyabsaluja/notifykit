@@ -366,12 +366,13 @@ export function createNotifyKitClient(
         }
         if (controller.signal.aborted) break;
         setRtStatus("connecting");
+        const jitteredDelay = retryMs * (0.5 + Math.random() * 0.5);
         await new Promise((r) => {
-          const timer = setTimeout(r, retryMs);
+          const timer = setTimeout(r, jitteredDelay);
           controller.signal.addEventListener("abort", () => { clearTimeout(timer); r(undefined); }, { once: true });
         });
         if (controller.signal.aborted) break;
-        if (wasError) retryMs = Math.min(retryMs * 2, 30_000) * (0.5 + Math.random() * 0.5);
+        if (wasError) retryMs = Math.min(retryMs * 2, 30_000);
       }
     })();
   }

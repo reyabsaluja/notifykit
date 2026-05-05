@@ -388,11 +388,12 @@ export function memoryAdapter(): MemoryAdapter {
           existing.updatedAt = new Date();
           return existing;
         }
-        state.digests.push({
+        const copy = {
           ...entry,
           payloads: entry.payloads.slice(),
-        });
-        return entry;
+        };
+        state.digests.push(copy);
+        return copy;
       },
       async list(): Promise<DigestBufferEntry[]> {
         return state.digests.slice();

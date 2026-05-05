@@ -636,7 +636,7 @@ export function createNotifyKit<
           if (!scheduled) return;
           scheduledFlushes.delete(key);
           flushDigestKey(key, def)
-            .catch(() => {})
+            .catch((err) => { console.error("[notifykit] digest flush error:", err); })
             .finally(() => scheduled.resolve());
         }, delay);
         scheduledFlushes.set(key, { timer, resolve: resolveTask, def });
@@ -810,7 +810,7 @@ export function createNotifyKit<
       if (!entry) return;
       scheduledSendTimers.delete(id);
       flushScheduledSend(id)
-        .catch(() => {})
+        .catch((err) => { console.error("[notifykit] scheduled send flush error:", err); })
         .finally(() => entry.resolve());
     }, delay);
     scheduledSendTimers.set(id, { timer, resolve: resolveTask });
