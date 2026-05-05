@@ -39,10 +39,16 @@ export function nextQuietHoursEnd(
   // 1 minute of wall-clock time != 60_000 ms. Multiple passes handle unusual
   // offsets (e.g., Lord Howe Island ±30/45 min).
   let candidate = new Date(now.getTime() + diff * 60_000);
+  let prevAbsDrift = Infinity;
   for (let i = 0; i < 3; i++) {
     const candidateMin = minutesOfDay(candidate, tz);
-    const drift = candidateMin - endMin;
+    let drift = candidateMin - endMin;
     if (drift === 0) break;
+    if (drift > 720) drift -= 1440;
+    else if (drift < -720) drift += 1440;
+    const absDrift = Math.abs(drift);
+    if (absDrift >= prevAbsDrift) break;
+    prevAbsDrift = absDrift;
     candidate = new Date(candidate.getTime() - drift * 60_000);
   }
   return candidate;
