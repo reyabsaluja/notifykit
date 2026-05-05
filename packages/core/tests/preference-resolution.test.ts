@@ -1377,7 +1377,7 @@ describe("notify.explain() — delivery-level explanation", () => {
 
   test("explain shows quiet hours with delayed outcome", async () => {
     const now = new Date();
-    const startH = now.getHours();
+    const startH = now.getUTCHours();
     const endH = (startH + 2) % 24;
     const fmt = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
@@ -1498,7 +1498,7 @@ describe("notify.explain() — delivery-level explanation", () => {
 
   test("quiet hours does not defer a preference-disabled channel", async () => {
     const now = new Date();
-    const startH = now.getHours();
+    const startH = now.getUTCHours();
     const endH = (startH + 2) % 24;
     const fmt = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
@@ -1635,7 +1635,7 @@ describe("notify.explain() — delivery-level explanation", () => {
 
   test("explain with all constraints simultaneously", async () => {
     const now = new Date();
-    const startH = now.getHours();
+    const startH = now.getUTCHours();
     const endH = (startH + 2) % 24;
     const fmt = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
