@@ -9,7 +9,12 @@ App-native notifications for TypeScript. Define notifications in code, store sta
 
 ```bash
 npx create-notifykit-app my-app
-cd my-app && npm install && npm run dev
+cd my-app
+cp .env.example .env.local
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# paste the generated value into .env.local as NOTIFYKIT_SECRET
+npm install
+npm run dev
 ```
 
 ## Install

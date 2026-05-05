@@ -6,7 +6,12 @@ Scaffold a new [NotifyKit](https://www.npmjs.com/package/notifykit) project — 
 
 ```bash
 npx create-notifykit-app my-app
-cd my-app && npm install && npm run dev
+cd my-app
+cp .env.example .env.local
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# paste the generated value into .env.local as NOTIFYKIT_SECRET
+npm install
+npm run dev
 ```
 
 The generated app includes:
