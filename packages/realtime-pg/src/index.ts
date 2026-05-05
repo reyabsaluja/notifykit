@@ -108,12 +108,12 @@ export function pgRealtimeAdapter(
           event: { type: "inbox.refetch" },
         });
         void Promise.resolve(conn.notify(pgChannel, trimmed)).catch((err: unknown) => {
-          console.error("[notifykit:realtime-pg] publish failed:", err);
+          options.onError?.(err);
         });
         return;
       }
       void Promise.resolve(conn.notify(pgChannel, payload)).catch((err: unknown) => {
-        console.error("[notifykit:realtime-pg] publish failed:", err);
+        options.onError?.(err);
       });
     },
 
