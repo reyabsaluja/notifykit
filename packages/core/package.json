@@ -2,7 +2,9 @@
   "name": "notifykit",
   "version": "0.0.1",
   "license": "MIT",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "type": "module",
   "repository": {
     "type": "git",
@@ -64,5 +66,6 @@
     "arktype": {
       "optional": true
     }
-  }
+  },
+  "sideEffects": false
 }

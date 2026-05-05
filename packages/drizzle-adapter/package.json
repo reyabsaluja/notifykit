@@ -2,7 +2,9 @@
   "name": "notifykit-drizzle",
   "version": "0.0.1",
   "license": "MIT",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "type": "module",
   "repository": {
     "type": "git",
@@ -44,5 +46,6 @@
     "drizzle-orm": "^0.45.2",
     "notifykit": "^0.0.1",
     "typescript": "^5.6.3"
-  }
+  },
+  "sideEffects": false
 }
