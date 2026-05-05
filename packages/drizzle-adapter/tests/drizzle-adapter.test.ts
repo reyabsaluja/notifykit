@@ -471,7 +471,7 @@ describe("drizzleSqliteAdapter", () => {
       id: "limited",
       payload: { msg: "string" },
       channels: [inboxCh({ title: "{{msg}}" })],
-      rateLimit: { max: 2, windowMs: 30 },
+      rateLimit: { max: 2, windowMs: 60_000 },
     });
 
     const events: string[] = [];
@@ -503,8 +503,10 @@ describe("drizzleSqliteAdapter", () => {
       .get() as { n: number };
     expect(rateLimitsCount.n).toBe(2);
 
-    // Wait past the window, send one more: aged rows get pruned during count().
-    await new Promise((r) => setTimeout(r, 40));
+    // Age the rows deterministically, then send one more: stale rows get pruned.
+    sqlite
+      .query("UPDATE notifykit_rate_limit_events SET occurred_at = ?")
+      .run(Date.now() - 60_001);
     await notify.send({
       recipientId: "u1",
       notificationId: "limited",

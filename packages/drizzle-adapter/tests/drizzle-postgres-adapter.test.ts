@@ -413,7 +413,7 @@ describe("drizzlePostgresAdapter", () => {
       id: "limited",
       payload: { msg: "string" },
       channels: [inboxCh({ title: "{{msg}}" })],
-      rateLimit: { max: 2, windowMs: 30 },
+      rateLimit: { max: 2, windowMs: 60_000 },
     });
 
     const events: string[] = [];
@@ -445,7 +445,9 @@ describe("drizzlePostgresAdapter", () => {
     );
     expect((before.rows as { n: number }[])[0]!.n).toBe(2);
 
-    await new Promise((r) => setTimeout(r, 40));
+    await db.execute(
+      sql`UPDATE notifykit_rate_limit_events SET occurred_at = NOW() - INTERVAL '61 seconds'`,
+    );
     await notify.send({
       recipientId: "u1",
       notificationId: "limited",
