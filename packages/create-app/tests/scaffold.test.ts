@@ -94,6 +94,7 @@ describe("scaffold()", () => {
     expect(route).toMatch(/createHandler/);
     expect(route).toMatch(/export const GET/);
     expect(route).toMatch(/export const POST/);
+    expect(route).toMatch(/export const OPTIONS/);
   });
 
   test("lib/notifykit.ts defines the demo notification", async () => {
