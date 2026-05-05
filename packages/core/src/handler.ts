@@ -487,11 +487,13 @@ export function createHandler<
           );
           const heartbeat = setInterval(() => push(": heartbeat\n\n"), 30_000);
           cleanup = () => {
+            if (!cleanup) return;
+            cleanup = null;
             unsub();
             clearInterval(heartbeat);
             try { controller.close(); } catch {}
           };
-          request.signal.addEventListener("abort", cleanup);
+          request.signal.addEventListener("abort", () => cleanup?.(), { once: true });
         },
         cancel() {
           cleanup?.();
@@ -500,7 +502,6 @@ export function createHandler<
       const sseHeaders = new Headers({
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
-        connection: "keep-alive",
       });
       if (corsOrigin) {
         sseHeaders.set("Access-Control-Allow-Origin", corsOrigin);
