@@ -1515,6 +1515,7 @@ export function createNotifyKit<
               : job.payload,
           });
         }
+        fallbackDeliveryIds.delete(job.deliveryId);
         return;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
