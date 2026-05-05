@@ -243,7 +243,11 @@ export function createNotifyKitClient(
     } else if (event.type === "inbox.refetch") {
       request("GET", "/inbox")
         .then((raw) => {
-          const items = reviveInbox(raw);
+          const fetched = reviveInbox(raw);
+          const fetchedIds = new Set(fetched.map((it) => it.id));
+          const current = state.inbox.items;
+          const extras = current.filter((it) => !fetchedIds.has(it.id));
+          const items = [...extras, ...fetched];
           const unreadCount = items.filter((it) => !it.readAt).length;
           setState({
             ...state,
