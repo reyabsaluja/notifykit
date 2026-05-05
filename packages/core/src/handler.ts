@@ -329,18 +329,12 @@ export function createHandler<
       if (route.kind === "unsubscribe.post") {
         const origin = request.headers.get("origin");
         if (origin) {
-          const expectedOrigins = new Set<string>();
-          expectedOrigins.add(new URL(url.href).origin);
-          const fwdHost = request.headers.get("x-forwarded-host");
-          const fwdProto = request.headers.get("x-forwarded-proto") ?? "https";
-          if (fwdHost) {
-            expectedOrigins.add(`${fwdProto}://${fwdHost}`);
-          }
-          if (!expectedOrigins.has(origin)) {
+          const expectedOrigin = new URL(url.href).origin;
+          if (origin !== expectedOrigin) {
             return withCors(errorJson({
               error: "Forbidden",
               code: "ORIGIN_MISMATCH",
-              fix: `Unsubscribe POST origin "${origin}" does not match expected origins. The request must originate from the same host.`,
+              fix: `Unsubscribe POST origin "${origin}" does not match expected origin. The request must originate from the same host.`,
             }, 403));
           }
         }
@@ -486,11 +480,13 @@ export function createHandler<
             },
           );
           const heartbeat = setInterval(() => push(": heartbeat\n\n"), 30_000);
+          const maxLifetime = setTimeout(() => cleanup?.(), 30 * 60_000);
           cleanup = () => {
             if (!cleanup) return;
             cleanup = null;
             unsub();
             clearInterval(heartbeat);
+            clearTimeout(maxLifetime);
             try { controller.close(); } catch {}
           };
           request.signal.addEventListener("abort", () => cleanup?.(), { once: true });
@@ -1089,7 +1085,7 @@ async function readJson(request: Request): Promise<unknown> {
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-content-type-options": "nosniff" },
   });
 }
 
@@ -1142,7 +1138,7 @@ function unsubscribeConfirmHtml(notificationId: string, token: string): Response
 </html>`;
   return new Response(html, {
     status: 200,
-    headers: { "content-type": "text/html; charset=utf-8" },
+    headers: { "content-type": "text/html; charset=utf-8", "x-content-type-options": "nosniff" },
   });
 }
 
@@ -1161,7 +1157,7 @@ function unsubscribeHtml(message: string, status: number): Response {
 </html>`;
   return new Response(html, {
     status,
-    headers: { "content-type": "text/html; charset=utf-8" },
+    headers: { "content-type": "text/html; charset=utf-8", "x-content-type-options": "nosniff" },
   });
 }
 

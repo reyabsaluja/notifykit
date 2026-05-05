@@ -351,6 +351,17 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
               });
             }
           }
+          if (rule.from && rule.then.type === rule.from) {
+            issues.push({
+              severity: "warning",
+              code: "CIRCULAR_FALLBACK",
+              notificationId: def.id,
+              channel: "fallback",
+              field: `fallback[${ri}]`,
+              message: `Notification "${def.id}" fallback[${ri}] falls back from "${rule.from}" to the same channel type "${rule.then.type}". This creates a circular fallback that will always fail.`,
+              fix: `Change the fallback target to a different channel type, or remove "from: ${rule.from}".`,
+            });
+          }
           collectChannelShapeIssues(def.id, rule.then, ri, issues);
         }
       } else {
