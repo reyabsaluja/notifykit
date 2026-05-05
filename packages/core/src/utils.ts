@@ -169,6 +169,7 @@ const BLOCKED_HOSTNAME_PATTERNS = [
   /^192\.168\.\d{1,3}\.\d{1,3}$/,
   /^169\.254\.\d{1,3}\.\d{1,3}$/,
   /^0\.0\.0\.0$/,
+  /^\[?::\]?$/,
   /^\[?::1\]?$/,
   /^\[?::ffff:/i,
   /^\[?fe80:/i,
@@ -221,6 +222,13 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
       code: "INVALID_WEBHOOK_URL",
       channel: "webhook",
       fix: `Change the protocol from "${parsed.protocol}" to "https://".`,
+    });
+  }
+  if (parsed.username || parsed.password) {
+    throw new NotifyKitError(`Webhook URL must not contain credentials: ${url}`, {
+      code: "INVALID_WEBHOOK_URL",
+      channel: "webhook",
+      fix: "Remove user:password from the URL. Pass auth via webhook headers instead.",
     });
   }
   if (isBlockedHostname(parsed.hostname)) {
