@@ -193,11 +193,27 @@ function isNumericIp(hostname: string): boolean {
   return false;
 }
 
+function compressIPv6(addr: string): string {
+  const stripped = addr.replace(/%.*$/, "");
+  const parts = stripped.split(":");
+  if (parts.length < 3) return addr;
+  const expanded = parts.map((p) => p.padStart(4, "0"));
+  if (expanded.length < 8) return addr;
+  const full = expanded.join(":");
+  const compressed = full
+    .replace(/\b0{1,3}/g, "")
+    .replace(/(^|:)0(:0)+(:|$)/, "$1::$3")
+    .replace(/:{3,}/, "::")
+    .replace(/^::$/, "::");
+  return compressed;
+}
+
 function isBlockedHostname(hostname: string): boolean {
   const clean = hostname.replace(/^\[|\]$/g, "");
   if (isNumericIp(clean)) return true;
+  const normalized = clean.includes(":") ? compressIPv6(clean) : clean;
   for (const pattern of BLOCKED_HOSTNAME_PATTERNS) {
-    if (pattern.test(clean)) return true;
+    if (pattern.test(normalized)) return true;
   }
   return false;
 }

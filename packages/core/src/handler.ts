@@ -867,7 +867,7 @@ function decodeParam(raw: string): string | null {
 function matchRoute(method: string, sub: string): Route {
   const trimmed = sub.endsWith("/") && sub.length > 1 ? sub.slice(0, -1) : sub;
 
-  if (trimmed === "/inbox" || trimmed === "/inbox/") {
+  if (trimmed === "/inbox") {
     if (method === "GET") return { kind: "inbox.list" };
     return { kind: "not_found" };
   }
