@@ -1,9 +1,6 @@
 import type { PayloadSchema, PrimitiveSchema } from "./types.js";
 
-type ZodLikeField = {
-  _def?: { typeName?: string };
-  def?: { type?: string };
-};
+type ZodLikeField = unknown;
 
 type ZodLikeSchema<Shape extends Record<string, ZodLikeField> = Record<string, ZodLikeField>> = {
   parse(data: unknown): Record<string, unknown>;
@@ -15,7 +12,7 @@ type ZodLikeSchema<Shape extends Record<string, ZodLikeField> = Record<string, Z
  * Falls back to `never` for unsupported types (arrays, objects, enums, etc.)
  * so they're excluded from the inferred `PayloadSchema`.
  */
-type InferFieldPrimitive<F extends ZodLikeField> =
+type InferFieldPrimitive<F> =
   F extends { def: { type: "string" } } ? "string" :
   F extends { def: { type: "number" } } ? "number" :
   F extends { def: { type: "boolean" } } ? "boolean" :
@@ -54,16 +51,30 @@ const typeNameToPrimitive: Record<string, PrimitiveSchema> = {
  * by ensuring your Zod version populates them.
  */
 function inferPrimitive(field: ZodLikeField): PrimitiveSchema | undefined {
-  const v3Name = field._def?.typeName;
+  const v3Name = getStringProperty(getObjectProperty(field, "_def"), "typeName");
   if (v3Name && v3Name in typeNameToPrimitive) return typeNameToPrimitive[v3Name];
 
-  const v4Type = field.def?.type;
+  const v4Type = getStringProperty(getObjectProperty(field, "def"), "type");
   if (v4Type && v4Type in typeNameToPrimitive) return typeNameToPrimitive[v4Type];
 
-  const ctorName = (field as { constructor?: { name?: string } }).constructor?.name;
+  const ctorName = getStringProperty(getObjectProperty(field, "constructor"), "name");
   if (ctorName && ctorName in typeNameToPrimitive) return typeNameToPrimitive[ctorName];
 
   return undefined;
+}
+
+function getObjectProperty(value: unknown, key: string): Record<string, unknown> | undefined {
+  if (typeof value !== "object" && typeof value !== "function") return undefined;
+  if (value === null) return undefined;
+  const property = (value as Record<string, unknown>)[key];
+  if (typeof property !== "object" && typeof property !== "function") return undefined;
+  if (property === null) return undefined;
+  return property as Record<string, unknown>;
+}
+
+function getStringProperty(value: Record<string, unknown> | undefined, key: string): string | undefined {
+  const property = value?.[key];
+  return typeof property === "string" ? property : undefined;
 }
 
 /**
@@ -95,13 +106,10 @@ function inferPrimitive(field: ZodLikeField): PrimitiveSchema | undefined {
  * at runtime but won't appear in the primitive schema (and can't be used in
  * `{{template}}` variables).
  */
-export function zodPayload<
-  Shape extends Record<string, ZodLikeField>,
-  T extends ZodLikeSchema<Shape>,
->(
+export function zodPayload<const T extends ZodLikeSchema>(
   schema: T,
 ): {
-  payload: InferPayloadSchema<Shape>;
+  payload: InferPayloadSchema<T["shape"]>;
   validate: (data: unknown) => Record<string, unknown>;
 } {
   const payload: Record<string, PrimitiveSchema> = {};
@@ -120,7 +128,7 @@ export function zodPayload<
     }
   }
   return {
-    payload: payload as InferPayloadSchema<Shape>,
+    payload: payload as InferPayloadSchema<T["shape"]>,
     validate: (data: unknown) => schema.parse(data),
   };
 }

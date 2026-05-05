@@ -17,6 +17,8 @@ import {
   type NotificationDefinition,
   type SendInput,
 } from "../dist/index.js";
+import { zodPayload } from "../dist/zod.js";
+import { z } from "zod";
 
 const inbox = channel.inbox();
 
@@ -92,3 +94,9 @@ const _badId: SendParam["notificationId"] = "nonexistent";
 type TypedPayload = Extract<SendParam, { notificationId: "typed" }>["payload"];
 // @ts-expect-error — missing "count" field
 const _badPayload: TypedPayload = { name: "hi" };
+
+// ── Zod helper: public v4 types must compile through the package boundary ──
+
+const zod = zodPayload(z.object({ name: z.string(), count: z.number() }));
+const _zodPayloadName: "string" = zod.payload.name;
+const _zodPayloadCount: "number" = zod.payload.count;
