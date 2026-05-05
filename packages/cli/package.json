@@ -30,16 +30,13 @@
     "build": "tsc -p tsconfig.json",
     "test": "bun test"
   },
-  "peerDependencies": {
-    "notifykit": "^0.0.1"
-  },
   "devDependencies": {
     "@types/bun": "^1.1.13",
     "@types/node": "^22.10.0",
-    "notifykit": "^0.0.1",
     "typescript": "^5.6.3"
   },
   "dependencies": {
+    "notifykit": "^0.0.1",
     "tsx": "^4.21.0"
   }
 }
