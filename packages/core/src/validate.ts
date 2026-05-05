@@ -237,6 +237,16 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
           fix: `Supported types: "string", "number", "boolean". Change "${key}" to one of these.`,
         });
       }
+      if (key === "_unsubscribeUrl") {
+        issues.push({
+          severity: "warning",
+          code: "RESERVED_PAYLOAD_KEY",
+          notificationId: def.id,
+          field: `payload.${key}`,
+          message: `Payload field "_unsubscribeUrl" is reserved. Its value will be overridden at render time when unsubscribe is configured.`,
+          fix: `Rename the field to avoid the "_unsubscribeUrl" reserved key.`,
+        });
+      }
     }
 
     // --- channels ---
