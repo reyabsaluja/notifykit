@@ -486,6 +486,7 @@ export function memoryAdapter(): MemoryAdapter {
           .filter(
             (s) => s.status === "pending" && s.scheduledFor.getTime() <= t,
           )
+          .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())
           .map((s) => ({ ...s }));
       },
       async list(): Promise<ScheduledSend[]> {
