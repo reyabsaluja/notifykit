@@ -180,18 +180,25 @@ export async function createSqliteTables(
     const workspaceSelect = colNames.includes("workspace_id")
       ? "COALESCE(workspace_id, '')"
       : "''";
-    await db.run(sql.raw(`ALTER TABLE notifykit_preferences RENAME TO _notifykit_preferences_old`));
-    await db.run(sql.raw(`CREATE TABLE notifykit_preferences (
-      recipient_id TEXT NOT NULL,
-      tenant_id TEXT NOT NULL DEFAULT '',
-      workspace_id TEXT NOT NULL DEFAULT '',
-      notification_id TEXT NOT NULL,
-      channels TEXT NOT NULL,
-      updated_at INTEGER NOT NULL,
-      PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id)
-    )`));
-    await db.run(sql.raw(`INSERT INTO notifykit_preferences (recipient_id, notification_id, channels, updated_at, tenant_id, workspace_id)
-      SELECT recipient_id, notification_id, channels, updated_at, ${tenantSelect}, ${workspaceSelect} FROM _notifykit_preferences_old`));
-    await db.run(sql.raw(`DROP TABLE _notifykit_preferences_old`));
+    await db.run(sql.raw(`BEGIN IMMEDIATE`));
+    try {
+      await db.run(sql.raw(`ALTER TABLE notifykit_preferences RENAME TO _notifykit_preferences_old`));
+      await db.run(sql.raw(`CREATE TABLE notifykit_preferences (
+        recipient_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL DEFAULT '',
+        workspace_id TEXT NOT NULL DEFAULT '',
+        notification_id TEXT NOT NULL,
+        channels TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id)
+      )`));
+      await db.run(sql.raw(`INSERT INTO notifykit_preferences (recipient_id, notification_id, channels, updated_at, tenant_id, workspace_id)
+        SELECT recipient_id, notification_id, channels, updated_at, ${tenantSelect}, ${workspaceSelect} FROM _notifykit_preferences_old`));
+      await db.run(sql.raw(`DROP TABLE _notifykit_preferences_old`));
+      await db.run(sql.raw(`COMMIT`));
+    } catch (e: unknown) {
+      try { await db.run(sql.raw(`ROLLBACK`)); } catch {}
+      throw e;
+    }
   }
 }
