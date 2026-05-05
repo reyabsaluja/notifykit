@@ -18,6 +18,7 @@ export type RouteHandlers = {
   POST: (request: Request) => Promise<Response>;
   DELETE: (request: Request) => Promise<Response>;
   OPTIONS: (request: Request) => Promise<Response>;
+  dynamic: "force-dynamic";
 };
 
 export function createRouteHandler<
@@ -31,5 +32,6 @@ export function createRouteHandler<
     POST: handler,
     DELETE: handler,
     OPTIONS: handler,
+    dynamic: "force-dynamic" as const,
   };
 }

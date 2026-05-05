@@ -318,6 +318,15 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
 
     // --- fallback checks ---
     if (def.fallback) {
+      if (Array.isArray(def.fallback) && !isLegacyFallback(def.fallback) && def.fallback.length === 0) {
+        issues.push({
+          severity: "warning",
+          code: "EMPTY_FALLBACK",
+          notificationId: def.id,
+          field: "fallback",
+          message: `Notification "${def.id}" has an empty fallback array. Remove the fallback property or add at least one rule.`,
+        });
+      }
       const fallbackConfigs = isLegacyFallback(def.fallback)
         ? [def.fallback]
         : def.fallback.map((r) => r.then);
