@@ -67,7 +67,7 @@ describe("resendProvider", () => {
       from: "Acme <no-reply@acme.com>",
       to: "jane@example.com",
       subject: "Hello",
-      text: "Welcome!",
+      html: "Welcome!",
     });
   });
 
@@ -175,7 +175,7 @@ describe("resendProvider", () => {
 
     const body = JSON.parse(calls[0]!.init.body as string);
     expect(body.subject).toBe("Hello Jane");
-    expect(body.text).toBe("Welcome, Jane.");
+    expect(body.html).toBe("Welcome, Jane.");
     expect(body.to).toBe("jane@example.com");
   });
 

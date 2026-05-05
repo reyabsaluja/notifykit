@@ -24,9 +24,10 @@ type ResendEmailResponse = {
 };
 
 /**
- * Send email via Resend's REST API. The body argument is treated as plain
- * text; if you need HTML rendering, pre-render before calling send() or
- * wrap this provider to set `html` instead of `text`.
+ * Send email via Resend's REST API. The body is sent as `html` by default
+ * since NotifyKit's email channel renders templates with HTML escaping
+ * enabled. Plain-text bodies (from channels with `html: false`) render
+ * safely in an HTML context as well.
  */
 export function resendProvider(options: ResendProviderOptions): EmailProvider {
   if (!options.apiKey) {
@@ -55,7 +56,7 @@ export function resendProvider(options: ResendProviderOptions): EmailProvider {
         from: options.from,
         to: input.to,
         subject: input.subject,
-        text: input.body,
+        html: input.body,
       };
       if (options.replyTo !== undefined) {
         body.reply_to = options.replyTo;
