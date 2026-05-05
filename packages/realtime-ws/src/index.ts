@@ -119,7 +119,9 @@ export function webSocketRealtimeAdapter(
     if (connections.size >= maxConnections) return null;
     if (options.allowedOrigins && options.allowedOrigins.length > 0) {
       const origin = request.headers.get("origin");
-      if (!origin || !options.allowedOrigins.includes(origin)) return null;
+      if (!origin) return null;
+      const normalized = normalizeOrigin(origin);
+      if (!options.allowedOrigins.some((o) => normalizeOrigin(o) === normalized)) return null;
     }
     const identity = await options.authenticate(request);
     if (!identity) return null;
@@ -210,4 +212,13 @@ export function webSocketRealtimeAdapter(
       subs.clear();
     },
   };
+}
+
+function normalizeOrigin(origin: string): string {
+  try {
+    const url = new URL(origin);
+    return url.origin;
+  } catch {
+    return origin.toLowerCase().replace(/\/+$/, "");
+  }
 }

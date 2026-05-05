@@ -470,6 +470,7 @@ export function createHandler<
           let eventId = 0;
           const push = (data: string) => {
             try {
+              if ((controller.desiredSize ?? 1) <= 0) return;
               controller.enqueue(encoder.encode(data));
             } catch {
               // stream closed

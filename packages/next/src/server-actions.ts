@@ -75,7 +75,7 @@ export function createServerActions<
   }
 
   function assertStringId(value: unknown): asserts value is string {
-    if (typeof value !== "string" || value.length === 0 || value.length > 256) {
+    if (typeof value !== "string" || value.length === 0 || value.length > 256 || /[\x00-\x1f]/.test(value)) {
       throw new Error("Invalid inbox item ID");
     }
   }
