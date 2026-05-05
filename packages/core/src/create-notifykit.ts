@@ -1450,8 +1450,8 @@ export function createNotifyKit<
           const result = await executeFallbackChannel(rule.then, fallbackCtx);
           if (result.inboxItem) inboxItems.push(result.inboxItem);
           if (result.delivery) deliveries.push(result.delivery);
-        } catch {
-          // Swallow to avoid masking the original skip/missing-address.
+        } catch (err) {
+          console.error("[notifykit] fallback channel error:", err);
         }
       }
     }
