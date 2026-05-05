@@ -351,4 +351,15 @@ describe("handler route", () => {
     );
     expect(postRes.status).toBe(200);
   });
+
+  test("secret rotation: token signed with old secret verifies with [new, old] array", () => {
+    const oldSecret = "old-secret-that-is-at-least-32-chars-long!!";
+    const newSecret = "new-secret-that-is-at-least-32-chars-long!!";
+    const claims = { recipientId: "u1", notificationId: "comment_mentioned" };
+    const token = signUnsubscribeToken(claims, oldSecret);
+
+    expect(verifyUnsubscribeToken(token, oldSecret)).toEqual(claims);
+    expect(verifyUnsubscribeToken(token, newSecret)).toBeNull();
+    expect(verifyUnsubscribeToken(token, [newSecret, oldSecret])).toEqual(claims);
+  });
 });
