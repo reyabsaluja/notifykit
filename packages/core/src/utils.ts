@@ -15,6 +15,7 @@ export function renderTemplate(
   const encode = options?.encodeUri ?? false;
   const escape = encode ? false : (options?.escapeHtml ?? true);
   return template.replace(/\{\{\s*([\w$]+)\s*\}\}/g, (_match, key: string) => {
+    if (!Object.hasOwn(payload, key)) return "";
     const value = payload[key];
     if (value === undefined || value === null) return "";
     const str = String(value);
