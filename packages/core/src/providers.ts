@@ -111,7 +111,6 @@ export function webhookProvider(
           redirect: "error",
         });
       } catch (fetchErr) {
-        clearTimeout(timer);
         if (fetchErr instanceof TypeError && String(fetchErr.message).toLowerCase().includes("redirect")) {
           throw new NotifyKitError(
             `Webhook delivery to ${input.url} failed: server returned a redirect.`,
