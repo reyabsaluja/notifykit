@@ -116,6 +116,19 @@ describe("memoryRealtimeAdapter", () => {
     expect(events).toHaveLength(1);
   });
 
+  test("scope normalization: organizationId aliases tenantId", () => {
+    const adapter = memoryRealtimeAdapter();
+    const events: RealtimeEvent[] = [];
+
+    adapter.subscribe("user_1", { organizationId: "org_1" }, (e) => events.push(e));
+    adapter.publish("user_1", { tenantId: "org_1" }, {
+      type: "inbox.deleted",
+      itemId: "inb_1",
+    });
+
+    expect(events).toHaveLength(1);
+  });
+
   test("multiple subscribers for same key all receive events", () => {
     const adapter = memoryRealtimeAdapter();
     const events1: RealtimeEvent[] = [];

@@ -145,6 +145,24 @@ describe("pgRealtimeAdapter", () => {
     expect(eventsB).toHaveLength(0);
   });
 
+  test("organizationId scope aliases tenantId", async () => {
+    const conn = fakePgConnection();
+    const adapter = pgRealtimeAdapter({ connection: conn });
+    await adapter.start();
+
+    const events: any[] = [];
+    adapter.subscribe("user_1", { organizationId: "org_1" }, (e) => events.push(e));
+
+    adapter.publish("user_1", { tenantId: "org_1" }, {
+      type: "inbox.deleted",
+      itemId: "inb_1",
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(events).toHaveLength(1);
+  });
+
   test("unsubscribe stops delivery", async () => {
     const conn = fakePgConnection();
     const adapter = pgRealtimeAdapter({ connection: conn });

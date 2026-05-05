@@ -21,8 +21,9 @@ export type RealtimeAdapter = {
 };
 
 export function normalizeScope(scope: SecurityScope): SecurityScope {
+  const tenantId = scope.tenantId ?? scope.organizationId;
   return {
-    ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),
+    ...(tenantId ? { tenantId } : {}),
     ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
   };
 }
