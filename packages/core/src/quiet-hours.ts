@@ -94,7 +94,10 @@ function minutesOfDay(d: Date, timezone: string): number {
       });
       console.error(`[notifykit] invalid timezone "${timezone}", falling back to UTC`);
     }
-    if (fmtCache.size >= MAX_CACHE_SIZE) fmtCache.clear();
+    if (fmtCache.size >= MAX_CACHE_SIZE) {
+      const first = fmtCache.keys().next().value;
+      if (first !== undefined) fmtCache.delete(first);
+    }
     fmtCache.set(timezone, fmt);
   }
   const parts = fmt.formatToParts(d);

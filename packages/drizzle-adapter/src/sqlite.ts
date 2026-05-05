@@ -892,8 +892,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         return record;
       },
       async claim(id: string): Promise<ScheduledSend | null> {
-        // Atomic compare-and-set: only flip to "claimed" if still "pending".
-        // Returning rows let us detect whether we won the race.
+        return atomic(async () => {
         const now = new Date();
         const rows = await db
           .update(scheduledSends)
@@ -921,6 +920,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           claimedAt: row.claimedAt ?? null,
           createdAt: row.createdAt,
         };
+        });
       },
       async complete(id: string): Promise<void> {
         await db
