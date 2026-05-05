@@ -247,7 +247,8 @@ export type NotificationDefinition<
 /**
  * Quiet hours define a daily window during which non-urgent channels defer.
  * Times are "HH:MM" in 24h format in the recipient's own timezone. Inbox
- * channels still deliver immediately — quiet hours only suppress push/email.
+ * channels still deliver immediately — quiet hours defer email, webhook, and
+ * SMS channels until the window ends.
  * Omitting a field disables the feature.
  */
 export type QuietHours = {

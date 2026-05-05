@@ -60,12 +60,12 @@ export type CreateNotifyKitInput<
   };
   on?: Hooks;
   /**
-   * Queue used to run email deliveries. Defaults to `inlineQueue()` — jobs
-   * run synchronously inside `send()`. Pass `setTimeoutQueue()` (or your own)
-   * to run deliveries asynchronously.
+   * Queue used to run provider deliveries (email, webhook, SMS). Defaults to
+   * `inlineQueue()` — jobs run synchronously inside `send()`. Pass
+   * `setTimeoutQueue()` (or your own) to run deliveries asynchronously.
    */
   queue?: Queue;
-  /** Retry policy for email deliveries. Defaults to 3 attempts with backoff. */
+  /** Retry policy for provider deliveries. Defaults to 3 attempts with backoff. */
   retry?: Partial<RetryPolicy>;
   /**
    * Enable unsubscribe links. When set, email templates can reference
@@ -300,8 +300,8 @@ export type NotifyKit<
   ): Record<string, unknown>;
   /**
    * The realtime adapter passed to `createNotifyKit`, or `undefined` if none
-   * was provided. Exposed so the handler can subscribe clients and publish
-   * events from user-initiated mutations (mark-read, archive, etc.).
+   * was provided. Exposed so handlers and transports can subscribe clients;
+   * core inbox mutations publish their own realtime events.
    */
   readonly realtime: RealtimeAdapter | undefined;
 };
