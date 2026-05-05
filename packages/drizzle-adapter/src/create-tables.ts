@@ -51,6 +51,8 @@ export async function createSqliteTables(
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_inbox_recipient
       ON notifykit_inbox_items (recipient_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_inbox_recipient_active
+      ON notifykit_inbox_items (recipient_id, archived_at, created_at)`,
     `CREATE TABLE IF NOT EXISTS notifykit_deliveries (
       id TEXT PRIMARY KEY,
       notification_record_id TEXT NOT NULL,

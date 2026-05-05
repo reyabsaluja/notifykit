@@ -190,6 +190,17 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
 
   for (const def of notifications) {
     // --- id checks ---
+    if (!def.id) {
+      issues.push({
+        severity: "error",
+        code: "EMPTY_ID",
+        notificationId: "",
+        field: "id",
+        message: "Notification id must not be empty.",
+        fix: "Provide a non-empty string id for the notification.",
+      });
+      continue;
+    }
     if (isSyntheticPreferenceKey(def.id)) {
       issues.push({
         severity: "error",

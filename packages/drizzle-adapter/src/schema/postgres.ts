@@ -73,6 +73,11 @@ export const inboxItems = pgTable(
   },
   (table) => ({
     recipientIdx: index("idx_notifykit_inbox_recipient").on(table.recipientId),
+    recipientActiveIdx: index("idx_notifykit_inbox_recipient_active").on(
+      table.recipientId,
+      table.archivedAt,
+      table.createdAt,
+    ),
   }),
 );
 
