@@ -876,7 +876,9 @@ export function createNotifyKit<
     } catch (err) {
       // Something blew up after the claim. Release so a retry sweep can pick
       // the row up again — we do NOT want silent data loss.
-      await database.scheduledSends.release(id).catch(() => {});
+      await database.scheduledSends.release(id).catch((releaseErr) => {
+        console.error("[notifykit] scheduled send release failed:", releaseErr);
+      });
       throw err;
     }
   }
@@ -1019,9 +1021,15 @@ export function createNotifyKit<
   ): Promise<{ inboxItem?: InboxItem; delivery?: DeliveryRecord }> {
     const scope: SecurityScope = { tenantId: ctx.tenantId, workspaceId: ctx.workspaceId };
     const def = byId.get(ctx.notificationId);
-    if (!def) return {};
+    if (!def) {
+      console.error(`[notifykit] fallback: unknown notification "${ctx.notificationId}"`);
+      return {};
+    }
     const recipient = await database.recipients.findById(ctx.recipientId);
-    if (!recipient) return {};
+    if (!recipient) {
+      console.error(`[notifykit] fallback: recipient "${ctx.recipientId}" not found`);
+      return {};
+    }
 
     const resCtx = await buildResolutionCtx(recipient, def, scope);
     const resolution = resolveChannel(ch.type, resCtx);
