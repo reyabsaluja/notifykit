@@ -828,3 +828,16 @@ describe("SMS channel", () => {
     expect(sms.sent[0]!.body).toBe("Alert: Server down");
   });
 });
+
+describe("input validation", () => {
+  test("send() throws on empty recipientId", async () => {
+    const { notify } = buildKit();
+    await expect(
+      notify.send({
+        recipientId: "",
+        notificationId: "comment_mentioned",
+        payload: { actorName: "A", postTitle: "B", postUrl: "/c" },
+      }),
+    ).rejects.toThrow(/recipientId/i);
+  });
+});
