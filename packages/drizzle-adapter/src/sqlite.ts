@@ -745,25 +745,19 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
             await db
               .update(digestBuffers)
               .set({
-                recipientId: entry.recipientId,
-                tenantId: entry.tenantId ?? null,
-                workspaceId: entry.workspaceId ?? null,
-                notificationId: entry.notificationId,
                 payloads,
-                flushAt: entry.flushAt,
-                createdAt: entry.createdAt,
                 updatedAt: now,
               })
               .where(eq(digestBuffers.key, entry.key));
             return {
               key: entry.key,
-              recipientId: entry.recipientId,
-              tenantId: entry.tenantId,
-              workspaceId: entry.workspaceId,
-              notificationId: entry.notificationId,
+              recipientId: current.recipientId,
+              tenantId: current.tenantId ?? undefined,
+              workspaceId: current.workspaceId ?? undefined,
+              notificationId: current.notificationId,
               payloads,
-              flushAt: entry.flushAt,
-              createdAt: entry.createdAt,
+              flushAt: new Date(current.flushAt.getTime()),
+              createdAt: new Date(current.createdAt.getTime()),
               updatedAt: now,
             };
           }
