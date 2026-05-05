@@ -66,7 +66,7 @@ function inferPrimitive(field: ZodLikeField): PrimitiveSchema | undefined {
 
     const v4Type = getStringProperty(getObjectProperty(current, "def"), "type");
     if (v4Type && v4Type in typeNameToPrimitive) return typeNameToPrimitive[v4Type];
-    if (v4Type && (v4Type === "optional" || v4Type === "nullable" || v4Type === "default")) {
+    if (v4Type && (v4Type === "optional" || v4Type === "nullable" || v4Type === "default" || v4Type === "readonly")) {
       const def = getObjectProperty(current, "def");
       current = def?.["innerType"] ?? def?.["wrapped"];
       if (!current) return undefined;
