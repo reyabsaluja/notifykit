@@ -459,7 +459,9 @@ export function createNotifyKit<
 
   function scopeKey(scope: SecurityScope): string {
     if (!scope.tenantId && !scope.workspaceId) return "";
-    return `${scope.tenantId ?? ""}\0${scope.workspaceId ?? ""}\0`;
+    const t = (scope.tenantId ?? "").replace(/\0/g, "");
+    const w = (scope.workspaceId ?? "").replace(/\0/g, "");
+    return `${t}\0${w}\0`;
   }
 
   async function buildResolutionCtx(

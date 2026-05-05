@@ -30,7 +30,10 @@ export function normalizeScope(scope: SecurityScope): SecurityScope {
 
 function scopeKey(recipientId: string, scope: SecurityScope): string {
   const s = normalizeScope(scope);
-  return `${recipientId}\0${s.tenantId ?? ""}\0${s.workspaceId ?? ""}`;
+  const r = recipientId.replace(/\0/g, "");
+  const t = (s.tenantId ?? "").replace(/\0/g, "");
+  const w = (s.workspaceId ?? "").replace(/\0/g, "");
+  return `${r}\0${t}\0${w}`;
 }
 
 export function memoryRealtimeAdapter(): RealtimeAdapter {
