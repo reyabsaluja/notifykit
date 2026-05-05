@@ -63,7 +63,7 @@ npm install zod        # or valibot, or arktype
 ```
 
 ```ts
-import { notification } from "notifykit/zod";
+import { zodPayload } from "notifykit/zod";
 ```
 
 ## Docs

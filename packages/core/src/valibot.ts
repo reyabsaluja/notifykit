@@ -65,9 +65,8 @@ function inferPrimitive(field: ValibotLikeField): PrimitiveSchema | undefined {
  * objects, etc.) are still validated at runtime but won't appear in the
  * primitive schema (and can't be used in `{{template}}` variables).
  *
- * The `parseFn` parameter defaults to importing `valibot` and calling
- * `v.parse`. If you want to avoid the dynamic import you can pass it
- * explicitly: `valibotPayload(schema, v.parse)`.
+ * Pass `v.parse` as the second argument so validation can run without
+ * NotifyKit importing Valibot at runtime: `valibotPayload(schema, v.parse)`.
  */
 export function valibotPayload<
   Entries extends Record<string, ValibotLikeField>,
