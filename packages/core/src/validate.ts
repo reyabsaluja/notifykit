@@ -375,6 +375,30 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
       }
     }
 
+    // --- digest config validation ---
+    if (def.digest) {
+      if (!Number.isFinite(def.digest.windowMs) || def.digest.windowMs <= 0) {
+        issues.push({
+          severity: "error",
+          code: "INVALID_DIGEST_WINDOW",
+          notificationId: def.id,
+          field: "digest.windowMs",
+          message: `Notification "${def.id}" digest.windowMs must be a positive number, got ${def.digest.windowMs}.`,
+          fix: "Set windowMs to a positive millisecond value (e.g. digest: { windowMs: 60000, render: ... }).",
+        });
+      }
+      if (typeof def.digest.render !== "function") {
+        issues.push({
+          severity: "error",
+          code: "INVALID_DIGEST_RENDER",
+          notificationId: def.id,
+          field: "digest.render",
+          message: `Notification "${def.id}" digest.render must be a function.`,
+          fix: "Provide a render function: digest: { windowMs: ..., render: ({ payloads }) => ... }.",
+        });
+      }
+    }
+
     // --- version check ---
     if (def.version !== undefined && (!Number.isInteger(def.version) || def.version < 1)) {
       issues.push({
