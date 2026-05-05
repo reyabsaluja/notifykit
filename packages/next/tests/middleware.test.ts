@@ -14,7 +14,7 @@ function mockNextRequest(
     nextUrl: parsed,
     method,
     headers: new Headers(headers),
-  } as unknown as import("next/server").NextRequest;
+  } as unknown as import("next/server.js").NextRequest;
 }
 
 describe("createNotifyKitMiddleware", () => {
