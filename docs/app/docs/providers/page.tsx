@@ -18,7 +18,7 @@ export default function ProvidersPage() {
         <code>{`npm install notifykit-drizzle drizzle-orm better-sqlite3`}</code>
       </pre>
       <pre>
-        <code>{`import { Database } from "better-sqlite3"
+        <code>{`import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { createSqliteTables, drizzleSqliteAdapter } from "notifykit-drizzle"
 

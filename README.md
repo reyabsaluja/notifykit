@@ -117,6 +117,7 @@ npm install notifykit-drizzle drizzle-orm better-sqlite3
 ```
 
 ```ts
+import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { createSqliteTables, drizzleSqliteAdapter } from "notifykit-drizzle";
 

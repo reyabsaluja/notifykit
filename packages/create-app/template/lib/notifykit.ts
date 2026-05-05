@@ -49,7 +49,7 @@ Don't want these? {{_unsubscribeUrl}}
 // to real providers when you're ready:
 //
 //   import { drizzleSqliteAdapter, createSqliteTables } from "notifykit-drizzle"
-//   import { Database } from "better-sqlite3"
+//   import Database from "better-sqlite3"
 //   import { drizzle } from "drizzle-orm/better-sqlite3"
 //   const db = drizzle(new Database("app.db"))
 //   await createSqliteTables(db)

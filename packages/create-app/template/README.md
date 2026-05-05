@@ -40,7 +40,7 @@ npm install notifykit-drizzle drizzle-orm better-sqlite3
 Replace the adapter in `lib/notifykit.ts`:
 
 ```ts
-import { Database } from "better-sqlite3"
+import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { createSqliteTables, drizzleSqliteAdapter } from "notifykit-drizzle"
 

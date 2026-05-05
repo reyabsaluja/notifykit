@@ -13,6 +13,7 @@ Requires [`notifykit`](https://www.npmjs.com/package/notifykit) as a peer depend
 ## Usage (SQLite)
 
 ```ts
+import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { createSqliteTables, drizzleSqliteAdapter } from "notifykit-drizzle";
 
