@@ -464,6 +464,18 @@ export function createNotifyKit<
     return `${t}\0${w}\0`;
   }
 
+  function digestBucketKey(
+    scope: SecurityScope,
+    recipientId: string,
+    notificationId: string,
+    groupKey: string,
+  ): string {
+    const recipient = recipientId.replace(/\0/g, "");
+    const notification = notificationId.replace(/\0/g, "");
+    const group = groupKey.replace(/\0/g, "");
+    return `${scopeKey(scope)}${recipient}\0${notification}\0${group}`;
+  }
+
   async function buildResolutionCtx(
     recipient: Recipient,
     def: NotificationDefinition<string, PayloadSchema>,
@@ -625,12 +637,13 @@ export function createNotifyKit<
 
     if (def.digest) {
       const digest = def.digest;
-      const key =
+      const groupKey =
         digest.key?.({
           recipientId: recipient.id,
           notificationId: def.id,
           payload: payload as never,
-        }) ?? `${scopeKey(scope)}${recipient.id}:${def.id}`;
+        }) ?? "default";
+      const key = digestBucketKey(scope, recipient.id, def.id, groupKey);
 
       const entry = await database.digests.append({
         key,

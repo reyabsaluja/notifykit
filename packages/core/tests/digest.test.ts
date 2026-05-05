@@ -109,6 +109,96 @@ describe("digests", () => {
     ).toEqual([1, 1]);
   });
 
+  test("custom keys are isolated by recipient and tenant scope", async () => {
+    const scoped = notification({
+      id: "scoped_digest",
+      payload: { tenantName: "string", count: "number" },
+      channels: [inbox({ title: "{{tenantName}} {{count}}" })],
+      digest: {
+        windowMs: 60_000,
+        key: () => "same-thread",
+        render: ({ payloads }) => ({
+          tenantName: payloads[payloads.length - 1]!.tenantName,
+          count: payloads.length,
+        }),
+      },
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [scoped] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a" });
+    await notify.upsertRecipient({ id: "bob", tenantId: "tenant_b" });
+
+    await notify.send({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "scoped_digest",
+      payload: { tenantName: "A", count: 1 },
+    });
+    await notify.send({
+      recipientId: "bob",
+      tenantId: "tenant_b",
+      notificationId: "scoped_digest",
+      payload: { tenantName: "B", count: 1 },
+    });
+
+    expect(db._state.digests).toHaveLength(2);
+
+    await notify.flushDigests();
+
+    const aliceItems = await notify.inbox.list("alice", { tenantId: "tenant_a" });
+    const bobItems = await notify.inbox.list("bob", { tenantId: "tenant_b" });
+    expect(aliceItems.map((item) => item.title)).toEqual(["A 1"]);
+    expect(bobItems.map((item) => item.title)).toEqual(["B 1"]);
+  });
+
+  test("custom keys are isolated by notification id", async () => {
+    const makeDigest = (id: "digest_a" | "digest_b", label: string) =>
+      notification({
+        id,
+        payload: { label: "string", count: "number" },
+        channels: [inbox({ title: "{{label}} {{count}}" })],
+        digest: {
+          windowMs: 60_000,
+          key: () => "same-thread",
+          render: ({ payloads }) => ({
+            label,
+            count: payloads.length,
+          }),
+        },
+      });
+    const digestA = makeDigest("digest_a", "A");
+    const digestB = makeDigest("digest_b", "B");
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [digestA, digestB] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "digest_a",
+      payload: { label: "A", count: 1 },
+    });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "digest_b",
+      payload: { label: "B", count: 1 },
+    });
+
+    expect(db._state.digests).toHaveLength(2);
+
+    await notify.flushDigests();
+
+    const titles = (await notify.inbox.list("u1"))
+      .map((item) => item.title)
+      .sort();
+    expect(titles).toEqual(["A 1", "B 1"]);
+  });
+
   test("flush fires after the window and emits merged payload", async () => {
     const { notify, db } = buildKit();
     await notify.upsertRecipient({ id: "u1" });

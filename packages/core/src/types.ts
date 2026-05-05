@@ -135,8 +135,10 @@ export type DigestConfig<S extends PayloadSchema = PayloadSchema> = {
   /** Rolling window to accumulate items before flushing. */
   windowMs: number;
   /**
-   * Groups sends into buckets. Returning the same key for two sends (within
-   * the window) merges them. Defaults to `${recipientId}:${notificationId}`.
+   * Groups sends into buckets for the same recipient, notification, and
+   * security scope. Returning the same key for two sends within that boundary
+   * (and within the window) merges them. Defaults to one bucket per
+   * recipient/notification/scope.
    */
   key?: (ctx: {
     recipientId: string;

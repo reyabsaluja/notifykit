@@ -112,8 +112,7 @@ export const commentMentioned = notification({
   // Coalesce multiple sends in a rolling window into one notification.
   digest: {
     windowMs: 5 * 60_000,
-    key: ({ recipientId, payload }) =>
-      \`\${recipientId}:\${payload.postTitle}\`,
+    key: ({ payload }) => payload.postTitle,
     render: ({ payloads, count }) => ({
       actorName: payloads[payloads.length - 1]!.actorName,
       postTitle: payloads[0]!.postTitle,
