@@ -7,7 +7,7 @@ export type RealtimeEvent =
   | { type: "inbox.unarchived"; item: InboxItem }
   | { type: "inbox.deleted"; itemId: string }
   | { type: "inbox.all_read"; count: number }
-  | { type: "inbox.refetch" };
+  | { type: "inbox.refetch"; dropped?: number };
 
 export type RealtimeListener = (event: RealtimeEvent) => void;
 

@@ -81,6 +81,11 @@ export const inboxItems = sqliteTable(
       table.archivedAt,
       table.createdAt,
     ),
+    recipientUnreadIdx: index("idx_notifykit_inbox_recipient_unread").on(
+      table.recipientId,
+      table.readAt,
+      table.archivedAt,
+    ),
   }),
 );
 
