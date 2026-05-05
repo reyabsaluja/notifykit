@@ -348,14 +348,9 @@ export function createNotifyKitClient(
         try {
           await readSSEStream(controller.signal);
           hasConnectedBefore = true;
-          if (Date.now() - connStart < 2000) {
-            retries++;
-            wasError = true;
-          } else {
-            retries = 0;
-            retryMs = 1000;
-            wasError = false;
-          }
+          retries = 0;
+          retryMs = 1000;
+          wasError = false;
         } catch (err) {
           if (controller.signal.aborted) break;
           const status = (err as any)?.status;

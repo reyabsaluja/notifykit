@@ -1532,7 +1532,9 @@ export function createNotifyKit<
             attempts: attempt,
             error: lastError.message,
           });
-        } catch {}
+        } catch (updateErr) {
+          console.error("[notifykit] delivery attempt update error:", updateErr);
+        }
       }
     }
     const failed = await database.deliveries.update(job.deliveryId, {
@@ -1612,8 +1614,8 @@ export function createNotifyKit<
             });
           }
         }
-      } catch {
-        // Fallback failed — swallow to avoid masking the original delivery failure.
+      } catch (fallbackErr) {
+        console.error("[notifykit] fallback after channel.failed error:", fallbackErr);
       }
     }
   }

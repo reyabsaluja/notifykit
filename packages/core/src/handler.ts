@@ -799,6 +799,7 @@ export function createHandler<
           fix: err.fix,
         }, 400));
       }
+      console.error("[notifykit] unhandled handler error:", err);
       return withCors(json({ error: "Internal error" }, 500));
     }
   };

@@ -78,12 +78,22 @@ const MAX_CACHE_SIZE = 600;
 function minutesOfDay(d: Date, timezone: string): number {
   let fmt = fmtCache.get(timezone);
   if (!fmt) {
-    fmt = new Intl.DateTimeFormat("en-GB", {
-      timeZone: timezone,
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
+    try {
+      fmt = new Intl.DateTimeFormat("en-GB", {
+        timeZone: timezone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    } catch {
+      fmt = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "UTC",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      console.error(`[notifykit] invalid timezone "${timezone}", falling back to UTC`);
+    }
     if (fmtCache.size >= MAX_CACHE_SIZE) fmtCache.clear();
     fmtCache.set(timezone, fmt);
   }

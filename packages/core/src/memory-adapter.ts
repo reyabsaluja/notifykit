@@ -401,12 +401,9 @@ export function memoryAdapter(): MemoryAdapter {
     },
     rateLimits: {
       async reserve(input): Promise<{ allowed: boolean }> {
-        // Memory adapter runs on a single event-loop turn — this block is
-        // effectively atomic because there are no awaits between count and
-        // push. Prune aged rows, count, and (if under max) record in one go.
         const cutoff = Date.now() - input.windowMs;
         state.rateLimits = state.rateLimits.filter(
-          (e) => e.key !== input.key || e.occurredAt.getTime() >= cutoff,
+          (e) => e.occurredAt.getTime() >= cutoff,
         );
         let n = 0;
         for (const e of state.rateLimits) {
@@ -427,7 +424,7 @@ export function memoryAdapter(): MemoryAdapter {
       async count(input): Promise<number> {
         const cutoff = Date.now() - input.windowMs;
         state.rateLimits = state.rateLimits.filter(
-          (e) => e.key !== input.key || e.occurredAt.getTime() >= cutoff,
+          (e) => e.occurredAt.getTime() >= cutoff,
         );
         let n = 0;
         for (const e of state.rateLimits) {
