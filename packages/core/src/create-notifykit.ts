@@ -318,6 +318,14 @@ export function createNotifyKit<
   const unsubscribeConfig = config.unsubscribe ?? null;
   const realtimeAdapter = config.realtime;
 
+  async function publishRealtime(...args: Parameters<NonNullable<typeof realtimeAdapter>["publish"]>) {
+    try {
+      await realtimeAdapter?.publish(...args);
+    } catch (err) {
+      console.error("[notifykit] realtime publish error:", err);
+    }
+  }
+
   // --- Startup validation: fail fast with all errors at once ---
   const startupIssues = validateConfig({
     notifications,
@@ -1035,7 +1043,7 @@ export function createNotifyKit<
           : undefined,
       });
       await runHook("inbox.created", { inboxItem: item });
-      await realtimeAdapter?.publish(ctx.recipientId, scope, {
+      await publishRealtime(ctx.recipientId, scope, {
         type: "inbox.created",
         item,
       });
@@ -1265,7 +1273,7 @@ export function createNotifyKit<
         });
         inboxItems.push(item);
         await runHook("inbox.created", { inboxItem: item });
-        await realtimeAdapter?.publish(recipient.id, scope, {
+        await publishRealtime(recipient.id, scope, {
           type: "inbox.created",
           item,
         });
@@ -1580,7 +1588,7 @@ export function createNotifyKit<
                 : undefined,
             });
             await runHook("inbox.created", { inboxItem: item });
-            await realtimeAdapter?.publish(job.recipientId, fallbackScope, {
+            await publishRealtime(job.recipientId, fallbackScope, {
               type: "inbox.created",
               item,
             });
@@ -1727,7 +1735,7 @@ export function createNotifyKit<
           s,
         );
         if (result.status === "marked") {
-          await realtimeAdapter?.publish(recipientId, s ?? {}, {
+          await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.updated",
             item: result.item,
           });
@@ -1742,7 +1750,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const count = await database.inbox.markAllRead(recipientId, s);
         if (count > 0) {
-          await realtimeAdapter?.publish(recipientId, s ?? {}, {
+          await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.all_read",
             count,
           });
@@ -1753,7 +1761,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const result = await database.inbox.archiveForRecipient(inboxItemId, recipientId, s);
         if (result.status === "ok") {
-          await realtimeAdapter?.publish(recipientId, s ?? {}, {
+          await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.archived",
             item: result.item,
           });
@@ -1764,7 +1772,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const result = await database.inbox.unarchiveForRecipient(inboxItemId, recipientId, s);
         if (result.status === "ok") {
-          await realtimeAdapter?.publish(recipientId, s ?? {}, {
+          await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.unarchived",
             item: result.item,
           });
@@ -1775,7 +1783,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const result = await database.inbox.deleteForRecipient(inboxItemId, recipientId, s);
         if (result.status === "deleted") {
-          await realtimeAdapter?.publish(recipientId, s ?? {}, {
+          await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.deleted",
             itemId: inboxItemId,
           });
