@@ -249,6 +249,16 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
       continue;
     }
     for (const [key, schemaType] of Object.entries(def.payload)) {
+      if (!/^[\w$]+$/.test(key)) {
+        issues.push({
+          severity: "warning",
+          code: "INVALID_PAYLOAD_KEY",
+          notificationId: def.id,
+          field: `payload.${key}`,
+          message: `Payload field "${key}" contains characters not supported in {{template}} variables (only letters, digits, underscore, and $ are allowed).`,
+          fix: `Rename "${key}" to use only [a-zA-Z0-9_$] characters, e.g. "${key.replace(/[^\w$]/g, "_")}".`,
+        });
+      }
       if (!VALID_SCHEMA_TYPES.has(schemaType)) {
         issues.push({
           severity: "error",
