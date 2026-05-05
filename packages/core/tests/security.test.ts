@@ -997,7 +997,7 @@ describe("CORS support", () => {
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
   });
 
-  test("OPTIONS preflight reflects Access-Control-Request-Headers", async () => {
+  test("OPTIONS preflight uses fixed Allow-Headers regardless of request", async () => {
     const database = memoryAdapter();
     const notify = createNotifyKit({
       notifications: [commentMentioned] as const,
@@ -1019,7 +1019,7 @@ describe("CORS support", () => {
     );
     expect(res.status).toBe(204);
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe(
-      "Content-Type, X-Custom-Auth",
+      "Content-Type, Authorization, X-NotifyKit-Token",
     );
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
     expect(res.headers.get("Access-Control-Allow-Methods")).toBe(
@@ -1045,7 +1045,7 @@ describe("CORS support", () => {
     expect(res.status).toBe(204);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe(
-      "Content-Type, Authorization",
+      "Content-Type, Authorization, X-NotifyKit-Token",
     );
   });
 
