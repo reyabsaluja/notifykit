@@ -1027,6 +1027,29 @@ describe("CORS support", () => {
     );
   });
 
+  test("OPTIONS outside basePath does not succeed as preflight", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      cors: "https://app.example.com",
+    });
+
+    const outside = await handler(
+      new Request("http://localhost/other", { method: "OPTIONS" }),
+    );
+    expect(outside.status).toBe(404);
+
+    const siblingPrefix = await handler(
+      new Request("http://localhost/api/notifykitx", { method: "OPTIONS" }),
+    );
+    expect(siblingPrefix.status).toBe(404);
+  });
+
   test("preflight uses fixed allowlist when request omits header list", async () => {
     const database = memoryAdapter();
     const notify = createNotifyKit({

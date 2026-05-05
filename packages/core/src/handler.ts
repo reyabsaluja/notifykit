@@ -271,16 +271,17 @@ export function createHandler<
   }
 
   return async function handler(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    if (!isPathUnderBasePath(path, basePath)) {
+      return withCors(json({ error: "Not found" }, 404));
+    }
+
     if (corsOrigin && request.method === "OPTIONS") {
       return withCors(new Response(null, { status: 204 }), request);
     }
 
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    if (!path.startsWith(basePath)) {
-      return withCors(json({ error: "Not found" }, 404));
-    }
     const sub = path.slice(basePath.length) || "/";
 
     const route = matchRoute(request.method, sub);
@@ -1055,6 +1056,11 @@ function normalizeBasePath(input: string): string {
   let p = input.startsWith("/") ? input : `/${input}`;
   if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
   return p;
+}
+
+function isPathUnderBasePath(path: string, basePath: string): boolean {
+  if (basePath === "/") return true;
+  return path === basePath || path.startsWith(`${basePath}/`);
 }
 
 const VALID_CHANNEL_TYPES = new Set<string>(["inbox", "email", "webhook", "sms"]);
