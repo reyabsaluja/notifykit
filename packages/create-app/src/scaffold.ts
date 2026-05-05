@@ -1,6 +1,6 @@
 import { cp, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type ScaffoldOptions = {
@@ -40,7 +40,7 @@ export async function scaffold(options: ScaffoldOptions): Promise<ScaffoldResult
   }
 
   const projectName =
-    options.projectName ?? targetDir.split("/").filter(Boolean).pop() ?? "my-app";
+    options.projectName ?? (basename(targetDir) || "my-app");
   if (!isValidProjectName(projectName)) {
     throw new ScaffoldError(
       `Invalid project name "${projectName}". Use lowercase, digits, hyphens, underscores; must start with a letter.`,

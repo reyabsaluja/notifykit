@@ -36,6 +36,7 @@ export type WebSocketRealtimeAdapterOptions = {
 export type WebSocketIdentity = {
   recipientId: string;
   tenantId?: string;
+  organizationId?: string;
   workspaceId?: string;
 };
 
