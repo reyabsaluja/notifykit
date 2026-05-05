@@ -146,7 +146,8 @@ export function createNotifyKitClient(
     };
     try {
       event = JSON.parse(data);
-    } catch {
+    } catch (err) {
+      onRealtimeError?.(err);
       return;
     }
     const prev = state.inbox;

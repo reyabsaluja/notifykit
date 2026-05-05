@@ -873,11 +873,17 @@ export function createNotifyKit<
         notificationId: entry.notificationId,
         payloads: entry.payloads as never,
         count: entry.payloads.length,
-      }) as unknown as Record<string, unknown>;
+      });
+      if (!combined || typeof combined !== "object" || Array.isArray(combined)) {
+        throw new NotifyKitError(
+          `Digest render for "${def.id}" must return a plain object, got ${combined === null ? "null" : typeof combined}.`,
+          { code: "INVALID_DIGEST_RENDER", notificationId: def.id },
+        );
+      }
 
       const validated = def.validate
         ? def.validate(combined)
-        : validatePayload(def.payload, combined, def.id);
+        : validatePayload(def.payload, combined as Record<string, unknown>, def.id);
 
       const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
       const prefResult = resolvePreferences(resolutionCtx);
@@ -962,7 +968,8 @@ export function createNotifyKit<
     },
   ): Promise<{ inboxItem?: InboxItem; delivery?: DeliveryRecord }> {
     const scope: SecurityScope = { tenantId: ctx.tenantId, workspaceId: ctx.workspaceId };
-    const def = byId.get(ctx.notificationId)!;
+    const def = byId.get(ctx.notificationId);
+    if (!def) return {};
     const recipient = await database.recipients.findById(ctx.recipientId);
     if (!recipient) return {};
 
