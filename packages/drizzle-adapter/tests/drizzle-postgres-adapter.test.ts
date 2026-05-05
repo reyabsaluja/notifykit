@@ -457,6 +457,46 @@ describe("drizzlePostgresAdapter", () => {
     expect((after.rows as { n: number }[])[0]!.n).toBe(1);
   });
 
+  test("tenant-scoped rate limit keys are Postgres-safe", async () => {
+    const client = newPgClient();
+    const db = drizzle(client);
+    await createPgTables(db);
+
+    const inboxCh = channel.inbox();
+    const def = notification({
+      id: "tenant_limited",
+      payload: { msg: "string" },
+      channels: [inboxCh({ title: "{{msg}}" })],
+      rateLimit: { max: 1, windowMs: 60_000 },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: drizzlePostgresAdapter(db),
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "u1", tenantId: "tenant_a" });
+
+    await notify.send({
+      recipientId: "u1",
+      tenantId: "tenant_a",
+      notificationId: "tenant_limited",
+      payload: { msg: "first" },
+    });
+    const second = await notify.send({
+      recipientId: "u1",
+      tenantId: "tenant_a",
+      notificationId: "tenant_limited",
+      payload: { msg: "second" },
+    });
+    expect(second.rateLimited).toBe(true);
+
+    const keys = await db.execute(
+      sql`SELECT key FROM notifykit_rate_limit_events`,
+    );
+    const row = (keys.rows as { key: string }[])[0]!;
+    expect(row.key).not.toContain("\0");
+  });
+
   test("digest buffer persists and flushes merged payload", async () => {
     const client = newPgClient();
     const db = drizzle(client);

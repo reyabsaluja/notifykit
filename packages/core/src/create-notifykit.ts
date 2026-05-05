@@ -457,11 +457,15 @@ export function createNotifyKit<
     return redactPayload(payload, def.redact);
   }
 
-  function scopeKey(scope: SecurityScope): string {
-    if (!scope.tenantId && !scope.workspaceId) return "";
-    const t = (scope.tenantId ?? "").replace(/\0/g, "");
-    const w = (scope.workspaceId ?? "").replace(/\0/g, "");
-    return `${t}\0${w}\0`;
+  function storageKey(parts: readonly string[]): string {
+    return JSON.stringify(parts);
+  }
+
+  function scopedStorageKey(
+    scope: SecurityScope,
+    ...parts: readonly string[]
+  ): string {
+    return storageKey([scope.tenantId ?? "", scope.workspaceId ?? "", ...parts]);
   }
 
   function digestBucketKey(
@@ -470,10 +474,7 @@ export function createNotifyKit<
     notificationId: string,
     groupKey: string,
   ): string {
-    const recipient = recipientId.replace(/\0/g, "");
-    const notification = notificationId.replace(/\0/g, "");
-    const group = groupKey.replace(/\0/g, "");
-    return `${scopeKey(scope)}${recipient}\0${notification}\0${group}`;
+    return scopedStorageKey(scope, recipientId, notificationId, groupKey);
   }
 
   async function buildResolutionCtx(
@@ -606,8 +607,8 @@ export function createNotifyKit<
       const rateLimitScope = limit.scope ?? "recipient";
       const key =
         rateLimitScope === "global"
-          ? `${scopeKey(scope)}${def.id}`
-          : `${scopeKey(scope)}${recipient.id}:${def.id}`;
+          ? scopedStorageKey(scope, def.id)
+          : scopedStorageKey(scope, recipient.id, def.id);
       const result = await database.rateLimits.reserve({
         key,
         max: limit.max,
@@ -765,8 +766,8 @@ export function createNotifyKit<
       const rateLimitScope = limit.scope ?? "recipient";
       const key =
         rateLimitScope === "global"
-          ? `${scopeKey(scope)}${def.id}`
-          : `${scopeKey(scope)}${recipient.id}:${def.id}`;
+          ? scopedStorageKey(scope, def.id)
+          : scopedStorageKey(scope, recipient.id, def.id);
       const current = await database.rateLimits.count({
         key,
         windowMs: limit.windowMs,

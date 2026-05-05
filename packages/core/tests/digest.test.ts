@@ -109,6 +109,38 @@ describe("digests", () => {
     ).toEqual([1, 1]);
   });
 
+  test("bucket storage keys do not contain null bytes", async () => {
+    const nulKeyDigest = notification({
+      id: "nul_key_digest",
+      payload: { actorName: "string", count: "number" },
+      channels: [inbox({ title: "{{actorName}} {{count}}" })],
+      digest: {
+        windowMs: 60_000,
+        key: () => "thread\0with\0nul",
+        render: ({ payloads }) => ({
+          actorName: payloads[payloads.length - 1]!.actorName,
+          count: payloads.length,
+        }),
+      },
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [nulKeyDigest] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1", tenantId: "tenant_a" });
+
+    await notify.send({
+      recipientId: "u1",
+      tenantId: "tenant_a",
+      notificationId: "nul_key_digest",
+      payload: { actorName: "Rey", count: 1 },
+    });
+
+    expect(db._state.digests).toHaveLength(1);
+    expect(db._state.digests[0]!.key).not.toContain("\0");
+  });
+
   test("custom keys are isolated by recipient and tenant scope", async () => {
     const scoped = notification({
       id: "scoped_digest",
