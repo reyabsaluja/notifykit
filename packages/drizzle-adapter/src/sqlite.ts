@@ -292,9 +292,8 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           .from(inboxItems)
           .where(and(...conditions))
           .orderBy(desc(inboxItems.createdAt));
-        const rows = limit !== undefined
-          ? await query.limit(limit)
-          : await query.limit(200);
+        const cap = Math.min(limit ?? 200, 1000);
+        const rows = await query.limit(cap);
         return rows.map(rowToInboxItem);
       },
 
@@ -522,7 +521,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         scope?: SecurityScope,
         limit?: number,
       ): Promise<DeliveryRecord[]> {
-        const cap = limit ?? 200;
+        const cap = Math.min(limit ?? 200, 1000);
         const conditions = [
           ...(recipientId ? [eq(deliveries.recipientId, recipientId)] : []),
           ...scopedConditions(deliveries, scope),

@@ -110,6 +110,19 @@ export function webhookProvider(
           signal: controller.signal,
           redirect: "error",
         });
+      } catch (fetchErr) {
+        clearTimeout(timer);
+        if (fetchErr instanceof TypeError && String(fetchErr.message).toLowerCase().includes("redirect")) {
+          throw new NotifyKitError(
+            `Webhook delivery to ${input.url} failed: server returned a redirect.`,
+            {
+              code: "WEBHOOK_REDIRECT_BLOCKED",
+              channel: "webhook",
+              fix: "Webhook URLs must not redirect. Update the URL to point directly to the final destination. Redirects are blocked to prevent SSRF.",
+            },
+          );
+        }
+        throw fetchErr;
       } finally {
         clearTimeout(timer);
       }
