@@ -525,6 +525,30 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
       }
     }
 
+    // --- rateLimit config validation ---
+    if (def.rateLimit) {
+      if (!Number.isInteger(def.rateLimit.max) || def.rateLimit.max < 1) {
+        issues.push({
+          severity: "error",
+          code: "INVALID_RATE_LIMIT",
+          notificationId: def.id,
+          field: "rateLimit.max",
+          message: `Notification "${def.id}" rateLimit.max must be a positive integer, got ${def.rateLimit.max}.`,
+          fix: "Set max to a positive integer (e.g. rateLimit: { max: 5, windowMs: 60000 }).",
+        });
+      }
+      if (!Number.isFinite(def.rateLimit.windowMs) || def.rateLimit.windowMs <= 0) {
+        issues.push({
+          severity: "error",
+          code: "INVALID_RATE_LIMIT",
+          notificationId: def.id,
+          field: "rateLimit.windowMs",
+          message: `Notification "${def.id}" rateLimit.windowMs must be a positive number, got ${def.rateLimit.windowMs}.`,
+          fix: "Set windowMs to a positive millisecond value (e.g. rateLimit: { max: 5, windowMs: 60000 }).",
+        });
+      }
+    }
+
     // --- SMS without rate limit warning ---
     if (channelTypes.has("sms") && !def.rateLimit) {
       issues.push({
