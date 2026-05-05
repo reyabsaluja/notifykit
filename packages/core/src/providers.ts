@@ -86,9 +86,9 @@ export function webhookProvider(
     async send(input) {
       const body = JSON.stringify(input.payload);
       const headers: Record<string, string> = {
+        ...input.headers,
         "content-type": "application/json",
         "user-agent": "notifykit/0.x",
-        ...input.headers,
       };
       if (options.secret) {
         headers["x-notifykit-signature"] = `sha256=${createHmac(
