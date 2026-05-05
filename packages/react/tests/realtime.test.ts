@@ -564,4 +564,68 @@ describe("SSE reconnection", () => {
 
     client.disconnect();
   });
+
+  test("refetch reconciliation does not count archived extras as unread", async () => {
+    let streamAttempts = 0;
+    let activeInboxFetches = 0;
+    const archivedItem = makeItem({
+      id: "inb_archived",
+      archivedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    });
+
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      const parsed = new URL(url, "http://localhost");
+      const path = parsed.pathname.replace(/^\/api\/notifykit/, "");
+      const key = `${method} ${path}${parsed.search}`;
+
+      if (path === "/inbox/stream") {
+        streamAttempts++;
+        return sseResponse([]);
+      }
+
+      if (key === "GET /inbox?archived=true") {
+        return new Response(JSON.stringify({ data: [archivedItem] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (key === "GET /inbox") {
+        activeInboxFetches++;
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const client = createNotifyKitClient({
+      fetch: fetchImpl,
+      realtime: true,
+    });
+
+    await client.inbox.list({ archived: true });
+    expect(client.getState().inbox.unreadCount).toBe(0);
+
+    client.connect();
+
+    await waitForState(
+      client,
+      () => streamAttempts >= 2 && activeInboxFetches >= 1,
+      5000,
+    );
+    expect(client.getState().inbox.unreadCount).toBe(0);
+
+    client.disconnect();
+  });
 });

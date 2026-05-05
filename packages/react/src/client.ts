@@ -171,7 +171,7 @@ export function createNotifyKitClient(
       const exists = prev.items.some((it) => it.id === item.id);
       if (!exists) {
         const items = [item, ...prev.items];
-        const unread = item.readAt ? 0 : 1;
+        const unread = isActiveUnread(item) ? 1 : 0;
         setState({
           ...state,
           inbox: {
@@ -186,8 +186,8 @@ export function createNotifyKitClient(
       const old = prev.items.find((it) => it.id === item.id);
       const items = prev.items.map((it) => (it.id === item.id ? item : it));
       let delta = 0;
-      if (old && !old.readAt && item.readAt) delta = -1;
-      if (old && old.readAt && !item.readAt) delta = 1;
+      if (old && isActiveUnread(old) && !isActiveUnread(item)) delta = -1;
+      if (old && !isActiveUnread(old) && isActiveUnread(item)) delta = 1;
       setState({
         ...state,
         inbox: {
@@ -216,7 +216,7 @@ export function createNotifyKitClient(
       const exists = prev.items.some((it) => it.id === item.id);
       if (!exists) {
         const items = [item, ...prev.items];
-        const unread = !item.readAt ? 1 : 0;
+        const unread = isActiveUnread(item) ? 1 : 0;
         setState({
           ...state,
           inbox: {
@@ -251,7 +251,7 @@ export function createNotifyKitClient(
             (it) => !fetchedIds.has(it.id) && now - it.createdAt.getTime() < 10_000,
           );
           const items = [...extras, ...fetched];
-          const unreadCount = items.filter((it) => !it.readAt).length;
+          const unreadCount = items.filter(isActiveUnread).length;
           setState({
             ...state,
             inbox: { ...state.inbox, items, unreadCount },
@@ -261,7 +261,7 @@ export function createNotifyKitClient(
     } else if (event.type === "inbox.all_read") {
       const now = new Date();
       const items = prev.items.map((it) =>
-        !it.readAt ? { ...it, readAt: now } : it,
+        isActiveUnread(it) ? { ...it, readAt: now } : it,
       );
       setState({
         ...state,
@@ -438,6 +438,10 @@ export function createNotifyKitClient(
     return json?.data;
   }
 
+  function isActiveUnread(item: InboxItem): boolean {
+    return !item.readAt && !item.archivedAt;
+  }
+
   function reviveInbox(raw: unknown): InboxItem[] {
     if (!Array.isArray(raw)) return [];
     return raw.filter((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).id === "string").map(reviveInboxItem);
@@ -540,7 +544,7 @@ export function createNotifyKitClient(
           const items = [...extras, ...fetched];
           const unreadCount = options?.archived
             ? state.inbox.unreadCount
-            : items.filter((it) => !it.readAt && !it.archivedAt).length;
+            : items.filter(isActiveUnread).length;
           setState({
             ...state,
             inbox: { items, unreadCount, status: "ready", error: null },
@@ -559,7 +563,7 @@ export function createNotifyKitClient(
       async markRead(inboxItemId: string): Promise<InboxItem | null> {
         const prevItems = state.inbox.items;
         const target = prevItems.find((it) => it.id === inboxItemId);
-        const wasUnread = target && !target.readAt && !target.archivedAt;
+        const wasUnread = target && isActiveUnread(target);
         const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
@@ -624,7 +628,7 @@ export function createNotifyKitClient(
         const prevUnread = state.inbox.unreadCount;
         const readAtSnapshot = new Map<string, Date | null | undefined>();
         for (const it of state.inbox.items) {
-          if (!it.readAt && !it.archivedAt) readAtSnapshot.set(it.id, it.readAt);
+          if (isActiveUnread(it)) readAtSnapshot.set(it.id, it.readAt);
         }
         const now = new Date();
         setState({
@@ -632,7 +636,7 @@ export function createNotifyKitClient(
           inbox: {
             ...state.inbox,
             items: state.inbox.items.map((it) =>
-              !it.readAt && !it.archivedAt ? { ...it, readAt: now } : it,
+              isActiveUnread(it) ? { ...it, readAt: now } : it,
             ),
             unreadCount: 0,
           },
@@ -663,7 +667,7 @@ export function createNotifyKitClient(
         const prevItems = state.inbox.items;
         const target = prevItems.find((it) => it.id === inboxItemId);
         const alreadyArchived = target?.archivedAt != null;
-        const shouldDecrementCount = target && !target.readAt && !alreadyArchived;
+        const shouldDecrementCount = target && isActiveUnread(target);
         const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
@@ -706,7 +710,7 @@ export function createNotifyKitClient(
         const target = prevItems.find((it) => it.id === inboxItemId);
         const alreadyUnarchived = target != null && target.archivedAt == null;
         const shouldIncrementCount =
-          target && !target.readAt && !alreadyUnarchived;
+          target && !target.readAt && target.archivedAt != null;
         const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
@@ -747,7 +751,7 @@ export function createNotifyKitClient(
       async deleteItem(inboxItemId: string): Promise<void> {
         const prevItems = state.inbox.items;
         const target = prevItems.find((it) => it.id === inboxItemId);
-        const wasUnread = target && !target.readAt && !target.archivedAt;
+        const wasUnread = target && isActiveUnread(target);
         const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
