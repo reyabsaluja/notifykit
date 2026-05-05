@@ -336,11 +336,17 @@ export function createNotifyKitClient(
       let wasError = false;
       const MAX_RETRIES = 20;
       while (!controller.signal.aborted) {
+        const connStart = Date.now();
         try {
           await readSSEStream(controller.signal);
-          retries = 0;
-          retryMs = 1000;
-          wasError = false;
+          if (Date.now() - connStart < 2000) {
+            retries++;
+            wasError = true;
+          } else {
+            retries = 0;
+            retryMs = 1000;
+            wasError = false;
+          }
         } catch (err) {
           if (controller.signal.aborted) break;
           const status = (err as any)?.status;
@@ -353,10 +359,10 @@ export function createNotifyKitClient(
           retries++;
           wasError = true;
           onRealtimeError?.(err);
-          if (retries >= MAX_RETRIES) {
-            setRtStatus("disconnected");
-            break;
-          }
+        }
+        if (retries >= MAX_RETRIES) {
+          setRtStatus("disconnected");
+          break;
         }
         if (controller.signal.aborted) break;
         setRtStatus("connecting");
