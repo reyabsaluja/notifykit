@@ -28,6 +28,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
       webhook: config.providers?.webhook ?? fakeWebhookProvider(),
       sms: config.providers?.sms,
     },
+    unsubscribe: config.unsubscribe,
     on: {
       "notification.created": ({ notification }) => {
         console.log(

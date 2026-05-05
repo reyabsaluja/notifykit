@@ -122,6 +122,25 @@ describe("notifykit CLI", () => {
     expect(result.stdout).toContain("sms: sent");
   });
 
+  test("send forwards unsubscribe config", async () => {
+    const result = await runCli([
+      "send",
+      "--config",
+      "unsubscribe.config.ts",
+      "--to",
+      "user_1",
+      "--id",
+      "weekly_digest",
+      "--email",
+      "u@example.com",
+      "--payload",
+      JSON.stringify({ url: "https://example.com/digest" }),
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).not.toContain("unsubscribe is not configured");
+    expect(result.stdout).toContain('Sent "weekly_digest"');
+  });
+
   test("serve supports SMS configs", async () => {
     const result = await runCliUntil(
       ["serve", "--config", "sms.config.ts", "--port", "0"],

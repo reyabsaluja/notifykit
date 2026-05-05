@@ -27,6 +27,7 @@ export async function runSend(options: SendOptions): Promise<number> {
       webhook: config.providers?.webhook ?? fakeWebhookProvider(),
       sms: config.providers?.sms,
     },
+    unsubscribe: config.unsubscribe,
   });
 
   await notify.upsertRecipient({
