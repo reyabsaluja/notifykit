@@ -397,6 +397,16 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
           fix: "Provide a render function: digest: { windowMs: ..., render: ({ payloads }) => ... }.",
         });
       }
+      if (def.digest.key !== undefined && typeof def.digest.key !== "function") {
+        issues.push({
+          severity: "error",
+          code: "INVALID_DIGEST_KEY",
+          notificationId: def.id,
+          field: "digest.key",
+          message: `Notification "${def.id}" digest.key must be a function if provided.`,
+          fix: "Provide a key function: digest: { key: ({ recipientId, payload }) => ... }.",
+        });
+      }
     }
 
     // --- version check ---
