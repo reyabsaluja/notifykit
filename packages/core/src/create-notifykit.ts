@@ -247,9 +247,20 @@ export type NotifyKit<
   };
   /**
    * Resolves when outstanding digest flushes and all enqueued delivery jobs
-   * (and their retries) have settled.
+   * (and their retries) have settled. Note: this waits for timer-gated work
+   * (digests, scheduled sends) to fire naturally. For bounded shutdown, call
+   * `close()` instead.
    */
   drain(): Promise<void>;
+  /**
+   * Graceful shutdown: cancels all pending timers (digest windows, scheduled
+   * sends), resolves their tracked promises, and drains the delivery queue.
+   * After `close()` resolves, no timers remain on the event loop from this
+   * instance. Unlike `drain()`, this does NOT flush pending work — it
+   * discards it. Call `flushDigests()` + `flushScheduledSends()` before
+   * `close()` if you need to deliver pending items before shutting down.
+   */
+  close(): Promise<void>;
   /**
    * Forces pending digest buckets to flush now instead of waiting for their
    * window. Useful in tests and "send now" buttons. Resolves once every
@@ -1882,6 +1893,22 @@ export function createNotifyKit<
       },
     },
     async drain() {
+      while (pendingFlushes.size > 0) {
+        await Promise.all(Array.from(pendingFlushes));
+      }
+      await queue.drain();
+    },
+    async close() {
+      for (const [key, entry] of scheduledFlushes) {
+        clearTimeout(entry.timer);
+        scheduledFlushes.delete(key);
+        entry.resolve();
+      }
+      for (const [id, entry] of scheduledSendTimers) {
+        clearTimeout(entry.timer);
+        scheduledSendTimers.delete(id);
+        entry.resolve();
+      }
       while (pendingFlushes.size > 0) {
         await Promise.all(Array.from(pendingFlushes));
       }
