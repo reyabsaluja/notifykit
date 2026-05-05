@@ -113,7 +113,7 @@ describe("pgRealtimeAdapter", () => {
 
     // Simulate a NOTIFY from another process
     const foreignPayload = JSON.stringify({
-      key: "user_1::",
+      key: "user_1\0\0",
       event: { type: "inbox.deleted", itemId: "inb_99" },
     });
     const handler = conn.handlers.get("notifykit_realtime")!;

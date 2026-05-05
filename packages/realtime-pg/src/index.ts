@@ -23,7 +23,7 @@ export type PgRealtimeAdapterOptions = {
 
 function scopeKey(recipientId: string, scope: SecurityScope): string {
   const s = normalizeScope(scope);
-  return `${recipientId}:${s.tenantId ?? ""}:${s.workspaceId ?? ""}`;
+  return `${recipientId}\0${s.tenantId ?? ""}\0${s.workspaceId ?? ""}`;
 }
 
 export type PgRealtimeAdapter = RealtimeAdapter & {
