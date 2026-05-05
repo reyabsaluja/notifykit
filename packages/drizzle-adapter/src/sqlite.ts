@@ -16,7 +16,7 @@ import type {
   UpsertRecipientInput,
 } from "notifykit";
 import { createId } from "notifykit";
-import { and, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte } from "drizzle-orm";
+import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import {
@@ -950,6 +950,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
               lte(scheduledSends.scheduledFor, now),
             ),
           )
+          .orderBy(asc(scheduledSends.scheduledFor))
           .limit(1000);
         return rows.map((row) => ({
           id: row.id,

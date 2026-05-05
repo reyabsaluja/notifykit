@@ -16,7 +16,7 @@ import type {
   UpsertRecipientInput,
 } from "notifykit";
 import { createId } from "notifykit";
-import { and, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
@@ -872,6 +872,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
               lte(scheduledSends.scheduledFor, now),
             ),
           )
+          .orderBy(asc(scheduledSends.scheduledFor))
           .limit(1000);
         return rows.map((row) => ({
           id: row.id,

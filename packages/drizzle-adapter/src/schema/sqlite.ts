@@ -157,6 +157,9 @@ export const scheduledSends = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => ({
+    scheduledForIdx: index("idx_notifykit_scheduled_sends_scheduled_for").on(
+      table.scheduledFor,
+    ),
     statusDueIdx: index("idx_notifykit_scheduled_sends_status_due").on(
       table.status,
       table.scheduledFor,
