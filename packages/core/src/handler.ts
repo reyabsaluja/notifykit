@@ -589,6 +589,9 @@ export function createHandler<
         }
         case "preferences.update": {
           const body = await readJson(request);
+          if (body === TOO_LARGE) {
+            return withCors(json({ error: "Payload too large" }, 413));
+          }
           if (!body || typeof body !== "object") {
             return withCors(json({ error: "Invalid JSON body" }, 400));
           }
@@ -628,6 +631,9 @@ export function createHandler<
         }
         case "preferences.updateGlobal": {
           const body = await readJson(request);
+          if (body === TOO_LARGE) {
+            return withCors(json({ error: "Payload too large" }, 413));
+          }
           if (!body || typeof body !== "object") {
             return withCors(json({ error: "Invalid JSON body" }, 400));
           }
@@ -672,6 +678,9 @@ export function createHandler<
         }
         case "preferences.updateCategory": {
           const body = await readJson(request);
+          if (body === TOO_LARGE) {
+            return withCors(json({ error: "Payload too large" }, 413));
+          }
           if (!body || typeof body !== "object") {
             return withCors(json({ error: "Invalid JSON body" }, 400));
           }
@@ -1046,9 +1055,11 @@ async function readBody(request: Request): Promise<string | null> {
   }
 }
 
+const TOO_LARGE = Symbol("too_large");
+
 async function readJson(request: Request): Promise<unknown> {
   const text = await readBody(request);
-  if (text === null) return null;
+  if (text === null) return TOO_LARGE;
   try {
     return JSON.parse(text);
   } catch {
