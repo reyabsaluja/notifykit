@@ -385,12 +385,6 @@ export function memoryAdapter(): MemoryAdapter {
         const existing = state.digests.find((d) => d.key === entry.key);
         if (existing) {
           existing.payloads = [...entry.payloads, ...existing.payloads];
-          existing.recipientId = entry.recipientId;
-          existing.tenantId = entry.tenantId;
-          existing.workspaceId = entry.workspaceId;
-          existing.notificationId = entry.notificationId;
-          existing.flushAt = entry.flushAt;
-          existing.createdAt = entry.createdAt;
           existing.updatedAt = new Date();
           return existing;
         }
