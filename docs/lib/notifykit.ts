@@ -8,6 +8,12 @@ import {
 
 const inbox = channel.inbox();
 const email = channel.email();
+const unsubscribeSecret = process.env.NOTIFYKIT_SECRET;
+const unsubscribeBaseUrl =
+  process.env.NOTIFYKIT_BASE_URL ?? "http://localhost:3001/api/notifykit";
+const commentMentionedEmailBody = unsubscribeSecret
+  ? "Open {{postUrl}} to reply.\n\n---\nUnsubscribe: {{_unsubscribeUrl}}"
+  : "Open {{postUrl}} to reply.";
 
 export const commentMentioned = notification({
   id: "comment_mentioned",
@@ -24,7 +30,7 @@ export const commentMentioned = notification({
     }),
     email({
       subject: "{{actorName}} mentioned you in {{postTitle}}",
-      body: "Open {{postUrl}} to reply.\n\n---\nUnsubscribe: {{_unsubscribeUrl}}",
+      body: commentMentionedEmailBody,
     }),
   ],
 });
@@ -41,11 +47,10 @@ export const notify = createNotifyKit({
   notifications: [commentMentioned, welcomeNotification] as const,
   database: memoryAdapter(),
   providers: { email: fakeEmailProvider() },
-  unsubscribe: process.env.NOTIFYKIT_SECRET
+  unsubscribe: unsubscribeSecret
     ? {
-        secret: process.env.NOTIFYKIT_SECRET,
-        baseUrl:
-          process.env.NOTIFYKIT_BASE_URL ?? "http://localhost:3001/api/notifykit",
+        secret: unsubscribeSecret,
+        baseUrl: unsubscribeBaseUrl,
       }
     : undefined,
 });
