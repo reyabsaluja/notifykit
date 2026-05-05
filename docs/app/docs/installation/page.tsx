@@ -117,7 +117,10 @@ export default function RootLayout({ children }) {
 
       <h2>Requirements</h2>
       <ul>
-        <li>Node 18+, Bun 1.0+, or Deno — anything with <code>fetch</code>.</li>
+        <li>
+          Node 18+ or another runtime with <code>fetch</code> and
+          Node-compatible <code>crypto</code> APIs.
+        </li>
         <li>TypeScript 5.0+ for the full type inference.</li>
         <li>
           Next.js 13+ (App Router) if you&apos;re using the handler and React
