@@ -850,14 +850,16 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
       },
 
       async complete(id: string): Promise<void> {
-        await db.delete(scheduledSends).where(eq(scheduledSends.id, id));
+        await db
+          .delete(scheduledSends)
+          .where(and(eq(scheduledSends.id, id), eq(scheduledSends.status, "claimed")));
       },
 
       async release(id: string): Promise<void> {
         await db
           .update(scheduledSends)
           .set({ status: "pending", claimedAt: null })
-          .where(eq(scheduledSends.id, id));
+          .where(and(eq(scheduledSends.id, id), eq(scheduledSends.status, "claimed")));
       },
 
       async listDue(now: Date): Promise<ScheduledSend[]> {
@@ -888,7 +890,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
       },
 
       async list(): Promise<ScheduledSend[]> {
-        const rows = await db.select().from(scheduledSends);
+        const rows = await db.select().from(scheduledSends).limit(10000);
         return rows.map((row) => ({
           id: row.id,
           recipientId: row.recipientId,

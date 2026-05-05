@@ -153,8 +153,12 @@ export async function createSqliteTables(
   for (const stmt of backfills) {
     try {
       await db.run(sql.raw(stmt));
-    } catch {
-      // Column already exists — expected for fresh tables.
+    } catch (err: any) {
+      const cause = err?.cause;
+      const msg = (cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err));
+      if (!msg.toLowerCase().includes("duplicate column") && !msg.includes("already exists")) {
+        throw err;
+      }
     }
   }
 

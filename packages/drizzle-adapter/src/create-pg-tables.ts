@@ -168,9 +168,13 @@ export async function createPgTables(
     (r) => r.attname,
   );
   if (!pkCols.includes("tenant_id")) {
-    await db.execute(sql.raw(`ALTER TABLE notifykit_preferences ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT ''`));
-    await db.execute(sql.raw(`ALTER TABLE notifykit_preferences ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT ''`));
-    await db.execute(sql.raw(`ALTER TABLE notifykit_preferences DROP CONSTRAINT notifykit_preferences_pkey`));
-    await db.execute(sql.raw(`ALTER TABLE notifykit_preferences ADD PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id)`));
+    await db.execute(sql.raw(`
+      BEGIN;
+      ALTER TABLE notifykit_preferences ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT '';
+      ALTER TABLE notifykit_preferences ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT '';
+      ALTER TABLE notifykit_preferences DROP CONSTRAINT notifykit_preferences_pkey;
+      ALTER TABLE notifykit_preferences ADD PRIMARY KEY (recipient_id, notification_id, tenant_id, workspace_id);
+      COMMIT;
+    `));
   }
 }
