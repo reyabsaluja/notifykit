@@ -136,6 +136,7 @@ export function createNotifyKitClient(
   let rtStatus: RealtimeStatus = "disconnected";
   let connectRefCount = 0;
   let lastEventId = "";
+  let authFailed = false;
 
   function handleRealtimeData(data: string) {
     let event: {
@@ -150,6 +151,19 @@ export function createNotifyKitClient(
       onRealtimeError?.(err);
       return;
     }
+    try {
+      applyRealtimeEvent(event);
+    } catch (err) {
+      onRealtimeError?.(err);
+    }
+  }
+
+  function applyRealtimeEvent(event: {
+    type?: string;
+    item?: unknown;
+    itemId?: string;
+    count?: number;
+  }) {
     const prev = state.inbox;
 
     if (event.type === "inbox.created" && event.item) {
@@ -331,6 +345,7 @@ export function createNotifyKitClient(
           if (controller.signal.aborted) break;
           const status = (err as any)?.status;
           if (status === 401 || status === 403) {
+            authFailed = true;
             onRealtimeError?.(err);
             setRtStatus("disconnected");
             break;
@@ -365,6 +380,7 @@ export function createNotifyKitClient(
 
   function connect() {
     if (!realtimeEnabled) return;
+    if (authFailed) return;
     connectRefCount++;
     if (connectRefCount === 1) openConnection();
   }
@@ -541,12 +557,15 @@ export function createNotifyKitClient(
           }
           return updated;
         } catch (err) {
+          const originalReadAt = prevItems.find((it) => it.id === inboxItemId)?.readAt ?? null;
           setState({
             ...state,
             inbox: {
               ...state.inbox,
-              items: prevItems,
-              unreadCount: prevUnreadCount,
+              items: state.inbox.items.map((it) =>
+                it.id === inboxItemId ? { ...it, readAt: originalReadAt } : it,
+              ),
+              unreadCount: wasUnread ? state.inbox.unreadCount + 1 : state.inbox.unreadCount,
               error: err instanceof Error ? err.message : String(err),
             },
           });
@@ -629,15 +648,19 @@ export function createNotifyKitClient(
           );
           return raw ? reviveInboxItem(raw) : null;
         } catch (err) {
-          setState({
-            ...state,
-            inbox: {
-              ...state.inbox,
-              items: prevItems,
-              unreadCount: prevUnreadCount,
-              error: err instanceof Error ? err.message : String(err),
-            },
-          });
+          if (target && !alreadyArchived) {
+            const current = state.inbox.items;
+            const exists = current.some((it) => it.id === inboxItemId);
+            setState({
+              ...state,
+              inbox: {
+                ...state.inbox,
+                items: exists ? current : [target, ...current],
+                unreadCount: shouldDecrementCount ? state.inbox.unreadCount + 1 : state.inbox.unreadCount,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            });
+          }
           throw err;
         }
       },
@@ -668,15 +691,19 @@ export function createNotifyKitClient(
           );
           return raw ? reviveInboxItem(raw) : null;
         } catch (err) {
-          setState({
-            ...state,
-            inbox: {
-              ...state.inbox,
-              items: prevItems,
-              unreadCount: prevUnreadCount,
-              error: err instanceof Error ? err.message : String(err),
-            },
-          });
+          if (target && !alreadyUnarchived) {
+            const current = state.inbox.items;
+            const exists = current.some((it) => it.id === inboxItemId);
+            setState({
+              ...state,
+              inbox: {
+                ...state.inbox,
+                items: exists ? current : [target, ...current],
+                unreadCount: shouldIncrementCount ? state.inbox.unreadCount - 1 : state.inbox.unreadCount,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            });
+          }
           throw err;
         }
       },
@@ -685,13 +712,12 @@ export function createNotifyKitClient(
         const prevItems = state.inbox.items;
         const target = prevItems.find((it) => it.id === inboxItemId);
         const wasUnread = target && !target.readAt && !target.archivedAt;
-        const prevUnreadCount = state.inbox.unreadCount;
         setState({
           ...state,
           inbox: {
             ...state.inbox,
             items: prevItems.filter((it) => it.id !== inboxItemId),
-            unreadCount: wasUnread ? Math.max(0, prevUnreadCount - 1) : prevUnreadCount,
+            unreadCount: wasUnread ? Math.max(0, state.inbox.unreadCount - 1) : state.inbox.unreadCount,
           },
         });
         try {
@@ -700,15 +726,19 @@ export function createNotifyKitClient(
             `/inbox/${encodeURIComponent(inboxItemId)}`,
           );
         } catch (err) {
-          setState({
-            ...state,
-            inbox: {
-              ...state.inbox,
-              items: prevItems,
-              unreadCount: prevUnreadCount,
-              error: err instanceof Error ? err.message : String(err),
-            },
-          });
+          if (target) {
+            const current = state.inbox.items;
+            const exists = current.some((it) => it.id === inboxItemId);
+            setState({
+              ...state,
+              inbox: {
+                ...state.inbox,
+                items: exists ? current : [target, ...current],
+                unreadCount: wasUnread ? state.inbox.unreadCount + 1 : state.inbox.unreadCount,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            });
+          }
           throw err;
         }
       },
