@@ -246,7 +246,10 @@ export function createNotifyKitClient(
           const fetched = reviveInbox(raw);
           const fetchedIds = new Set(fetched.map((it) => it.id));
           const current = state.inbox.items;
-          const extras = current.filter((it) => !fetchedIds.has(it.id));
+          const now = Date.now();
+          const extras = current.filter(
+            (it) => !fetchedIds.has(it.id) && now - it.createdAt.getTime() < 10_000,
+          );
           const items = [...extras, ...fetched];
           const unreadCount = items.filter((it) => !it.readAt).length;
           setState({
@@ -348,9 +351,15 @@ export function createNotifyKitClient(
         try {
           await readSSEStream(controller.signal);
           hasConnectedBefore = true;
-          retries = 0;
-          retryMs = 1000;
-          wasError = false;
+          const streamDuration = Date.now() - connStart;
+          if (streamDuration > 5000) {
+            retries = 0;
+            retryMs = 1000;
+            wasError = false;
+          } else {
+            retries++;
+            wasError = true;
+          }
         } catch (err) {
           if (controller.signal.aborted) break;
           const status = (err as any)?.status;
@@ -524,7 +533,10 @@ export function createNotifyKitClient(
           const fetched = reviveInbox(await request("GET", `/inbox${qs}`));
           const fetchedIds = new Set(fetched.map((it) => it.id));
           const current = state.inbox.items;
-          const extras = current.filter((it) => !fetchedIds.has(it.id));
+          const now = Date.now();
+          const extras = current.filter(
+            (it) => !fetchedIds.has(it.id) && now - it.createdAt.getTime() < 10_000,
+          );
           const items = [...extras, ...fetched];
           const unreadCount = options?.archived
             ? state.inbox.unreadCount
