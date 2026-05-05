@@ -31,9 +31,19 @@ const typeNameToPrimitive: Record<string, PrimitiveSchema> = {
   boolean: "boolean",
 };
 
+const wrapperTypes = new Set(["optional", "nullable", "nullish", "non_optional", "non_nullable", "non_nullish"]);
+
 function inferPrimitive(field: ValibotLikeField): PrimitiveSchema | undefined {
-  if (field.type && field.type in typeNameToPrimitive) return typeNameToPrimitive[field.type];
-  if (field.expects && field.expects in typeNameToPrimitive) return typeNameToPrimitive[field.expects];
+  let current: ValibotLikeField = field;
+  for (let depth = 0; depth < 5; depth++) {
+    if (current.type && current.type in typeNameToPrimitive) return typeNameToPrimitive[current.type];
+    if (current.expects && current.expects in typeNameToPrimitive) return typeNameToPrimitive[current.expects];
+    if (current.type && wrapperTypes.has(current.type) && (current as { wrapped?: ValibotLikeField }).wrapped) {
+      current = (current as { wrapped: ValibotLikeField }).wrapped;
+      continue;
+    }
+    return undefined;
+  }
   return undefined;
 }
 

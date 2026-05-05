@@ -39,6 +39,8 @@ const typeNameToPrimitive: Record<string, PrimitiveSchema> = {
   boolean: "boolean",
 };
 
+const wrapperTypeNames = new Set(["ZodOptional", "ZodNullable", "ZodDefault", "ZodReadonly"]);
+
 /**
  * Resolve the primitive schema string for a single Zod field at runtime.
  * Checks Zod v3's `_def.typeName`, Zod v4's `def.type`, and the constructor
@@ -51,15 +53,31 @@ const typeNameToPrimitive: Record<string, PrimitiveSchema> = {
  * by ensuring your Zod version populates them.
  */
 function inferPrimitive(field: ZodLikeField): PrimitiveSchema | undefined {
-  const v3Name = getStringProperty(getObjectProperty(field, "_def"), "typeName");
-  if (v3Name && v3Name in typeNameToPrimitive) return typeNameToPrimitive[v3Name];
+  let current: unknown = field;
+  for (let depth = 0; depth < 5; depth++) {
+    const v3Name = getStringProperty(getObjectProperty(current, "_def"), "typeName");
+    if (v3Name && v3Name in typeNameToPrimitive) return typeNameToPrimitive[v3Name];
+    if (v3Name && wrapperTypeNames.has(v3Name)) {
+      const inner = getObjectProperty(current, "_def");
+      current = inner?.["innerType"];
+      if (!current) return undefined;
+      continue;
+    }
 
-  const v4Type = getStringProperty(getObjectProperty(field, "def"), "type");
-  if (v4Type && v4Type in typeNameToPrimitive) return typeNameToPrimitive[v4Type];
+    const v4Type = getStringProperty(getObjectProperty(current, "def"), "type");
+    if (v4Type && v4Type in typeNameToPrimitive) return typeNameToPrimitive[v4Type];
+    if (v4Type && (v4Type === "optional" || v4Type === "nullable" || v4Type === "default")) {
+      const def = getObjectProperty(current, "def");
+      current = def?.["innerType"] ?? def?.["wrapped"];
+      if (!current) return undefined;
+      continue;
+    }
 
-  const ctorName = getStringProperty(getObjectProperty(field, "constructor"), "name");
-  if (ctorName && ctorName in typeNameToPrimitive) return typeNameToPrimitive[ctorName];
+    const ctorName = getStringProperty(getObjectProperty(current, "constructor"), "name");
+    if (ctorName && ctorName in typeNameToPrimitive) return typeNameToPrimitive[ctorName];
 
+    return undefined;
+  }
   return undefined;
 }
 

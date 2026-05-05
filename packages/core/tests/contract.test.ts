@@ -723,6 +723,26 @@ describe("zodPayload adapter", () => {
     expect(payload).toEqual({ active: "boolean", name: "string" });
   });
 
+  test("optional and nullable Zod fields are unwrapped to primitives", async () => {
+    const { z } = await import("zod");
+    const { zodPayload } = await import("../src/zod.js");
+
+    const { payload } = zodPayload(
+      z.object({
+        required: z.string(),
+        optional: z.string().optional(),
+        nullable: z.number().nullable(),
+        defaulted: z.boolean().default(false),
+      }),
+    );
+    expect(payload).toEqual({
+      required: "string",
+      optional: "string",
+      nullable: "number",
+      defaulted: "boolean",
+    });
+  });
+
   test("non-primitive Zod fields are omitted from PayloadSchema and warn", async () => {
     const { z } = await import("zod");
     const { zodPayload } = await import("../src/zod.js");
@@ -825,6 +845,25 @@ describe("valibotPayload adapter", () => {
     });
     expect(result.notification!.payload).toEqual({ name: "Alice", amount: 42 });
     expect(result.inboxItems[0]!.title).toBe("Hi Alice, $42");
+  });
+
+  test("optional and nullable Valibot fields are unwrapped to primitives", async () => {
+    const v = await import("valibot");
+    const { valibotPayload } = await import("../src/valibot.js");
+
+    const { payload } = valibotPayload(
+      v.object({
+        required: v.string(),
+        optional: v.optional(v.string()),
+        nullable: v.nullable(v.number()),
+      }),
+      (schema, data) => v.parse(schema, data) as Record<string, unknown>,
+    );
+    expect(payload).toEqual({
+      required: "string",
+      optional: "string",
+      nullable: "number",
+    });
   });
 });
 
