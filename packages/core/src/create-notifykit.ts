@@ -45,7 +45,7 @@ import {
 } from "./preference-keys.js";
 import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, assertSafeWebhookUrl, isSafeUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, assertSafeWebhookUrl, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 import { validateConfig, formatValidationIssues } from "./validate.js";
 
 export type CreateNotifyKitInput<
@@ -438,7 +438,7 @@ export function createNotifyKit<
 
   function scopeKey(scope: SecurityScope): string {
     if (!scope.tenantId && !scope.workspaceId) return "";
-    return `${scope.tenantId ?? ""}:${scope.workspaceId ?? ""}:`;
+    return `${scope.tenantId ?? ""}\0${scope.workspaceId ?? ""}\0`;
   }
 
   async function buildResolutionCtx(
@@ -988,11 +988,9 @@ export function createNotifyKit<
         body: ch.body !== undefined
           ? renderTemplate(ch.body, ctx.payload, { escapeHtml: true })
           : undefined,
-        actionUrl: (() => {
-          if (ch.actionUrl === undefined) return undefined;
-          const rendered = renderTemplate(ch.actionUrl, ctx.payload, { escapeHtml: false });
-          return isSafeUrl(rendered) ? rendered : undefined;
-        })(),
+        actionUrl: ch.actionUrl !== undefined
+          ? sanitizeActionUrl(renderTemplate(ch.actionUrl, ctx.payload, { escapeHtml: false }))
+          : undefined,
       });
       await runHook("inbox.created", { inboxItem: item });
       await realtimeAdapter?.publish(ctx.recipientId, scope, {
@@ -1010,7 +1008,7 @@ export function createNotifyKit<
         renderCtx._unsubscribeUrl = buildUnsubscribeUrl(recipient, def.id, scope);
       }
       const isHtml = ch.html !== false;
-      const subject = renderTemplate(ch.subject, renderCtx, { escapeHtml: true });
+      const subject = renderTemplate(ch.subject, renderCtx, { escapeHtml: false });
       const body = renderTemplate(ch.body, renderCtx, { escapeHtml: isHtml });
       const delivery = await database.deliveries.create({
         notificationRecordId: ctx.notificationRecordId,
@@ -1216,11 +1214,9 @@ export function createNotifyKit<
           notificationId: def.id,
           title: renderTemplate(ch.title, payload, { escapeHtml: true }),
           body: ch.body !== undefined ? renderTemplate(ch.body, payload, { escapeHtml: true }) : undefined,
-          actionUrl: (() => {
-            if (ch.actionUrl === undefined) return undefined;
-            const rendered = renderTemplate(ch.actionUrl, payload, { escapeHtml: false });
-            return isSafeUrl(rendered) ? rendered : undefined;
-          })(),
+          actionUrl: ch.actionUrl !== undefined
+            ? sanitizeActionUrl(renderTemplate(ch.actionUrl, payload, { escapeHtml: false }))
+            : undefined,
         });
         inboxItems.push(item);
         await runHook("inbox.created", { inboxItem: item });
@@ -1249,7 +1245,7 @@ export function createNotifyKit<
           );
         }
         const isHtml = ch.html !== false;
-        const subject = renderTemplate(ch.subject, renderCtx, { escapeHtml: true });
+        const subject = renderTemplate(ch.subject, renderCtx, { escapeHtml: false });
         const body = renderTemplate(ch.body, renderCtx, { escapeHtml: isHtml });
 
         const delivery = await database.deliveries.create({
@@ -1527,11 +1523,9 @@ export function createNotifyKit<
                 fallback.body !== undefined
                   ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
                   : undefined,
-              actionUrl: (() => {
-                if (fallback.actionUrl === undefined) return undefined;
-                const rendered = renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false });
-                return isSafeUrl(rendered) ? rendered : undefined;
-              })(),
+              actionUrl: fallback.actionUrl !== undefined
+                ? sanitizeActionUrl(renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false }))
+                : undefined,
             });
             await runHook("inbox.created", { inboxItem: item });
             await realtimeAdapter?.publish(job.recipientId, fallbackScope, {

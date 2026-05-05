@@ -306,6 +306,17 @@ export function isSafeUrl(url: string): boolean {
   }
 }
 
+export function sanitizeActionUrl(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    if (!SAFE_URL_PROTOCOLS.has(parsed.protocol)) return undefined;
+    return parsed.toString();
+  } catch {
+    if (!/^\/[^/\\]/.test(url)) return undefined;
+    return url.replace(/["'<>]/g, (ch) => encodeURIComponent(ch));
+  }
+}
+
 const REDACTED = "[REDACTED]" as const;
 
 export function redactPayload(
