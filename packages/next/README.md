@@ -19,17 +19,18 @@ Requires `notifykit` and `next` (>=14) as peer dependencies.
 import { createRouteHandler } from "@notifykit/next";
 import { notify } from "@/lib/notifykit";
 
-const { GET, POST, DELETE, OPTIONS } = createRouteHandler({
+export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
   notifykit: notify,
   identify: (req) => getCurrentUserId(req),
 });
-
-export { GET, POST, DELETE, OPTIONS };
 ```
 
 ### Server actions
 
 ```ts
+// app/actions/notifykit.ts
+"use server";
+
 import { createServerActions } from "@notifykit/next";
 import { notify } from "@/lib/notifykit";
 
@@ -38,7 +39,13 @@ const actions = createServerActions({
   identify: () => getCurrentUserId(),
 });
 
-// actions.inbox.list(), actions.inbox.markRead(id), actions.getPreferences(), etc.
+export async function listNotifications() {
+  return actions.inbox.list();
+}
+
+export async function markNotificationRead(id: string) {
+  return actions.inbox.markRead(id);
+}
 ```
 
 ### Middleware

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import {
   channel,
   createNotifyKit,
@@ -51,6 +52,13 @@ const testPayload = {
 };
 
 describe("createServerActions", () => {
+  test("factory module is not marked as a Next server-action export file", async () => {
+    const source = await readFile(new URL("../src/server-actions.ts", import.meta.url), "utf8");
+
+    expect(source.startsWith('"use server";')).toBe(false);
+    expect(source.startsWith("'use server';")).toBe(false);
+  });
+
   test("send and upsertRecipient are not exposed", () => {
     const { notifykit } = buildKit();
     const actions = createServerActions({
