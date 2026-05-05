@@ -91,7 +91,11 @@ export function resendProvider(options: ResendProviderOptions): EmailProvider {
 
       if (!res.ok) {
         const detail = json?.message ?? `${res.status} ${res.statusText}`;
-        throw new Error(`Resend send failed: ${detail}`);
+        const err = new Error(`Resend send failed: ${detail}`);
+        if (res.status === 400 || res.status === 401 || res.status === 403 || res.status === 422) {
+          (err as any).permanent = true;
+        }
+        throw err;
       }
       if (!json?.id) {
         throw new Error("Resend send returned 2xx but no `id`.");

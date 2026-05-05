@@ -1576,6 +1576,7 @@ export function createNotifyKit<
         } catch (updateErr) {
           console.error("[notifykit] delivery attempt update error:", updateErr);
         }
+        if ((lastError as any).permanent) break;
       }
     }
     const failed = await database.deliveries.update(job.deliveryId, {
