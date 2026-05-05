@@ -461,12 +461,14 @@ export function createHandler<
         start(controller) {
           const encoder = new TextEncoder();
           let eventId = 0;
+          let dropped = 0;
           const push = (data: string) => {
             try {
-              if ((controller.desiredSize ?? 1) <= 0) return;
+              if ((controller.desiredSize ?? 1) <= 0) return false;
               controller.enqueue(encoder.encode(data));
+              return true;
             } catch {
-              // stream closed
+              return false;
             }
           };
           push(": connected\n\n");
@@ -475,7 +477,13 @@ export function createHandler<
             scope,
             (event: RealtimeEvent) => {
               eventId++;
-              push(`id: ${eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+              if (dropped > 0) {
+                const sent = push(`id: ${eventId}\nevent: inbox.refetch\ndata: ${JSON.stringify({ type: "inbox.refetch", dropped })}\n\n`);
+                if (sent) dropped = 0;
+                return;
+              }
+              const sent = push(`id: ${eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+              if (!sent) dropped++;
             },
           );
           const heartbeat = setInterval(() => push(": heartbeat\n\n"), 30_000);
@@ -1041,8 +1049,10 @@ const VALID_CHANNEL_TYPES = new Set<string>(["inbox", "email", "webhook", "sms"]
 
 function toChannelPreferenceMap(input: unknown): ChannelPreferenceMap | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const entries = Object.entries(input as Record<string, unknown>);
+  if (entries.length > VALID_CHANNEL_TYPES.size) return null;
   const out: ChannelPreferenceMap = {};
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+  for (const [key, value] of entries) {
     if (typeof value !== "boolean") return null;
     if (!VALID_CHANNEL_TYPES.has(key)) return null;
     out[key as ChannelType] = value;

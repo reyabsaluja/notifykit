@@ -1974,6 +1974,7 @@ export function createNotifyKit<
         scheduledSendTimers.delete(id);
         entry.resolve();
       }
+      fallbackDeliveryIds.clear();
       while (pendingFlushes.size > 0) {
         await Promise.all(Array.from(pendingFlushes));
       }
