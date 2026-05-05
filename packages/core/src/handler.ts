@@ -1015,7 +1015,7 @@ async function readBody(request: Request): Promise<string | null> {
   }
   try {
     const reader = request.body?.getReader();
-    if (!reader) return null;
+    if (!reader) return "";
     const chunks: Uint8Array[] = [];
     let total = 0;
     for (;;) {

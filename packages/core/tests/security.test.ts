@@ -1570,6 +1570,32 @@ describe("inbound provider webhook route", () => {
     expect(receivedHeaders!.get("x-webhook-secret")).toBe("s3cret");
     expect(receivedBody).toBe(JSON.stringify({ event: "delivered" }));
   });
+
+  test("webhook verifier receives empty string for requests without a body", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    let receivedBody: string | null = null;
+    const handler = createHandler(notify, {
+      identify: () => "alice",
+      webhooks: {
+        resend: (_headers, body) => {
+          receivedBody = body;
+          return true;
+        },
+      },
+    });
+
+    const res = await handler(
+      new Request(`${BASE}/webhooks/resend`, { method: "POST" }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(receivedBody).toBe("");
+  });
 });
 
 describe("authorize hook + admin scoping on deliveries", () => {
