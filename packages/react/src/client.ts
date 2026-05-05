@@ -412,14 +412,15 @@ export function createNotifyKitClient(
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-    const json = (await res.json().catch(() => null)) as
-      | { data?: unknown; error?: string }
-      | null;
     if (!res.ok) {
+      const errJson = (await res.json().catch(() => null)) as
+        | { error?: string }
+        | null;
       const message =
-        json?.error ?? `NotifyKit request failed: ${res.status} ${res.statusText}`;
+        errJson?.error ?? `NotifyKit request failed: ${res.status} ${res.statusText}`;
       throw new Error(message);
     }
+    const json = (await res.json()) as { data?: unknown };
     return json?.data;
   }
 
@@ -705,7 +706,7 @@ export function createNotifyKitClient(
               inbox: {
                 ...state.inbox,
                 items: exists ? current : [target, ...current],
-                unreadCount: shouldIncrementCount ? state.inbox.unreadCount - 1 : state.inbox.unreadCount,
+                unreadCount: shouldIncrementCount ? Math.max(0, state.inbox.unreadCount - 1) : state.inbox.unreadCount,
                 error: err instanceof Error ? err.message : String(err),
               },
             });
