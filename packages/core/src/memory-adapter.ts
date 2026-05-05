@@ -411,7 +411,7 @@ export function memoryAdapter(): MemoryAdapter {
         // push. Prune aged rows, count, and (if under max) record in one go.
         const cutoff = Date.now() - input.windowMs;
         state.rateLimits = state.rateLimits.filter(
-          (e) => e.occurredAt.getTime() >= cutoff,
+          (e) => e.key !== input.key || e.occurredAt.getTime() >= cutoff,
         );
         let n = 0;
         for (const e of state.rateLimits) {
@@ -432,7 +432,7 @@ export function memoryAdapter(): MemoryAdapter {
       async count(input): Promise<number> {
         const cutoff = Date.now() - input.windowMs;
         state.rateLimits = state.rateLimits.filter(
-          (e) => e.occurredAt.getTime() >= cutoff,
+          (e) => e.key !== input.key || e.occurredAt.getTime() >= cutoff,
         );
         let n = 0;
         for (const e of state.rateLimits) {
@@ -469,7 +469,9 @@ export function memoryAdapter(): MemoryAdapter {
         return { ...record };
       },
       async complete(id: string): Promise<void> {
-        const idx = state.scheduledSends.findIndex((s) => s.id === id);
+        const idx = state.scheduledSends.findIndex(
+          (s) => s.id === id && s.status === "claimed",
+        );
         if (idx >= 0) state.scheduledSends.splice(idx, 1);
       },
       async release(id: string): Promise<void> {
