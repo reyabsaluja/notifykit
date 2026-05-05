@@ -396,6 +396,7 @@ export function createNotifyKit<
     def: NotificationDefinition<string, PayloadSchema>;
   };
   const scheduledFlushes = new Map<string, ScheduledFlush>();
+  let closing = false;
   type ScheduledSendTimer = {
     timer: ReturnType<typeof setTimeout>;
     resolve: () => void;
@@ -986,7 +987,7 @@ export function createNotifyKit<
       if (!permanent) {
         await database.digests.restore(entry);
       }
-      if (retryable && retryCount < MAX_DIGEST_RETRIES && !scheduledFlushes.has(key)) {
+      if (retryable && retryCount < MAX_DIGEST_RETRIES && !closing && !scheduledFlushes.has(key)) {
         const retryDelay = 30_000;
         let resolveTask!: () => void;
         const task = new Promise<void>((resolve) => {
@@ -1981,6 +1982,7 @@ export function createNotifyKit<
       await queue.drain();
     },
     async close() {
+      closing = true;
       for (const [key, entry] of scheduledFlushes) {
         clearTimeout(entry.timer);
         scheduledFlushes.delete(key);
