@@ -123,7 +123,7 @@ export default function RootLayout({ children }) {
         </li>
         <li>TypeScript 5.0+ for the full type inference.</li>
         <li>
-          Next.js 13+ (App Router) if you&apos;re using the handler and React
+          Next.js 14+ (App Router) if you&apos;re using the handler and React
           bindings. Other frameworks work too — the handler is plain Web
           Request/Response.
         </li>
