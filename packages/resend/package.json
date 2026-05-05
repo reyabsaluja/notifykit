@@ -11,7 +11,6 @@
   "homepage": "https://github.com/reyabsaluja/notifykit",
   "bugs": "https://github.com/reyabsaluja/notifykit/issues",
   "main": "./dist/index.js",
-  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
