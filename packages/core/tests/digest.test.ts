@@ -37,12 +37,13 @@ const commentNotif = notification({
 
 function buildKit() {
   const db = memoryAdapter();
+  const provider = fakeEmailProvider();
   const notify = createNotifyKit({
     notifications: [commentNotif] as const,
     database: db,
-    providers: { email: fakeEmailProvider() },
+    providers: { email: provider },
   });
-  return { notify, db };
+  return { notify, db, provider };
 }
 
 const basePayload = {
@@ -298,5 +299,22 @@ describe("digests", () => {
     // Bucket stays recoverable for inspection or retry.
     expect(db._state.digests).toHaveLength(1);
     expect(db._state.digests[0]!.payloads).toEqual([{ count: 1 }]);
+  });
+
+  test("close() cancels pending digest timers without flushing", async () => {
+    const { notify, db, provider } = buildKit();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.local" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Alice", postTitle: "Hello", count: 1 },
+    });
+    // close before the timer fires
+    await notify.close();
+    // Nothing should have been delivered
+    expect(db._state.inboxItems).toHaveLength(0);
+    expect(provider.sent).toHaveLength(0);
+    // Digest bucket still has the buffered payload
+    expect(db._state.digests).toHaveLength(1);
   });
 });

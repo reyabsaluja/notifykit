@@ -103,6 +103,9 @@ export function pgRealtimeAdapter(
       const key = scopeKey(recipientId, scope);
       const payload = JSON.stringify({ key, event });
       if (Buffer.byteLength(payload, "utf8") > 7999) {
+        options.onError?.(
+          new Error(`PG NOTIFY payload exceeds 8KB limit (event: ${event.type}). Sending inbox.refetch instead.`),
+        );
         const trimmed = JSON.stringify({
           key,
           event: { type: "inbox.refetch" },

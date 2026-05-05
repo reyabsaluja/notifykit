@@ -1496,11 +1496,12 @@ export function createNotifyKit<
         return;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        // Record the attempt; only mark "failed" once we've exhausted retries.
-        await database.deliveries.update(job.deliveryId, {
-          attempts: attempt,
-          error: lastError.message,
-        });
+        try {
+          await database.deliveries.update(job.deliveryId, {
+            attempts: attempt,
+            error: lastError.message,
+          });
+        } catch {}
       }
     }
     const failed = await database.deliveries.update(job.deliveryId, {

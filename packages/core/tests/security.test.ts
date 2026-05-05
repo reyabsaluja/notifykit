@@ -1246,6 +1246,9 @@ describe("request rate limiting", () => {
     expect(blocked.status).toBe(429);
     const body = (await blocked.json()) as { error: string };
     expect(body.error).toBe("Too many requests");
+    const retryAfter = blocked.headers.get("retry-after");
+    expect(retryAfter).toBeTruthy();
+    expect(Number(retryAfter)).toBeGreaterThan(0);
   });
 
   test("rate limit is per-identity (different users have independent limits)", async () => {
