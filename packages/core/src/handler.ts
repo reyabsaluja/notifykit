@@ -192,9 +192,9 @@ export function createHandler<
     return json(out, status);
   }
 
-  /** Returns true when the caller should be rejected with 429. */
-  function checkRateLimit(recipientId: string): boolean {
-    if (!requestRateLimit) return false;
+  /** Returns 0 when allowed, or the number of seconds until the next slot opens (for Retry-After). */
+  function checkRateLimit(recipientId: string): number {
+    if (!requestRateLimit) return 0;
     const now = Date.now();
     const cutoff = now - requestRateLimit.windowMs;
 
@@ -224,7 +224,8 @@ export function createHandler<
       }
     }
     if (timestamps && timestamps.length >= requestRateLimit.max) {
-      return true;
+      const oldest = timestamps[0]!;
+      return Math.max(1, Math.ceil((oldest + requestRateLimit.windowMs - now) / 1000));
     }
     if (rateLimitBuckets.size >= MAX_BUCKETS && !rateLimitBuckets.has(recipientId)) {
       let oldestKey: string | null = null;
@@ -243,7 +244,7 @@ export function createHandler<
       rateLimitBuckets.set(recipientId, timestamps);
     }
     timestamps.push(now);
-    return false;
+    return 0;
   }
 
   function withCors(response: Response, request?: Request): Response {
@@ -302,12 +303,15 @@ export function createHandler<
           }, 401));
         }
         if (requestRateLimit) {
-          if (checkRateLimit(identity.recipientId)) {
-            return withCors(errorJson({
+          const retryAfter = checkRateLimit(identity.recipientId);
+          if (retryAfter > 0) {
+            const res = errorJson({
               error: "Too many requests",
               code: "RATE_LIMITED",
               fix: `Rate limit exceeded for recipient "${identity.recipientId}".`,
-            }, 429));
+            }, 429);
+            res.headers.set("retry-after", String(retryAfter));
+            return withCors(res);
           }
         }
       }
@@ -434,12 +438,15 @@ export function createHandler<
     }
 
     if (requestRateLimit) {
-      if (checkRateLimit(identity.recipientId)) {
-        return withCors(errorJson({
+      const retryAfter = checkRateLimit(identity.recipientId);
+      if (retryAfter > 0) {
+        const res = errorJson({
           error: "Too many requests",
           code: "RATE_LIMITED",
           fix: `Rate limit exceeded for recipient "${identity.recipientId}". Wait before retrying. Limit: ${requestRateLimit.max} requests per ${requestRateLimit.windowMs}ms.`,
-        }, 429));
+        }, 429);
+        res.headers.set("retry-after", String(retryAfter));
+        return withCors(res);
       }
     }
 
