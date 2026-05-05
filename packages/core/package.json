@@ -1,6 +1,7 @@
 {
   "name": "notifykit",
   "version": "0.0.1",
+  "description": "App-native notifications for TypeScript.",
   "license": "MIT",
   "engines": {
     "node": ">=18"

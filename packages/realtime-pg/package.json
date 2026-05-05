@@ -1,6 +1,7 @@
 {
   "name": "@notifykit/realtime-pg",
   "version": "0.0.1",
+  "description": "Postgres LISTEN/NOTIFY realtime adapter for NotifyKit.",
   "license": "MIT",
   "engines": {
     "node": ">=18"

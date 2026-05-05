@@ -1,6 +1,7 @@
 {
   "name": "notifykit-react",
   "version": "0.0.1",
+  "description": "React hooks and components for NotifyKit inboxes and preferences.",
   "license": "MIT",
   "engines": {
     "node": ">=18"

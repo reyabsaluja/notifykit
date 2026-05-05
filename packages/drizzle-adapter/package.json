@@ -1,6 +1,7 @@
 {
   "name": "notifykit-drizzle",
   "version": "0.0.1",
+  "description": "Drizzle ORM persistence adapter for NotifyKit.",
   "license": "MIT",
   "engines": {
     "node": ">=18"

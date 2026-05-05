@@ -1,6 +1,7 @@
 {
   "name": "notifykit-resend",
   "version": "0.0.1",
+  "description": "Resend email provider for NotifyKit.",
   "license": "MIT",
   "engines": {
     "node": ">=18"

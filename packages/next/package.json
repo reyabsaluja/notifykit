@@ -1,6 +1,7 @@
 {
   "name": "@notifykit/next",
   "version": "0.0.1",
+  "description": "Next.js route handlers, middleware, and server actions for NotifyKit.",
   "license": "MIT",
   "engines": {
     "node": ">=18"

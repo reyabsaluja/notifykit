@@ -1,6 +1,7 @@
 {
   "name": "create-notifykit-app",
   "version": "0.0.1",
+  "description": "Scaffold a Next.js app with NotifyKit.",
   "license": "MIT",
   "engines": { "node": ">=18" },
   "type": "module",

@@ -1,6 +1,7 @@
 {
   "name": "@notifykit/realtime-ws",
   "version": "0.0.1",
+  "description": "WebSocket realtime adapter for NotifyKit.",
   "license": "MIT",
   "engines": {
     "node": ">=18"
