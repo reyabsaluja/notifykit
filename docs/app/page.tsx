@@ -24,10 +24,15 @@ export default function HomePage() {
         </a>
       </div>
 
-      <h2>Two commands</h2>
+      <h2>Starter setup</h2>
       <pre>
         <code>{`npx create-notifykit-app my-app
-cd my-app && npm install && npm run dev`}</code>
+cd my-app
+cp .env.example .env.local
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# paste the generated value into .env.local as NOTIFYKIT_SECRET
+npm install
+npm run dev`}</code>
       </pre>
 
       <h2>What you get</h2>
@@ -43,9 +48,9 @@ cd my-app && npm install && npm run dev`}</code>
           supported today — more coming soon.
         </li>
         <li>
-          <strong>Inbox + email + webhook</strong> out of the box. Retries,
-          fallback channels, and per-recipient quiet hours reuse the same
-          pipeline.
+          <strong>Inbox + email + SMS + webhook</strong> out of the box.
+          Retries, fallback channels, and per-recipient quiet hours reuse the
+          same pipeline.
         </li>
         <li>
           <strong>Preferences + signed unsubscribe</strong> — HMAC-signed

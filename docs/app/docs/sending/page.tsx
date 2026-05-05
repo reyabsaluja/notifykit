@@ -80,10 +80,10 @@ await notify.send({
 
       <h2>Inline vs async queue</h2>
       <p>
-        By default <code>send()</code> runs email delivery synchronously
-        (same as your API route). Swap in <code>setTimeoutQueue()</code> —
-        or your own — to return from <code>send()</code> instantly and have
-        deliveries run later.
+        By default <code>send()</code> runs provider deliveries
+        synchronously (same as your API route). Swap in{" "}
+        <code>setTimeoutQueue()</code> — or your own — to return from{" "}
+        <code>send()</code> instantly and have deliveries run later.
       </p>
       <pre>
         <code>{`import { setTimeoutQueue } from "notifykit"
