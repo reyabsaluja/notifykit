@@ -58,7 +58,11 @@ function normalizeIdentity(
   value: string | ServerActionsIdentity,
 ): ServerActionsIdentity {
   if (typeof value === "string") {
+    if (!value) throw new Error("identify() returned an empty string");
     return { recipientId: value };
+  }
+  if (!value.recipientId) {
+    throw new Error("identify() returned an object with an empty recipientId");
   }
   return value;
 }

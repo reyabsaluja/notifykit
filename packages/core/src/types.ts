@@ -699,6 +699,11 @@ export type Hooks = {
     /** Payload with sensitive fields replaced by `"[REDACTED]"` per the definition's `redact` list. */
     redactedPayload: Record<string, unknown>;
   }) => void | Promise<void>;
+  "notification.suppressed"?: (ctx: {
+    notificationId: string;
+    recipientId: string;
+    skippedChannels: ChannelType[];
+  }) => void | Promise<void>;
 };
 
 export type NotificationsById<

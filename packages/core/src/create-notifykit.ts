@@ -569,11 +569,17 @@ export function createNotifyKit<
       return false;
     })();
     if (!hasAnyAllowed && !hasMatchingFallback) {
+      const skippedChannels = prefResult.channels.map((ch) => ch.channel);
+      await runHook("notification.suppressed", {
+        notificationId: def.id,
+        recipientId: recipient.id,
+        skippedChannels,
+      });
       return {
         notification: null,
         inboxItems: [],
         deliveries: [],
-        skippedChannels: prefResult.channels.map((ch) => ch.channel),
+        skippedChannels,
         deferredChannels: [],
         digested: false,
         rateLimited: false,
