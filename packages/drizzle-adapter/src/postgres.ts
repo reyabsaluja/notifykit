@@ -729,7 +729,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
                 lt(rateLimitEvents.occurredAt, cutoff),
               ),
             );
-          const [{ value: n }] = await tx
+          const countResult = await tx
             .select({ value: drizzleCount() })
             .from(rateLimitEvents)
             .where(
@@ -738,7 +738,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
                 gte(rateLimitEvents.occurredAt, cutoff),
               ),
             );
-          if (n >= input.max) {
+          if ((countResult[0]?.value ?? 0) >= input.max) {
             return { allowed: false };
           }
           await tx.insert(rateLimitEvents).values({

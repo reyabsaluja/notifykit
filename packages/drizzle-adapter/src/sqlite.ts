@@ -808,7 +808,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
                 lt(rateLimitEvents.occurredAt, cutoff),
               ),
             );
-          const [{ value: n }] = await db
+          const countResult = await db
             .select({ value: drizzleCount() })
             .from(rateLimitEvents)
             .where(
@@ -817,7 +817,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
                 gte(rateLimitEvents.occurredAt, cutoff),
               ),
             );
-          if (n >= input.max) {
+          if ((countResult[0]?.value ?? 0) >= input.max) {
             return { allowed: false };
           }
           await db.insert(rateLimitEvents).values({
