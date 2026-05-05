@@ -120,7 +120,7 @@ await notify.drain()`}</code>
       <h2>Quiet hours</h2>
       <p>
         Attach to a recipient. Inbox still delivers immediately (it&apos;s
-        user-pulled, not push). Email and webhook defer until the window
+        user-pulled, not push). Email, SMS, and webhook defer until the window
         ends.
       </p>
       <pre>

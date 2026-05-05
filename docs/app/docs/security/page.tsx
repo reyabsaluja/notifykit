@@ -137,7 +137,7 @@ export default function SecurityPage() {
       <p>
         Server-side calls such as <code>notify.send()</code>,{" "}
         <code>notify.deliveries.list()</code>, and{" "}
-        <code>notify.inbox.markRead()</code> may pass explicit recipient and
+        <code>notify.inbox.markReadForRecipient()</code> may pass explicit recipient and
         scope ids because they run in trusted code.
       </p>
       <p>

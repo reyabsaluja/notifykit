@@ -104,8 +104,8 @@ email({
         </li>
         <li>
           <code>POST /api/notifykit/unsubscribe</code> — RFC 8058 one-click
-          (mail clients). Token in query, form body, or JSON body. Returns
-          empty 200.
+          (mail clients). Token in query, form body, or JSON body. Returns a
+          minimal 200 confirmation page.
         </li>
       </ul>
 
