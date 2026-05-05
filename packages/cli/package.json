@@ -2,6 +2,7 @@
   "name": "notifykit-cli",
   "version": "0.0.1",
   "license": "MIT",
+  "engines": { "node": ">=18" },
   "type": "module",
   "repository": {
     "type": "git",
