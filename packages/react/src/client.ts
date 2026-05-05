@@ -371,7 +371,7 @@ export function createNotifyKitClient(
           controller.signal.addEventListener("abort", () => { clearTimeout(timer); r(undefined); }, { once: true });
         });
         if (controller.signal.aborted) break;
-        if (wasError) retryMs = Math.min(retryMs * 2, 30_000);
+        if (wasError) retryMs = Math.min(retryMs * 2, 30_000) * (0.5 + Math.random() * 0.5);
       }
     })();
   }
@@ -466,21 +466,28 @@ export function createNotifyKitClient(
 
   function revivePreferences(raw: unknown): RecipientPreference[] {
     if (!Array.isArray(raw)) return [];
-    return raw.filter((r) => r != null).map(revivePreference);
+    return raw.filter(isValidPreference).map(revivePreference);
+  }
+
+  function isValidPreference(raw: unknown): boolean {
+    if (!raw || typeof raw !== "object") return false;
+    const r = raw as Record<string, unknown>;
+    return typeof r.recipientId === "string" && typeof r.notificationId === "string";
   }
 
   function revivePreference(raw: unknown): RecipientPreference {
-    if (!raw || typeof raw !== "object") {
-      return { recipientId: "", notificationId: "", channels: {}, updatedAt: new Date() };
-    }
     const r = raw as Record<string, unknown>;
+    const channels =
+      r.channels && typeof r.channels === "object" && !Array.isArray(r.channels)
+        ? (r.channels as ChannelPreferenceMap)
+        : {};
     return {
       recipientId: String(r.recipientId),
       tenantId: typeof r.tenantId === "string" ? r.tenantId : undefined,
       workspaceId:
         typeof r.workspaceId === "string" ? r.workspaceId : undefined,
       notificationId: String(r.notificationId),
-      channels: (r.channels ?? {}) as ChannelPreferenceMap,
+      channels,
       updatedAt: new Date(String(r.updatedAt)),
     };
   }
@@ -874,7 +881,13 @@ export function createNotifyKitClient(
       async list(): Promise<NotificationMetadata[]> {
         const raw = await request("GET", "/notifications");
         if (!Array.isArray(raw)) return [];
-        return raw as NotificationMetadata[];
+        return raw.filter(
+          (item): item is NotificationMetadata =>
+            item != null &&
+            typeof item === "object" &&
+            typeof (item as Record<string, unknown>).id === "string" &&
+            Array.isArray((item as Record<string, unknown>).channels),
+        );
       },
     },
   };

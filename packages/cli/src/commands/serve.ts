@@ -61,6 +61,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
     // resolve identity from a verified session or JWT instead.
     identify: (req) => req.headers.get("x-user-id") ?? options.devUser,
     basePath: options.basePath,
+    cors: "*",
   });
 
   const basePath = options.basePath ?? "/api/notifykit";

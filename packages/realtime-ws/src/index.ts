@@ -172,6 +172,7 @@ export function webSocketRealtimeAdapter(
   }
 
   function handleMessage(ws: WebSocketLike, data: string) {
+    if (data.length > 1024) return;
     try {
       const msg = JSON.parse(data);
       if (msg && msg.type === "pong") alive.add(ws);

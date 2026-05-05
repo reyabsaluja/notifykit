@@ -166,7 +166,7 @@ export function memoryAdapter(): MemoryAdapter {
         if (item.recipientId !== recipientId || !matchesScope(item, scope)) {
           return { status: "forbidden" };
         }
-        item.readAt = new Date();
+        if (!item.readAt) item.readAt = new Date();
         return { status: "marked", item };
       },
       async unreadCount(
