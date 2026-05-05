@@ -393,6 +393,7 @@ export function createNotifyKit<
     resolve: () => void;
   };
   const scheduledSendTimers = new Map<string, ScheduledSendTimer>();
+  const fallbackDeliveryIds = new Set<string>();
 
   function normalizeOrgId(scope: SecurityScope): SecurityScope {
     if (scope.organizationId && !scope.tenantId) {
@@ -954,7 +955,15 @@ export function createNotifyKit<
 
       await deliver(recipient, def, validated, { scope, prefResult });
     } catch (err) {
-      await database.digests.restore(entry);
+      const permanent =
+        err instanceof NotifyKitError &&
+        (err.code === "UNKNOWN_RECIPIENT" ||
+          err.code === "MISSING_DIGEST_CONFIG" ||
+          err.code === "INVALID_DIGEST_RENDER" ||
+          err.code === "INVALID_VALIDATE_RETURN");
+      if (!permanent) {
+        await database.digests.restore(entry);
+      }
       throw err;
     }
   }
@@ -1057,6 +1066,7 @@ export function createNotifyKit<
         body,
         attempts: 0,
       });
+      fallbackDeliveryIds.add(delivery.id);
       const job: DeliveryJob = {
         deliveryId: delivery.id,
         notificationRecordId: ctx.notificationRecordId,
@@ -1100,6 +1110,7 @@ export function createNotifyKit<
         body: JSON.stringify(ctx.payload),
         attempts: 0,
       });
+      fallbackDeliveryIds.add(delivery.id);
       const job: DeliveryJob = {
         deliveryId: delivery.id,
         notificationRecordId: ctx.notificationRecordId,
@@ -1135,6 +1146,7 @@ export function createNotifyKit<
         body,
         attempts: 0,
       });
+      fallbackDeliveryIds.add(delivery.id);
       const job: DeliveryJob = {
         deliveryId: delivery.id,
         notificationRecordId: ctx.notificationRecordId,
@@ -1527,6 +1539,11 @@ export function createNotifyKit<
           ? redactForDef(failedDef, job.payload)
           : job.payload,
       });
+    }
+
+    if (fallbackDeliveryIds.has(job.deliveryId)) {
+      fallbackDeliveryIds.delete(job.deliveryId);
+      return;
     }
 
     const def = byId.get(job.notificationId);
