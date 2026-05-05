@@ -237,6 +237,17 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
     }
 
     // --- payload schema validation ---
+    if (!def.payload || typeof def.payload !== "object") {
+      issues.push({
+        severity: "error",
+        code: "INVALID_PAYLOAD",
+        notificationId: def.id,
+        field: "payload",
+        message: `Notification "${def.id}" payload must be a non-null object.`,
+        fix: `Provide a payload schema: { fieldName: "string" | "number" | "boolean" }.`,
+      });
+      continue;
+    }
     for (const [key, schemaType] of Object.entries(def.payload)) {
       if (!VALID_SCHEMA_TYPES.has(schemaType)) {
         issues.push({
