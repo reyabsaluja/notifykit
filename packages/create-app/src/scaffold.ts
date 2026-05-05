@@ -69,6 +69,8 @@ export async function scaffold(options: ScaffoldOptions): Promise<ScaffoldResult
     "app/page.tsx",
     "app/api/notifykit/[...route]/route.ts",
     "lib/notifykit.ts",
+    "lib/session.ts",
+    ".env.example",
     "package.json",
     "tsconfig.json",
   ];
