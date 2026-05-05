@@ -127,7 +127,7 @@ function collectTemplateIssues(
   payloadKeys: Set<string>,
   out: ValidationIssue[],
 ): void {
-  const vars = extractTemplateVars(template);
+  const vars = new Set(extractTemplateVars(template));
   for (const v of vars) {
     if (!payloadKeys.has(v)) {
       out.push({
