@@ -1412,6 +1412,7 @@ export function createNotifyKit<
       if (onlySet && !onlySet.has(ch.type)) continue;
       if (deferSet.has(ch.type)) {
         deferredChannels.push(ch.type);
+        skipped.push({ channel: ch.type, reason: "quiet_hours_deferred", details: "Deferred until quiet hours end" });
         continue;
       }
       if (!isChannelAllowed(ch.type)) {

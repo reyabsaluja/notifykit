@@ -242,4 +242,46 @@ describe("skip reasons", () => {
 
     await notify.close();
   });
+
+  test("returns quiet_hours_deferred skip reason for deferred channels", async () => {
+    const email = channel.email();
+    const inbox = channel.inbox();
+    const def = notification({
+      id: "update",
+      payload: { msg: "string" },
+      channels: [
+        inbox({ title: "{{msg}}" }),
+        email({ subject: "hi", body: "{{msg}}" }),
+      ],
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: fakeEmailProvider() },
+    });
+
+    const now = new Date();
+    const startHour = now.getHours() - 1;
+    const endHour = now.getHours() + 1;
+    const start = `${String((startHour + 24) % 24).padStart(2, "0")}:00`;
+    const end = `${String(endHour % 24).padStart(2, "0")}:00`;
+
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: { start, end, timezone: "UTC" },
+    });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "update",
+      payload: { msg: "hi" },
+    });
+
+    expect(result.deferredChannels).toContain("email");
+    expect(result.skipped.some((s) => s.reason === "quiet_hours_deferred" && s.channel === "email")).toBe(true);
+
+    await notify.close();
+  });
 });
