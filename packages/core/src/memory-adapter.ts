@@ -123,6 +123,10 @@ export function memoryAdapter(): MemoryAdapter {
       async findByIdempotencyKey(key: string): Promise<NotificationRecord | null> {
         return state.notifications.find((n) => n.idempotencyKey === key) ?? null;
       },
+      async clearIdempotencyKey(id: string): Promise<void> {
+        const record = state.notifications.find((n) => n.id === id);
+        if (record) record.idempotencyKey = undefined;
+      },
     },
     inbox: {
       async create(input): Promise<InboxItem> {

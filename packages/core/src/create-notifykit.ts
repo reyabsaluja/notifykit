@@ -697,7 +697,15 @@ export function createNotifyKit<
       } catch (err) {
         if (isUniqueConstraintError(err)) {
           const existing = await database.notifications.findByIdempotencyKey(compositeKey);
-          if (existing) return buildIdempotentReplay(existing);
+          if (existing) {
+            const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
+            const age = Date.now() - existing.createdAt.getTime();
+            if (age < ttl) {
+              return buildIdempotentReplay(existing);
+            }
+            await database.notifications.clearIdempotencyKey(existing.id);
+            return sendInner(rawInput);
+          }
         }
         throw err;
       }
@@ -776,6 +784,7 @@ export function createNotifyKit<
         if (age < ttl) {
           return buildIdempotentReplay(existing);
         }
+        await database.notifications.clearIdempotencyKey(existing.id);
       }
     }
 

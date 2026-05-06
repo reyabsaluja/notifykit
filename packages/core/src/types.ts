@@ -564,6 +564,7 @@ export type DatabaseAdapter = {
   notifications: {
     create(input: Omit<NotificationRecord, "id" | "createdAt">): Promise<NotificationRecord>;
     findByIdempotencyKey(key: string): Promise<NotificationRecord | null>;
+    clearIdempotencyKey(id: string): Promise<void>;
   };
   inbox: {
     create(

@@ -261,6 +261,12 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           createdAt: row.createdAt,
         };
       },
+      async clearIdempotencyKey(id: string): Promise<void> {
+        await db
+          .update(notifications)
+          .set({ idempotencyKey: null })
+          .where(eq(notifications.id, id));
+      },
     },
 
     inbox: {
