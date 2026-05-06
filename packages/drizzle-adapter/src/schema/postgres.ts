@@ -45,11 +45,16 @@ export const notifications = pgTable(
     payloadSchema: jsonb("payload_schema").$type<Record<string, string>>(),
     /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER; */
     definitionVersion: integer("definition_version"),
+    /** @since 0.2 – migration: ALTER TABLE notifykit_notifications ADD COLUMN idempotency_key TEXT; */
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (table) => ({
     recipientIdx: index("idx_notifykit_notifications_recipient").on(
       table.recipientId,
+    ),
+    idempotencyKeyIdx: index("idx_notifykit_notifications_idempotency_key").on(
+      table.idempotencyKey,
     ),
   }),
 );

@@ -227,6 +227,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           payload: input.payload,
           payloadSchema: input.payloadSchema,
           definitionVersion: input.definitionVersion,
+          idempotencyKey: input.idempotencyKey,
           createdAt: new Date(),
         };
         await db.insert(notifications).values({
@@ -235,8 +236,30 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           workspaceId: record.workspaceId ?? null,
           payloadSchema: record.payloadSchema ?? null,
           definitionVersion: record.definitionVersion ?? null,
+          idempotencyKey: record.idempotencyKey ?? null,
         });
         return record;
+      },
+      async findByIdempotencyKey(key: string): Promise<NotificationRecord | null> {
+        const rows = await db
+          .select()
+          .from(notifications)
+          .where(eq(notifications.idempotencyKey, key))
+          .limit(1);
+        const row = rows[0];
+        if (!row) return null;
+        return {
+          id: row.id,
+          recipientId: row.recipientId,
+          tenantId: row.tenantId ?? undefined,
+          workspaceId: row.workspaceId ?? undefined,
+          notificationId: row.notificationId,
+          payload: row.payload,
+          payloadSchema: row.payloadSchema ?? undefined,
+          definitionVersion: row.definitionVersion ?? undefined,
+          idempotencyKey: row.idempotencyKey ?? undefined,
+          createdAt: row.createdAt,
+        };
       },
     },
 
@@ -295,6 +318,14 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           .orderBy(desc(inboxItems.createdAt));
         const cap = Math.min(limit ?? 200, 1000);
         const rows = await query.limit(cap);
+        return rows.map(rowToInboxItem);
+      },
+
+      async listByNotificationRecordId(notificationRecordId: string): Promise<InboxItem[]> {
+        const rows = await db
+          .select()
+          .from(inboxItems)
+          .where(eq(inboxItems.notificationRecordId, notificationRecordId));
         return rows.map(rowToInboxItem);
       },
 
@@ -504,6 +535,13 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           .limit(1);
         const row = rows[0];
         return row ? rowToDelivery(row) : null;
+      },
+      async listByNotificationRecordId(notificationRecordId: string): Promise<DeliveryRecord[]> {
+        const rows = await db
+          .select()
+          .from(deliveries)
+          .where(eq(deliveries.notificationRecordId, notificationRecordId));
+        return rows.map(rowToDelivery);
       },
       async update(id, patch): Promise<DeliveryRecord | null> {
         const ALLOWED = ["status", "providerMessageId", "error", "attempts", "sentAt", "failedAt", "skipReason", "skipDetails"] as const;

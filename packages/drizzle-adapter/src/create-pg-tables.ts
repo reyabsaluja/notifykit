@@ -31,10 +31,13 @@ export async function createPgTables(
       payload JSONB NOT NULL,
       payload_schema JSONB,
       definition_version INTEGER,
+      idempotency_key TEXT,
       created_at TIMESTAMPTZ NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_notifications_recipient
       ON notifykit_notifications (recipient_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_notifications_idempotency_key
+      ON notifykit_notifications (idempotency_key)`,
     `CREATE TABLE IF NOT EXISTS notifykit_inbox_items (
       id TEXT PRIMARY KEY,
       notification_record_id TEXT NOT NULL,
@@ -149,6 +152,7 @@ export async function createPgTables(
     `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
     `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS payload_schema JSONB`,
     `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS definition_version INTEGER`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
     `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
     `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
     `ALTER TABLE notifykit_deliveries ADD COLUMN IF NOT EXISTS tenant_id TEXT`,

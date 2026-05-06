@@ -114,10 +114,14 @@ export function memoryAdapter(): MemoryAdapter {
           payload: input.payload,
           payloadSchema: input.payloadSchema,
           definitionVersion: input.definitionVersion,
+          idempotencyKey: input.idempotencyKey,
           createdAt: new Date(),
         };
         state.notifications.push(record);
         return record;
+      },
+      async findByIdempotencyKey(key: string): Promise<NotificationRecord | null> {
+        return state.notifications.find((n) => n.idempotencyKey === key) ?? null;
       },
     },
     inbox: {
@@ -155,6 +159,9 @@ export function memoryAdapter(): MemoryAdapter {
           .slice()
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         return limit !== undefined ? items.slice(0, limit) : items;
+      },
+      async listByNotificationRecordId(notificationRecordId: string): Promise<InboxItem[]> {
+        return state.inboxItems.filter((i) => i.notificationRecordId === notificationRecordId);
       },
       async markReadForRecipient(
         inboxItemId: string,
@@ -277,6 +284,9 @@ export function memoryAdapter(): MemoryAdapter {
       },
       async findById(id: string): Promise<DeliveryRecord | null> {
         return state.deliveries.find((d) => d.id === id) ?? null;
+      },
+      async listByNotificationRecordId(notificationRecordId: string): Promise<DeliveryRecord[]> {
+        return state.deliveries.filter((d) => d.notificationRecordId === notificationRecordId);
       },
       async update(id, patch): Promise<DeliveryRecord | null> {
         const existing = state.deliveries.find((d) => d.id === id);
