@@ -17,7 +17,7 @@ import type {
   TimelineEvent,
   UpsertRecipientInput,
 } from "notifykit";
-import { SKIP_REASONS, createId } from "notifykit";
+import { SKIP_REASONS, TIMELINE_EVENT_TYPES, createId } from "notifykit";
 import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
@@ -1069,6 +1069,9 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
 }
 
 function rowToTimelineEvent(row: typeof timelineEvents.$inferSelect): TimelineEvent {
+  const event = (TIMELINE_EVENT_TYPES as readonly string[]).includes(row.event)
+    ? (row.event as TimelineEvent["event"])
+    : ("provider.error" as TimelineEvent["event"]);
   return {
     id: row.id,
     notificationRecordId: row.notificationRecordId,
@@ -1079,7 +1082,7 @@ function rowToTimelineEvent(row: typeof timelineEvents.$inferSelect): TimelineEv
     notificationId: row.notificationId,
     channel: (row.channel ?? undefined) as TimelineEvent["channel"],
     provider: row.provider ?? undefined,
-    event: row.event as TimelineEvent["event"],
+    event,
     message: row.message,
     metadata: (row.metadata ?? undefined) as Record<string, unknown> | undefined,
     timestamp: row.timestamp,
