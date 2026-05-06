@@ -693,6 +693,16 @@ export function createNotifyKit<
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as { notificationId: string; recipientId: string; idempotencyKey?: string };
     if (input.idempotencyKey) {
+      if (input.idempotencyKey.length > 256) {
+        throw new NotifyKitError(
+          "idempotencyKey must be 256 characters or fewer.",
+          {
+            code: "INVALID_INPUT",
+            field: "idempotencyKey",
+            fix: "Shorten the idempotencyKey to 256 characters or fewer.",
+          },
+        );
+      }
       const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
       const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
       try {

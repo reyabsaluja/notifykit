@@ -334,4 +334,18 @@ describe("idempotency keys", () => {
     expect(result.deliveries.length).toBeGreaterThan(0);
     expect(emailProvider.sent).toHaveLength(1);
   });
+
+  test("rejects idempotencyKey longer than 256 characters", async () => {
+    const { notify } = setup();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    expect(
+      notify.send({
+        recipientId: "u1",
+        notificationId: "alert",
+        payload: { msg: "hi" },
+        idempotencyKey: "x".repeat(257),
+      }),
+    ).rejects.toThrow("idempotencyKey must be 256 characters or fewer");
+  });
 });
