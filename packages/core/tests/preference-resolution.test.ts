@@ -1419,6 +1419,51 @@ describe("notify.explain() — delivery-level explanation", () => {
     expect(emailCh.outcome).toBe("delayed");
   });
 
+  test("explain shows deduplicated outcome on channels", async () => {
+    const def = notification({
+      id: "mention",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const r1 = await notify.explain({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { msg: "hi" },
+      dedupeKey: "dup-explain",
+      dedupeWindowMs: 60_000,
+    });
+    expect(r1.wouldDeduplicate).toBe(false);
+    expect(r1.dedupe).toEqual({ key: "dup-explain", windowMs: 60_000 });
+    expect(r1.channels.every((c) => c.outcome === "deliver")).toBe(true);
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { msg: "hi" },
+      dedupeKey: "dup-explain",
+      dedupeWindowMs: 60_000,
+    });
+
+    const r2 = await notify.explain({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { msg: "hi" },
+      dedupeKey: "dup-explain",
+      dedupeWindowMs: 60_000,
+    });
+    expect(r2.wouldDeduplicate).toBe(true);
+    expect(r2.channels.every((c) => c.outcome === ("deduplicated" as ChannelOutcome))).toBe(true);
+  });
+
   test("fully opted-out recipient does not consume rate-limit budget", async () => {
     const def = notification({
       id: "alert",

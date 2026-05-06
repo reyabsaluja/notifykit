@@ -1180,6 +1180,8 @@ export function createNotifyKit<
         outcome = ch.resolvedBy === "destination_unavailable"
           ? "unavailable"
           : "disabled";
+      } else if (wouldDeduplicate) {
+        outcome = "deduplicated";
       } else if (wouldRateLimit) {
         outcome = "rate_limited";
       } else if (wouldDigest) {

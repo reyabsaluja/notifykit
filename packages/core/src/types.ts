@@ -43,6 +43,7 @@ export type ChannelOutcome =
   | "disabled"
   | "delayed"
   | "unavailable"
+  | "deduplicated"
   | "rate_limited"
   | "digested";
 
