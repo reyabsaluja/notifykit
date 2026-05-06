@@ -7,6 +7,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // Foreign keys are intentionally omitted. Deliveries and notifications are
@@ -45,12 +46,17 @@ export const notifications = pgTable(
     payloadSchema: jsonb("payload_schema").$type<Record<string, string>>(),
     /** @since 0.1 – migration: ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER; */
     definitionVersion: integer("definition_version"),
+    /** @since 0.2 – migration: ALTER TABLE notifykit_notifications ADD COLUMN idempotency_key TEXT; */
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (table) => ({
     recipientIdx: index("idx_notifykit_notifications_recipient").on(
       table.recipientId,
     ),
+    idempotencyKeyIdx: uniqueIndex("idx_notifykit_notifications_idempotency_key")
+      .on(table.idempotencyKey)
+      .where(sql`idempotency_key IS NOT NULL`),
   }),
 );
 
@@ -82,6 +88,9 @@ export const inboxItems = pgTable(
       table.recipientId,
       table.readAt,
       table.archivedAt,
+    ),
+    notificationRecordIdx: index("idx_notifykit_inbox_notification_record").on(
+      table.notificationRecordId,
     ),
   }),
 );

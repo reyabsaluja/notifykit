@@ -295,6 +295,12 @@ export type NotificationRecord = {
   payloadSchema?: Record<string, string>;
   /** Definition version at send time. Matches `NotificationDefinition.version`. */
   definitionVersion?: number;
+  /**
+   * Composite idempotency key stored when the caller passes `idempotencyKey`
+   * to `send()`. Combines (key, notificationId, recipientId) so the same
+   * user-provided key is scoped per notification type and recipient.
+   */
+  idempotencyKey?: string;
   createdAt: Date;
 };
 
@@ -557,6 +563,8 @@ export type DatabaseAdapter = {
   };
   notifications: {
     create(input: Omit<NotificationRecord, "id" | "createdAt">): Promise<NotificationRecord>;
+    findByIdempotencyKey(key: string): Promise<NotificationRecord | null>;
+    clearIdempotencyKey(id: string): Promise<void>;
   };
   inbox: {
     create(
@@ -568,6 +576,7 @@ export type DatabaseAdapter = {
       filter?: InboxListFilter,
       limit?: number,
     ): Promise<InboxItem[]>;
+    listByNotificationRecordId(notificationRecordId: string): Promise<InboxItem[]>;
     markReadForRecipient(
       inboxItemId: string,
       recipientId: string,
@@ -604,6 +613,7 @@ export type DatabaseAdapter = {
       },
     ): Promise<DeliveryRecord>;
     findById(id: string): Promise<DeliveryRecord | null>;
+    listByNotificationRecordId(notificationRecordId: string): Promise<DeliveryRecord[]>;
     update(
       id: string,
       patch: Partial<Omit<DeliveryRecord, "id" | "createdAt">>,
@@ -761,6 +771,20 @@ export type SendInput<
     workspaceId?: string;
     notificationId: K["id"];
     payload: InferSchema<K["payload"]>;
+    /**
+     * Optional idempotency key. When provided, duplicate `send()` calls with
+     * the same key + notificationId + recipientId within the TTL window return
+     * the original result without re-processing.
+     *
+     * The composite key is scoped to (key, notificationId, recipientId) — tenantId
+     * is intentionally excluded. The same logical send retried with a different
+     * tenant context is still considered a duplicate.
+     *
+     * Not supported for digested notifications — digest sends buffer payloads
+     * without creating a notification record, so there is nothing to deduplicate.
+     * The key is silently ignored when the notification has a `digest` config.
+     */
+    idempotencyKey?: string;
   };
 }[T[number]["id"]];
 

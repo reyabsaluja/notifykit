@@ -108,6 +108,11 @@ export type CreateNotifyKitInput<
    * Use `memoryRealtimeAdapter()` for single-process deployments.
    */
   realtime?: RealtimeAdapter;
+  /**
+   * TTL for idempotency keys in milliseconds. If a duplicate send arrives
+   * after this window, it is treated as a new send. Default: 24 hours.
+   */
+  idempotencyKeyTtlMs?: number;
 };
 
 export type SendResult = {
@@ -144,6 +149,11 @@ export type SendResult = {
    * hook fires but no actual delivery is attempted.
    */
   rateLimited: boolean;
+  /**
+   * True if this result was returned from an idempotent replay — the
+   * original send's result was returned without re-processing.
+   */
+  idempotent: boolean;
 };
 
 export type NotifyKit<
@@ -406,6 +416,37 @@ export function createNotifyKit<
     }
   }
 
+  // Per-key serialization for idempotency checks. Prevents concurrent sends
+  // with the same key from racing past the findByIdempotencyKey check.
+  const idempotencyLocks = new Map<string, { chain: Promise<unknown>; pending: number }>();
+  const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+  function withIdempotencyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const entry = idempotencyLocks.get(key) ?? { chain: Promise.resolve(), pending: 0 };
+    entry.pending++;
+    if (!idempotencyLocks.has(key)) idempotencyLocks.set(key, entry);
+
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const result = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+
+    // fn runs as both fulfilled/rejected handler: each queued operation executes
+    // regardless of its predecessor's outcome (errors don't abort the queue).
+    const newChain = entry.chain.then(fn, fn).then(resolve, reject);
+    entry.chain = newChain;
+
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      entry.pending--;
+      if (entry.pending === 0) idempotencyLocks.delete(key);
+    };
+    const timer = setTimeout(cleanup, LOCK_TIMEOUT_MS);
+    newChain.finally(() => { clearTimeout(timer); cleanup(); });
+
+    return result;
+  }
+
   const pendingFlushes = new Set<Promise<void>>();
   type ScheduledFlush = {
     timer: ReturnType<typeof setTimeout>;
@@ -535,6 +576,7 @@ export function createNotifyKit<
     def: NotificationDefinition<string, PayloadSchema>;
     payload: Record<string, unknown>;
     skipped: SkippedDelivery[];
+    idempotencyKey?: string;
   }): Promise<{ notificationRecord: NotificationRecord; skippedRecords: DeliveryRecord[] }> {
     const notificationRecord = await database.notifications.create({
       recipientId: ctx.recipient.id,
@@ -544,6 +586,7 @@ export function createNotifyKit<
       payload: ctx.payload,
       payloadSchema: { ...ctx.def.payload },
       definitionVersion: ctx.def.version,
+      idempotencyKey: ctx.idempotencyKey,
     });
     await runHook("notification.created", {
       notification: notificationRecord,
@@ -560,6 +603,66 @@ export function createNotifyKit<
       ctx.skipped.map((s) => persistSkip({ ...base, channel: s.channel, reason: s.reason, details: s.details })),
     );
     return { notificationRecord, skippedRecords };
+  }
+
+  function idempotencyCompositeKey(
+    userKey: string,
+    notificationId: string,
+    recipientId: string,
+  ): string {
+    return JSON.stringify(["idem", notificationId, recipientId, userKey]);
+  }
+
+  async function buildIdempotentReplay(existing: NotificationRecord): Promise<SendResult | null> {
+    const [existingDeliveries, existingInboxItems] = await Promise.all([
+      database.deliveries.listByNotificationRecordId(existing.id),
+      database.inbox.listByNotificationRecordId(existing.id),
+    ]);
+    if (existingDeliveries.length === 0 && existingInboxItems.length === 0) {
+      return null;
+    }
+    const skipped: SkippedDelivery[] = existingDeliveries
+      .filter((d) => d.status === "skipped")
+      .map((d) => ({
+        channel: d.channel,
+        reason: (d.skipReason ?? "idempotent_replay") as SkipReason,
+        details: d.skipDetails,
+      }));
+    return {
+      notification: existing,
+      inboxItems: existingInboxItems,
+      deliveries: existingDeliveries,
+      skippedChannels: skipped.map((s) => s.channel),
+      skipped,
+      deferredChannels: existingDeliveries
+        .filter((d) => d.skipReason === "quiet_hours_deferred")
+        .map((d) => d.channel),
+      digested: false,
+      rateLimited: existingDeliveries.some((d) => d.skipReason === "rate_limited"),
+      idempotent: true,
+    };
+  }
+
+  function isUniqueConstraintError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+    const msg = err.message.toLowerCase();
+    return msg.includes("unique constraint") || msg.includes("duplicate key") || msg.includes("unique_violation");
+  }
+
+  function isIdempotencyKeyConstraintError(err: unknown): boolean {
+    if (!isUniqueConstraintError(err)) return false;
+    const msg = (err as Error).message.toLowerCase();
+    return msg.includes("idempotency_key");
+  }
+
+  const digestIdempotencyWarned = new Set<string>();
+  function warnIdempotencyKeyIgnoredForDigest(notificationId: string): void {
+    if (digestIdempotencyWarned.has(notificationId)) return;
+    digestIdempotencyWarned.add(notificationId);
+    console.warn(
+      `[notifykit] [${notificationId}] idempotencyKey is ignored for digested notifications. ` +
+      `The key has no effect when digest is configured.`,
+    );
   }
 
   function storageKey(parts: readonly string[]): string {
@@ -616,12 +719,50 @@ export function createNotifyKit<
   }
 
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
+    const input = rawInput as { notificationId: string; recipientId: string; idempotencyKey?: string };
+    if (input.idempotencyKey) {
+      if (input.idempotencyKey.length > 256) {
+        throw new NotifyKitError(
+          "idempotencyKey must be 256 characters or fewer.",
+          {
+            code: "INVALID_INPUT",
+            field: "idempotencyKey",
+            fix: "Shorten the idempotencyKey to 256 characters or fewer.",
+          },
+        );
+      }
+      const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
+      const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
+      try {
+        return await withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
+      } catch (err) {
+        if (isIdempotencyKeyConstraintError(err) || isUniqueConstraintError(err)) {
+          const existing = await database.notifications.findByIdempotencyKey(compositeKey);
+          if (existing) {
+            const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
+            const age = Date.now() - existing.createdAt.getTime();
+            if (age < ttl) {
+              const replay = await buildIdempotentReplay(existing);
+              if (replay) return replay;
+            }
+            await database.notifications.clearIdempotencyKey(existing.id);
+            return withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
+          }
+        }
+        throw err;
+      }
+    }
+    return sendInner(rawInput);
+  }
+
+  async function sendInner(rawInput: SendInput<T>, preComputedCompositeKey?: string): Promise<SendResult> {
     const input = rawInput as {
       recipientId: string;
       tenantId?: string;
       workspaceId?: string;
       notificationId: string;
       payload: unknown;
+      idempotencyKey?: string;
     };
     if (!input.recipientId) {
       throw new NotifyKitError(
@@ -672,6 +813,24 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
+    const compositeIdempotencyKey = preComputedCompositeKey ?? (input.idempotencyKey
+      ? idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId)
+      : undefined);
+
+    // Idempotency key dedup — if key exists and is within TTL, replay.
+    if (compositeIdempotencyKey) {
+      const existing = await database.notifications.findByIdempotencyKey(compositeIdempotencyKey);
+      if (existing) {
+        const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
+        const age = Date.now() - existing.createdAt.getTime();
+        if (age < ttl) {
+          const replay = await buildIdempotentReplay(existing);
+          if (replay) return replay;
+        }
+        await database.notifications.clearIdempotencyKey(existing.id);
+      }
+    }
+
     const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
     const prefResult = resolvePreferences(resolutionCtx);
     const hasAnyAllowed = prefResult.channels.some((ch) => ch.allowed);
@@ -697,7 +856,7 @@ export function createNotifyKit<
         details: ch.reason,
       }));
       const { notificationRecord, skippedRecords } = await createSkippedNotification({
-        recipient, scope, def, payload, skipped,
+        recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
       });
       await runHook("notification.suppressed", {
         notificationId: def.id,
@@ -714,6 +873,7 @@ export function createNotifyKit<
         deferredChannels: [],
         digested: false,
         rateLimited: false,
+        idempotent: false,
       };
     }
 
@@ -741,7 +901,7 @@ export function createNotifyKit<
           details: `Rate limit exceeded: ${limit.max} per ${limit.windowMs}ms`,
         }));
         const { notificationRecord, skippedRecords } = await createSkippedNotification({
-          recipient, scope, def, payload, skipped,
+          recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
         });
         await runHook("notification.rate_limited", {
           notificationId: def.id,
@@ -757,11 +917,15 @@ export function createNotifyKit<
           deferredChannels: [],
           digested: false,
           rateLimited: true,
+          idempotent: false,
         };
       }
     }
 
     if (def.digest) {
+      if (input.idempotencyKey) {
+        warnIdempotencyKeyIgnoredForDigest(def.id);
+      }
       const digest = def.digest;
       const groupKey =
         digest.key?.({
@@ -809,6 +973,7 @@ export function createNotifyKit<
         deferredChannels: [],
         digested: true,
         rateLimited: false,
+        idempotent: false,
       };
     }
 
@@ -829,7 +994,7 @@ export function createNotifyKit<
     }
 
     if (deferChannels.length > 0) {
-      const result = await deliver(recipient, def, payload, { deferChannels, scope, prefResult });
+      const result = await deliver(recipient, def, payload, { deferChannels, scope, prefResult, idempotencyKey: compositeIdempotencyKey });
       const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
       const record = await database.scheduledSends.create({
         recipientId: recipient.id,
@@ -845,7 +1010,7 @@ export function createNotifyKit<
       return result;
     }
 
-    return deliver(recipient, def, payload, { scope, prefResult });
+    return deliver(recipient, def, payload, { scope, prefResult, idempotencyKey: compositeIdempotencyKey });
   }
 
   async function explain(rawInput: SendInput<T>): Promise<DeliveryExplanation> {
@@ -1375,6 +1540,8 @@ export function createNotifyKit<
     onlyChannels?: ChannelType[];
     /** Pre-resolved preference result from send(). Avoids re-fetching. */
     prefResult?: PreferenceExplanation;
+    /** Composite idempotency key to store on the notification record. */
+    idempotencyKey?: string;
   };
 
   async function deliver(
@@ -1407,6 +1574,7 @@ export function createNotifyKit<
         payload,
         payloadSchema: { ...def.payload },
         definitionVersion: def.version,
+        idempotencyKey: options.idempotencyKey,
       }));
     if (!options.existingNotification) {
       await runHook("notification.created", {
@@ -1674,6 +1842,7 @@ export function createNotifyKit<
       deferredChannels,
       digested: false,
       rateLimited: false,
+      idempotent: false,
     };
   }
 

@@ -31,6 +31,7 @@ export async function createSqliteTables(
       payload TEXT NOT NULL,
       payload_schema TEXT,
       definition_version INTEGER,
+      idempotency_key TEXT,
       created_at INTEGER NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_notifications_recipient
@@ -55,6 +56,8 @@ export async function createSqliteTables(
       ON notifykit_inbox_items (recipient_id, archived_at, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_inbox_recipient_unread
       ON notifykit_inbox_items (recipient_id, read_at, archived_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_inbox_notification_record
+      ON notifykit_inbox_items (notification_record_id)`,
     `CREATE TABLE IF NOT EXISTS notifykit_deliveries (
       id TEXT PRIMARY KEY,
       notification_record_id TEXT NOT NULL,
@@ -149,6 +152,9 @@ export async function createSqliteTables(
     `ALTER TABLE notifykit_notifications ADD COLUMN workspace_id TEXT`,
     `ALTER TABLE notifykit_notifications ADD COLUMN payload_schema TEXT`,
     `ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN idempotency_key TEXT`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_notifykit_notifications_idempotency_key
+      ON notifykit_notifications (idempotency_key) WHERE idempotency_key IS NOT NULL`,
     `ALTER TABLE notifykit_inbox_items ADD COLUMN tenant_id TEXT`,
     `ALTER TABLE notifykit_inbox_items ADD COLUMN workspace_id TEXT`,
     `ALTER TABLE notifykit_deliveries ADD COLUMN tenant_id TEXT`,
