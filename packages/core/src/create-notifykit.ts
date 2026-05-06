@@ -421,12 +421,15 @@ export function createNotifyKit<
   const idempotencyLocks = new Map<string, Promise<unknown>>();
   function withIdempotencyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const prev = idempotencyLocks.get(key) ?? Promise.resolve();
-    const next = prev.then(fn, fn);
-    idempotencyLocks.set(key, next);
-    next.finally(() => {
-      if (idempotencyLocks.get(key) === next) idempotencyLocks.delete(key);
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const result = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    const chain = prev.then(fn, fn).then(resolve, reject);
+    idempotencyLocks.set(key, chain);
+    chain.then(() => {
+      if (idempotencyLocks.get(key) === chain) idempotencyLocks.delete(key);
     });
-    return next;
+    return result;
   }
 
   const pendingFlushes = new Set<Promise<void>>();
