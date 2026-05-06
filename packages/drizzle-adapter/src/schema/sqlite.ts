@@ -55,9 +55,9 @@ export const notifications = sqliteTable(
     recipientIdx: index("idx_notifykit_notifications_recipient").on(
       table.recipientId,
     ),
-    idempotencyKeyIdx: uniqueIndex("idx_notifykit_notifications_idempotency_key").on(
-      table.idempotencyKey,
-    ),
+    idempotencyKeyIdx: uniqueIndex("idx_notifykit_notifications_idempotency_key")
+      .on(table.idempotencyKey)
+      .where(sql`idempotency_key IS NOT NULL`),
   }),
 );
 
