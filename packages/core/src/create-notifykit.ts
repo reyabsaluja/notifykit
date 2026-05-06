@@ -715,14 +715,13 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
+    const compositeIdempotencyKey = input.idempotencyKey
+      ? idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId)
+      : undefined;
+
     // Idempotency key dedup — if key exists and is within TTL, replay.
-    if (input.idempotencyKey) {
-      const compositeKey = idempotencyCompositeKey(
-        input.idempotencyKey,
-        input.notificationId,
-        input.recipientId,
-      );
-      const existing = await database.notifications.findByIdempotencyKey(compositeKey);
+    if (compositeIdempotencyKey) {
+      const existing = await database.notifications.findByIdempotencyKey(compositeIdempotencyKey);
       if (existing) {
         const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
         const age = Date.now() - existing.createdAt.getTime();
@@ -754,10 +753,6 @@ export function createNotifyKit<
         }
       }
     }
-
-    const compositeIdempotencyKey = input.idempotencyKey
-      ? idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId)
-      : undefined;
 
     const resolutionCtx = await buildResolutionCtx(recipient, def, scope);
     const prefResult = resolvePreferences(resolutionCtx);
