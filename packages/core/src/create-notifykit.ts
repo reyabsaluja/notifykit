@@ -418,20 +418,30 @@ export function createNotifyKit<
 
   // Per-key serialization for idempotency checks. Prevents concurrent sends
   // with the same key from racing past the findByIdempotencyKey check.
-  const idempotencyLocks = new Map<string, Promise<unknown>>();
+  const idempotencyLocks = new Map<string, { chain: Promise<unknown>; pending: number }>();
   const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
   function withIdempotencyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    const prev = idempotencyLocks.get(key) ?? Promise.resolve();
+    const entry = idempotencyLocks.get(key) ?? { chain: Promise.resolve(), pending: 0 };
+    entry.pending++;
+    if (!idempotencyLocks.has(key)) idempotencyLocks.set(key, entry);
+
     let resolve!: (v: T) => void;
     let reject!: (e: unknown) => void;
     const result = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
-    const chain = prev.then(fn, fn).then(resolve, reject);
-    idempotencyLocks.set(key, chain);
-    const cleanup = () => { if (idempotencyLocks.get(key) === chain) idempotencyLocks.delete(key); };
-    chain.then(cleanup);
-    // Safety net: evict stale entries if fn() never settles.
+
+    const newChain = entry.chain.then(fn, fn).then(resolve, reject);
+    entry.chain = newChain;
+
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      entry.pending--;
+      if (entry.pending === 0) idempotencyLocks.delete(key);
+    };
     const timer = setTimeout(cleanup, LOCK_TIMEOUT_MS);
-    chain.finally(() => clearTimeout(timer));
+    newChain.finally(() => { clearTimeout(timer); cleanup(); });
+
     return result;
   }
 
