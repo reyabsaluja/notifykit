@@ -1080,8 +1080,9 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
     timeline: {
       async append(events): Promise<TimelineEvent[]> {
         const now = new Date();
-        const records: TimelineEvent[] = events.map((e) => ({
+        const records: TimelineEvent[] = events.map((e, i) => ({
           id: createId("tl"),
+          seq: i,
           notificationRecordId: e.notificationRecordId,
           deliveryId: e.deliveryId,
           recipientId: e.recipientId,
@@ -1096,9 +1097,17 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           timestamp: now,
         }));
         if (records.length > 0) {
+          const maxRow = await db
+            .select({ maxSeq: timelineEvents.seq })
+            .from(timelineEvents)
+            .orderBy(desc(timelineEvents.seq))
+            .limit(1);
+          const baseSeq = maxRow.length > 0 ? maxRow[0]!.maxSeq + 1 : 0;
+          for (let i = 0; i < records.length; i++) records[i]!.seq = baseSeq + i;
           await db.insert(timelineEvents).values(
             records.map((r) => ({
               id: r.id,
+              seq: r.seq,
               notificationRecordId: r.notificationRecordId,
               deliveryId: r.deliveryId ?? null,
               recipientId: r.recipientId,
@@ -1121,7 +1130,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           .select()
           .from(timelineEvents)
           .where(eq(timelineEvents.notificationRecordId, notificationRecordId))
-          .orderBy(asc(timelineEvents.timestamp));
+          .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
         return rows.map(rowToTimelineEvent);
       },
       async listByDeliveryId(deliveryId: string): Promise<TimelineEvent[]> {
@@ -1129,7 +1138,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           .select()
           .from(timelineEvents)
           .where(eq(timelineEvents.deliveryId, deliveryId))
-          .orderBy(asc(timelineEvents.timestamp));
+          .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
         return rows.map(rowToTimelineEvent);
       },
       async prune(olderThan: Date): Promise<number> {
@@ -1145,6 +1154,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
 function rowToTimelineEvent(row: typeof timelineEvents.$inferSelect): TimelineEvent {
   return {
     id: row.id,
+    seq: row.seq,
     notificationRecordId: row.notificationRecordId,
     deliveryId: row.deliveryId ?? undefined,
     recipientId: row.recipientId,

@@ -149,6 +149,7 @@ export async function createSqliteTables(
       ON notifykit_dedupe_records (expires_at)`,
     `CREATE TABLE IF NOT EXISTS notifykit_timeline_events (
       id TEXT PRIMARY KEY,
+      seq INTEGER NOT NULL,
       notification_record_id TEXT NOT NULL,
       delivery_id TEXT,
       recipient_id TEXT NOT NULL,
@@ -163,9 +164,9 @@ export async function createSqliteTables(
       timestamp INTEGER NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_timeline_notification_record
-      ON notifykit_timeline_events (notification_record_id, timestamp)`,
+      ON notifykit_timeline_events (notification_record_id, timestamp, seq)`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_timeline_delivery
-      ON notifykit_timeline_events (delivery_id, timestamp)`,
+      ON notifykit_timeline_events (delivery_id, timestamp, seq)`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_timeline_timestamp
       ON notifykit_timeline_events (timestamp)`,
   ];

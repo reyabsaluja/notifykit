@@ -248,6 +248,7 @@ export const timelineEvents = pgTable(
   "notifykit_timeline_events",
   {
     id: text("id").primaryKey(),
+    seq: integer("seq").notNull(),
     notificationRecordId: text("notification_record_id").notNull(),
     deliveryId: text("delivery_id"),
     recipientId: text("recipient_id").notNull(),
@@ -265,10 +266,12 @@ export const timelineEvents = pgTable(
     notificationRecordIdx: index("idx_notifykit_timeline_notification_record").on(
       table.notificationRecordId,
       table.timestamp,
+      table.seq,
     ),
     deliveryIdx: index("idx_notifykit_timeline_delivery").on(
       table.deliveryId,
       table.timestamp,
+      table.seq,
     ),
     timestampIdx: index("idx_notifykit_timeline_timestamp").on(
       table.timestamp,

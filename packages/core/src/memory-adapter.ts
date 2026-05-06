@@ -510,8 +510,10 @@ export function memoryAdapter(): MemoryAdapter {
     timeline: {
       async append(events): Promise<TimelineEvent[]> {
         const now = new Date();
-        const records: TimelineEvent[] = events.map((e) => ({
+        const baseSeq = state.timelineEvents.length;
+        const records: TimelineEvent[] = events.map((e, i) => ({
           id: createId("tl"),
+          seq: baseSeq + i,
           notificationRecordId: e.notificationRecordId,
           deliveryId: e.deliveryId,
           recipientId: e.recipientId,
@@ -531,12 +533,12 @@ export function memoryAdapter(): MemoryAdapter {
       async listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]> {
         return state.timelineEvents
           .filter((e) => e.notificationRecordId === notificationRecordId)
-          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.seq - b.seq);
       },
       async listByDeliveryId(deliveryId: string): Promise<TimelineEvent[]> {
         return state.timelineEvents
           .filter((e) => e.deliveryId === deliveryId)
-          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.seq - b.seq);
       },
       async prune(olderThan: Date): Promise<number> {
         const cutoff = olderThan.getTime();

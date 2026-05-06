@@ -443,7 +443,7 @@ export function createNotifyKit<
     }
   }
 
-  type TimelineBuffer = Omit<TimelineEvent, "id" | "timestamp">[];
+  type TimelineBuffer = Omit<TimelineEvent, "id" | "seq" | "timestamp">[];
 
   function recordTimeline(
     buffer: TimelineBuffer,

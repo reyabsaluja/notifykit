@@ -443,6 +443,8 @@ export type TimelineEventType = (typeof TIMELINE_EVENT_TYPES)[number];
 
 export type TimelineEvent = {
   id: string;
+  /** Monotonic insertion order within a batch. Breaks ties when multiple events share a timestamp. */
+  seq: number;
   notificationRecordId: string;
   deliveryId?: string;
   recipientId: string;
@@ -796,7 +798,7 @@ export type DatabaseAdapter = {
   };
   timeline?: {
     /** Append one or more events. All events in a batch share a single timestamp. */
-    append(events: Omit<TimelineEvent, "id" | "timestamp">[]): Promise<TimelineEvent[]>;
+    append(events: Omit<TimelineEvent, "id" | "seq" | "timestamp">[]): Promise<TimelineEvent[]>;
     /** List events for a notification record, ordered chronologically. */
     listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]>;
     /** List events for a specific delivery, ordered chronologically. */
