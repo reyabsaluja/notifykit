@@ -419,6 +419,7 @@ export function createNotifyKit<
   // Per-key serialization for idempotency checks. Prevents concurrent sends
   // with the same key from racing past the findByIdempotencyKey check.
   const idempotencyLocks = new Map<string, Promise<unknown>>();
+  const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
   function withIdempotencyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const prev = idempotencyLocks.get(key) ?? Promise.resolve();
     let resolve!: (v: T) => void;
@@ -426,9 +427,11 @@ export function createNotifyKit<
     const result = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
     const chain = prev.then(fn, fn).then(resolve, reject);
     idempotencyLocks.set(key, chain);
-    chain.then(() => {
-      if (idempotencyLocks.get(key) === chain) idempotencyLocks.delete(key);
-    });
+    const cleanup = () => { if (idempotencyLocks.get(key) === chain) idempotencyLocks.delete(key); };
+    chain.then(cleanup);
+    // Safety net: evict stale entries if fn() never settles.
+    const timer = setTimeout(cleanup, LOCK_TIMEOUT_MS);
+    chain.then(() => clearTimeout(timer));
     return result;
   }
 
