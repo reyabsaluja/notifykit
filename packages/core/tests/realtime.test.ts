@@ -629,7 +629,7 @@ describe("core inbox mutations fire lifecycle hooks", () => {
   });
 
   test("deleteForRecipient fires inbox.deleted hook", async () => {
-    const hookCalls: Array<{ inboxItemId: string; recipientId: string }> = [];
+    const hookCalls: Array<{ itemId: string; recipientId: string }> = [];
     const realtime = memoryRealtimeAdapter();
     const notify = createNotifyKit({
       notifications: [commentMentioned] as const,
@@ -649,7 +649,7 @@ describe("core inbox mutations fire lifecycle hooks", () => {
     const items = await notify.inbox.list("user_1", {});
     await notify.inbox.deleteForRecipient(items[0]!.id, "user_1", {});
     expect(hookCalls).toHaveLength(1);
-    expect(hookCalls[0]!.inboxItemId).toBe(items[0]!.id);
+    expect(hookCalls[0]!.itemId).toBe(items[0]!.id);
     expect(hookCalls[0]!.recipientId).toBe("user_1");
   });
 

@@ -694,7 +694,7 @@ export type Hooks = {
   "inbox.updated"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
   "inbox.archived"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
   "inbox.unarchived"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
-  "inbox.deleted"?: (ctx: { inboxItemId: string; recipientId: string }) => void | Promise<void>;
+  "inbox.deleted"?: (ctx: { itemId: string; recipientId: string }) => void | Promise<void>;
   "inbox.all_read"?: (ctx: { recipientId: string; count: number }) => void | Promise<void>;
   "delivery.sent"?: (ctx: {
     delivery: DeliveryRecord;

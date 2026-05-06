@@ -1855,7 +1855,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const result = await database.inbox.deleteForRecipient(inboxItemId, recipientId, s);
         if (result.status === "deleted") {
-          try { await runHook("inbox.deleted", { inboxItemId, recipientId }); } catch {}
+          try { await runHook("inbox.deleted", { itemId: inboxItemId, recipientId }); } catch {}
           await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.deleted",
             itemId: inboxItemId,
