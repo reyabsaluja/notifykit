@@ -109,6 +109,33 @@ describe("idempotency keys", () => {
     expect(db._state.notifications).toHaveLength(2);
   });
 
+  test("same key deduplicates regardless of tenantId on send", async () => {
+    const { db, notify } = setup();
+    // Recipient without a fixed tenant — accepts any tenantId on send
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const r1 = await notify.send({
+      recipientId: "u1",
+      tenantId: "t1",
+      notificationId: "alert",
+      payload: { msg: "x" },
+      idempotencyKey: "tenant-key",
+    });
+    const r2 = await notify.send({
+      recipientId: "u1",
+      tenantId: "t2",
+      notificationId: "alert",
+      payload: { msg: "x" },
+      idempotencyKey: "tenant-key",
+    });
+
+    // Idempotency key is scoped to (key, notificationId, recipientId) — NOT tenant.
+    // The same logical send retried with a different tenant context is still a dupe.
+    expect(r1.idempotent).toBe(false);
+    expect(r2.idempotent).toBe(true);
+    expect(db._state.notifications).toHaveLength(1);
+  });
+
   test("expired key allows re-send after TTL", async () => {
     const { db, notify } = setup({ ttlMs: 50 });
     await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
