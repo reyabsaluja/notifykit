@@ -124,6 +124,11 @@ export type CreateNotifyKitInput<
    * Use this to route persistent timeline failures to your monitoring system.
    */
   onTimelineError?: (error: unknown) => void;
+  /**
+   * How long to retain timeline events. Events older than this are pruned
+   * opportunistically during flush. Default: 7 days. Set to `0` to disable.
+   */
+  timelineRetentionMs?: number;
 };
 
 export type SendResult = {
@@ -358,6 +363,7 @@ export function createNotifyKit<
 >(config: CreateNotifyKitInput<T>): NotifyKit<T> {
   const { notifications, database, providers, on } = config;
   const onTimelineError = config.onTimelineError ?? ((err: unknown) => console.error("[notifykit] timeline append error:", err));
+  const timelineRetentionMs = config.timelineRetentionMs ?? 7 * 24 * 60 * 60 * 1000;
   const timelineAdapter = database.timeline ?? {
     async append() { return []; },
     async listByNotificationRecordId() { return []; },
@@ -481,6 +487,9 @@ export function createNotifyKit<
     const p = timelineAdapter.append(batch).then(() => {}).catch(onTimelineError);
     pendingTimelineWrites.add(p);
     try { await p; } finally { pendingTimelineWrites.delete(p); }
+    if (timelineRetentionMs > 0 && Math.random() < 0.01) {
+      timelineAdapter.prune(new Date(Date.now() - timelineRetentionMs)).catch(onTimelineError);
+    }
   }
 
   // Per-key serialization for idempotency checks. Prevents concurrent sends
