@@ -53,6 +53,10 @@ import { validateConfig, formatValidationIssues } from "./validate.js";
 
 export const SKIP_PROVIDER = "skip" as const;
 
+function buildDedupeCompositeKey(notificationId: string, recipientId: string, dedupeKey: string): string {
+  return JSON.stringify(["dedup", notificationId, recipientId, dedupeKey]);
+}
+
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 > = {
@@ -855,7 +859,7 @@ export function createNotifyKit<
           },
         );
       }
-      const dedupeCompositeKey = JSON.stringify(["dedup", def.id, recipient.id, input.dedupeKey]);
+      const dedupeCompositeKey = buildDedupeCompositeKey(def.id, recipient.id, input.dedupeKey);
       const { duplicate } = await database.dedupe.check({
         key: dedupeCompositeKey,
         recipientId: recipient.id,
@@ -1133,7 +1137,7 @@ export function createNotifyKit<
     let dedupeInfo: DeliveryExplanation["dedupe"] = null;
     if (input.dedupeKey && input.dedupeWindowMs && input.dedupeWindowMs > 0) {
       dedupeInfo = { key: input.dedupeKey, windowMs: input.dedupeWindowMs };
-      const dedupeCompositeKey = JSON.stringify(["dedup", def.id, recipient.id, input.dedupeKey]);
+      const dedupeCompositeKey = buildDedupeCompositeKey(def.id, recipient.id, input.dedupeKey);
       wouldDeduplicate = await database.dedupe.exists(dedupeCompositeKey);
     }
 
