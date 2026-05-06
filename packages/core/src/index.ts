@@ -114,6 +114,7 @@ export type {
   ChannelResolution,
   ChannelType,
   DatabaseAdapter,
+  DedupeRecord,
   DeliveryExplanation,
   DeliveryChannel,
   DeliveryJob,

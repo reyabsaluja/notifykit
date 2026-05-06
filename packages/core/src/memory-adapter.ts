@@ -1,5 +1,6 @@
 import type {
   DatabaseAdapter,
+  DedupeRecord,
   DeliveryRecord,
   DigestBufferEntry,
   InboxDeleteForRecipientResult,
@@ -26,6 +27,7 @@ export type MemoryAdapter = DatabaseAdapter & {
     digests: DigestBufferEntry[];
     rateLimits: RateLimitEvent[];
     scheduledSends: ScheduledSend[];
+    dedupeRecords: DedupeRecord[];
   };
 };
 
@@ -39,6 +41,7 @@ export function memoryAdapter(): MemoryAdapter {
     digests: [] as DigestBufferEntry[],
     rateLimits: [] as RateLimitEvent[],
     scheduledSends: [] as ScheduledSend[],
+    dedupeRecords: [] as DedupeRecord[],
   };
 
   function matchesScope(record: SecurityScope, scope?: SecurityScope): boolean {
@@ -499,6 +502,35 @@ export function memoryAdapter(): MemoryAdapter {
       },
       async list(): Promise<ScheduledSend[]> {
         return state.scheduledSends.map((s) => ({ ...s }));
+      },
+    },
+    dedupe: {
+      async check(input): Promise<{ duplicate: boolean }> {
+        const now = Date.now();
+        const existing = state.dedupeRecords.find((r) => r.key === input.key);
+        if (existing) {
+          if (existing.expiresAt.getTime() > now) {
+            return { duplicate: true };
+          }
+          const idx = state.dedupeRecords.indexOf(existing);
+          state.dedupeRecords.splice(idx, 1);
+        }
+        state.dedupeRecords.push({
+          key: input.key,
+          recipientId: input.recipientId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          notificationId: input.notificationId,
+          expiresAt: new Date(now + input.windowMs),
+          createdAt: new Date(now),
+        });
+        return { duplicate: false };
+      },
+      async prune(): Promise<void> {
+        const now = Date.now();
+        state.dedupeRecords = state.dedupeRecords.filter(
+          (r) => r.expiresAt.getTime() > now,
+        );
       },
     },
   };

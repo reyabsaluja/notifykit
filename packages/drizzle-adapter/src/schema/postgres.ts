@@ -228,6 +228,22 @@ export const digestBuffers = pgTable(
   }),
 );
 
+export const dedupeRecords = pgTable(
+  "notifykit_dedupe_records",
+  {
+    key: text("key").primaryKey(),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+  },
+  (table) => ({
+    expiresAtIdx: index("idx_notifykit_dedupe_expires_at").on(table.expiresAt),
+  }),
+);
+
 export const notifyKitPgSchema = {
   recipients,
   notifications,
@@ -237,6 +253,7 @@ export const notifyKitPgSchema = {
   digestBuffers,
   rateLimitEvents,
   scheduledSends,
+  dedupeRecords,
 };
 
 export type NotifyKitPgSchema = typeof notifyKitPgSchema;

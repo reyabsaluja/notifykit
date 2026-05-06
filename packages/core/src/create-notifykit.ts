@@ -763,6 +763,8 @@ export function createNotifyKit<
       notificationId: string;
       payload: unknown;
       idempotencyKey?: string;
+      dedupeKey?: string;
+      dedupeWindowMs?: number;
     };
     if (!input.recipientId) {
       throw new NotifyKitError(
@@ -828,6 +830,61 @@ export function createNotifyKit<
           if (replay) return replay;
         }
         await database.notifications.clearIdempotencyKey(existing.id);
+      }
+    }
+
+    // Semantic deduplication check — runs before preference resolution
+    if (input.dedupeKey) {
+      if (!input.dedupeWindowMs || input.dedupeWindowMs <= 0) {
+        throw new NotifyKitError(
+          "dedupeWindowMs is required and must be positive when dedupeKey is set.",
+          {
+            code: "INVALID_INPUT",
+            field: "dedupeWindowMs",
+            fix: "Pass a positive dedupeWindowMs (e.g. 3600000 for 1 hour).",
+          },
+        );
+      }
+      if (input.dedupeKey.length > 256) {
+        throw new NotifyKitError(
+          "dedupeKey must be 256 characters or fewer.",
+          {
+            code: "INVALID_INPUT",
+            field: "dedupeKey",
+            fix: "Shorten the dedupeKey to 256 characters or fewer.",
+          },
+        );
+      }
+      const dedupeCompositeKey = JSON.stringify(["dedup", def.id, recipient.id, input.dedupeKey]);
+      const { duplicate } = await database.dedupe.check({
+        key: dedupeCompositeKey,
+        recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        notificationId: def.id,
+        windowMs: input.dedupeWindowMs,
+      });
+      if (duplicate) {
+        const allChannels = [...new Set(def.channels.map((c) => c.type))];
+        const skipped: SkippedDelivery[] = allChannels.map((ch) => ({
+          channel: ch,
+          reason: "duplicate" as SkipReason,
+          details: `Deduplicated: key "${input.dedupeKey}" seen within ${input.dedupeWindowMs}ms window`,
+        }));
+        const { notificationRecord, skippedRecords } = await createSkippedNotification({
+          recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
+        });
+        return {
+          notification: notificationRecord,
+          inboxItems: [],
+          deliveries: skippedRecords,
+          skippedChannels: [],
+          skipped,
+          deferredChannels: [],
+          digested: false,
+          rateLimited: false,
+          idempotent: false,
+        };
       }
     }
 
