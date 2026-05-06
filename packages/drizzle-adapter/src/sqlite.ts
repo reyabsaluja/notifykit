@@ -461,6 +461,8 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           body: input.body,
           providerMessageId: input.providerMessageId,
           error: input.error,
+          skipReason: input.skipReason,
+          skipDetails: input.skipDetails,
           attempts: input.attempts ?? 0,
           createdAt: now,
           updatedAt: now,
@@ -482,6 +484,8 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           body: record.body ?? null,
           providerMessageId: record.providerMessageId ?? null,
           error: record.error ?? null,
+          skipReason: record.skipReason ?? null,
+          skipDetails: record.skipDetails ?? null,
           attempts: record.attempts,
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
@@ -501,7 +505,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         return row ? rowToDelivery(row) : null;
       },
       async update(id, patch): Promise<DeliveryRecord | null> {
-        const ALLOWED = ["status", "providerMessageId", "error", "attempts", "sentAt", "failedAt"] as const;
+        const ALLOWED = ["status", "providerMessageId", "error", "attempts", "sentAt", "failedAt", "skipReason", "skipDetails"] as const;
         const set: Record<string, unknown> = { updatedAt: new Date() };
         for (const key of ALLOWED) {
           if (key in patch) set[key] = (patch as Record<string, unknown>)[key];
@@ -1014,6 +1018,8 @@ function rowToDelivery(row: typeof deliveries.$inferSelect): DeliveryRecord {
     body: row.body ?? undefined,
     providerMessageId: row.providerMessageId ?? undefined,
     error: row.error ?? undefined,
+    skipReason: (row.skipReason as DeliveryRecord["skipReason"]) ?? undefined,
+    skipDetails: row.skipDetails ?? undefined,
     attempts: row.attempts,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

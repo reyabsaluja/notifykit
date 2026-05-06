@@ -397,9 +397,31 @@ export type DigestBufferEntry = {
   updatedAt: Date;
 };
 
-export type DeliveryStatus = "pending" | "sent" | "failed";
+export type SkipReason =
+  | "preferences_disabled"
+  | "required_override"
+  | "missing_address"
+  | "missing_provider"
+  | "rate_limited"
+  | "quiet_hours_deferred"
+  | "duplicate"
+  | "idempotent_replay"
+  | "condition_false"
+  | "expired"
+  | "unsubscribed"
+  | "suppressed"
+  | "invalid_payload"
+  | "disabled_in_dev";
 
-export type DeliveryChannel = "email" | "webhook" | "sms";
+export type SkippedDelivery = {
+  channel: ChannelType;
+  reason: SkipReason;
+  details?: string;
+};
+
+export type DeliveryStatus = "pending" | "sent" | "failed" | "skipped";
+
+export type DeliveryChannel = ChannelType;
 
 export type DeliveryRecord = {
   id: string;
@@ -419,6 +441,10 @@ export type DeliveryRecord = {
   body?: string;
   providerMessageId?: string;
   error?: string;
+  /** Set when `status` is `"skipped"`. */
+  skipReason?: SkipReason;
+  /** Additional human-readable context for the skip. */
+  skipDetails?: string;
   attempts: number;
   createdAt: Date;
   updatedAt: Date;

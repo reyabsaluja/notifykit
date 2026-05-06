@@ -152,6 +152,8 @@ export type {
   ScheduledSendStatus,
   SecurityScope,
   SendInput,
+  SkipReason,
+  SkippedDelivery,
   SmsChannelConfig,
   SmsProvider,
   UpdatePreferenceInput,

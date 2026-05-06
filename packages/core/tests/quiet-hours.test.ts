@@ -221,7 +221,10 @@ describe("quiet hours in send()", () => {
     await notify.flushScheduledSends();
 
     expect(provider.sent).toEqual([]);
-    expect(db._state.deliveries).toEqual([]);
+    const skippedDeliveries = db._state.deliveries.filter((d) => d.status === "skipped");
+    expect(skippedDeliveries).toHaveLength(1);
+    expect(skippedDeliveries[0]!.channel).toBe("email");
+    expect(skippedDeliveries[0]!.skipReason).toBe("preferences_disabled");
   });
 
   test("upsertRecipient({ quietHours: null }) clears the window", async () => {

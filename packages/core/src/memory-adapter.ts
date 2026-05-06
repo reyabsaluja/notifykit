@@ -264,6 +264,8 @@ export function memoryAdapter(): MemoryAdapter {
           body: input.body,
           providerMessageId: input.providerMessageId,
           error: input.error,
+          skipReason: input.skipReason,
+          skipDetails: input.skipDetails,
           attempts: input.attempts ?? 0,
           createdAt: now,
           updatedAt: now,
@@ -279,7 +281,7 @@ export function memoryAdapter(): MemoryAdapter {
       async update(id, patch): Promise<DeliveryRecord | null> {
         const existing = state.deliveries.find((d) => d.id === id);
         if (!existing) return null;
-        const allowed = ["status", "providerMessageId", "attempts", "error", "sentAt", "failedAt"] as const;
+        const allowed = ["status", "providerMessageId", "attempts", "error", "sentAt", "failedAt", "skipReason", "skipDetails"] as const;
         for (const key of allowed) {
           if (key in patch) (existing as Record<string, unknown>)[key] = patch[key as keyof typeof patch];
         }
