@@ -722,6 +722,10 @@ export function createNotifyKit<
           payloadSchema: { ...def.payload },
           definitionVersion: def.version,
         });
+        await runHook("notification.created", {
+          notification: notificationRecord,
+          redactedPayload: redactForDef(def, notificationRecord.payload),
+        });
         const skippedRecords = await Promise.all(skipped.map((s) => persistSkip({
           notificationRecordId: notificationRecord.id,
           recipientId: recipient.id,
