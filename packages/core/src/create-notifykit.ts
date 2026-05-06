@@ -641,10 +641,13 @@ export function createNotifyKit<
     };
   }
 
-  function isUniqueConstraintError(err: unknown): boolean {
+  function isUniqueConstraintError(err: unknown, indexHint?: string): boolean {
     if (!(err instanceof Error)) return false;
     const msg = err.message.toLowerCase();
-    return msg.includes("unique constraint") || msg.includes("duplicate key") || msg.includes("unique_violation");
+    const isUnique = msg.includes("unique constraint") || msg.includes("duplicate key") || msg.includes("unique_violation");
+    if (!isUnique) return false;
+    if (indexHint && !msg.includes(indexHint.toLowerCase())) return false;
+    return true;
   }
 
   function storageKey(parts: readonly string[]): string {
@@ -718,7 +721,7 @@ export function createNotifyKit<
       try {
         return await withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
       } catch (err) {
-        if (isUniqueConstraintError(err)) {
+        if (isUniqueConstraintError(err, "idempotency_key")) {
           const existing = await database.notifications.findByIdempotencyKey(compositeKey);
           if (existing) {
             const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
