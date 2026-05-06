@@ -762,6 +762,12 @@ export type Hooks = {
     /** Payload with sensitive fields replaced by `"[REDACTED]"` per the definition's `redact` list. */
     redactedPayload: Record<string, unknown>;
   }) => void | Promise<void>;
+  "notification.deduplicated"?: (ctx: {
+    notificationId: string;
+    recipientId: string;
+    dedupeKey: string;
+    windowMs: number;
+  }) => void | Promise<void>;
   "notification.rate_limited"?: (ctx: {
     notificationId: string;
     recipientId: string;

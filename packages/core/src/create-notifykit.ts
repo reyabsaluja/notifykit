@@ -892,6 +892,12 @@ export function createNotifyKit<
         const { notificationRecord, skippedRecords } = await createSkippedNotification({
           recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
         });
+        await runHook("notification.deduplicated", {
+          notificationId: def.id,
+          recipientId: recipient.id,
+          dedupeKey: input.dedupeKey,
+          windowMs: input.dedupeWindowMs,
+        });
         return {
           notification: notificationRecord,
           inboxItems: [],

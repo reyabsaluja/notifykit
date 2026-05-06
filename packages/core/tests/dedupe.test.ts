@@ -347,4 +347,48 @@ describe("deduplication keys", () => {
     expect(second.skipped.length).toBeGreaterThan(0);
     expect(second.skipped[0].reason).toBe("duplicate");
   });
+
+  test("notification.deduplicated hook fires on duplicate", async () => {
+    const db = memoryAdapter();
+    const emailProvider = fakeEmailProvider();
+    const hookCalls: { notificationId: string; recipientId: string; dedupeKey: string; windowMs: number }[] = [];
+    const def = notification({
+      id: "mention",
+      payload: { user: "string", project: "string" },
+      channels: [
+        inbox({ title: "{{user}} mentioned you in {{project}}" }),
+        email({ subject: "Mention from {{user}}", body: "In {{project}}" }),
+      ],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: emailProvider },
+      on: {
+        "notification.deduplicated": (ctx) => { hookCalls.push(ctx); },
+      },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { user: "alice", project: "acme" },
+      dedupeKey: "hook-test",
+      dedupeWindowMs: 60_000,
+    });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { user: "alice", project: "acme" },
+      dedupeKey: "hook-test",
+      dedupeWindowMs: 60_000,
+    });
+
+    expect(hookCalls).toHaveLength(1);
+    expect(hookCalls[0].notificationId).toBe("mention");
+    expect(hookCalls[0].recipientId).toBe("u1");
+    expect(hookCalls[0].dedupeKey).toBe("hook-test");
+    expect(hookCalls[0].windowMs).toBe(60_000);
+  });
 });
