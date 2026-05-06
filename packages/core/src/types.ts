@@ -795,7 +795,7 @@ export type DatabaseAdapter = {
     prune(): Promise<void>;
   };
   timeline: {
-    /** Append one or more events to the timeline. */
+    /** Append one or more events. All events in a batch share a single timestamp. */
     append(events: Omit<TimelineEvent, "id" | "timestamp">[]): Promise<TimelineEvent[]>;
     /** List events for a notification record, ordered chronologically. */
     listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]>;
