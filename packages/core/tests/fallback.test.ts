@@ -547,7 +547,7 @@ describe("rule-based fallback", () => {
     expect(items[0]!.title).toBe("Hook failed: down");
   });
 
-  test("unmatched fallback rule does not create notification record", async () => {
+  test("unmatched fallback rule still creates notification record with skipped deliveries", async () => {
     const def = notification({
       id: "alert",
       payload: { msg: "string" },
@@ -578,9 +578,11 @@ describe("rule-based fallback", () => {
       payload: { msg: "test" },
     });
 
-    expect(result.notification).toBeNull();
+    expect(result.notification).not.toBeNull();
     expect(result.deliveries).toHaveLength(0);
     expect(result.inboxItems).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]!.reason).toBe("preferences_disabled");
   });
 });
 
@@ -838,8 +840,9 @@ describe("sms channel and sms fallback", () => {
       payload: { msg: "test" },
     });
 
-    expect(result.notification).toBeNull();
+    expect(result.notification).not.toBeNull();
     expect(result.deliveries).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
     expect(smsProvider.sent).toHaveLength(0);
   });
 

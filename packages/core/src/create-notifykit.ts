@@ -642,13 +642,38 @@ export function createNotifyKit<
         reason: resolvedByToSkipReason(ch.resolvedBy),
         details: ch.reason,
       }));
+      const notificationRecord = await database.notifications.create({
+        recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        notificationId: def.id,
+        payload,
+        payloadSchema: { ...def.payload },
+        definitionVersion: def.version,
+      });
+      await runHook("notification.created", {
+        notification: notificationRecord,
+        redactedPayload: redactForDef(def, notificationRecord.payload),
+      });
+      for (const s of skipped) {
+        await persistSkip({
+          notificationRecordId: notificationRecord.id,
+          recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: def.id,
+          channel: s.channel,
+          reason: s.reason,
+          details: s.details,
+        });
+      }
       await runHook("notification.suppressed", {
         notificationId: def.id,
         recipientId: recipient.id,
         skippedChannels,
       });
       return {
-        notification: null,
+        notification: notificationRecord,
         inboxItems: [],
         deliveries: [],
         skippedChannels,
@@ -677,21 +702,43 @@ export function createNotifyKit<
       });
       if (!result.allowed) {
         const allChannels = [...new Set(def.channels.map((c) => c.type))];
+        const skipped: SkippedDelivery[] = allChannels.map((ch) => ({
+          channel: ch,
+          reason: "rate_limited" as SkipReason,
+          details: `Rate limit exceeded: ${limit.max} per ${limit.windowMs}ms`,
+        }));
+        const notificationRecord = await database.notifications.create({
+          recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: def.id,
+          payload,
+          payloadSchema: { ...def.payload },
+          definitionVersion: def.version,
+        });
+        for (const s of skipped) {
+          await persistSkip({
+            notificationRecordId: notificationRecord.id,
+            recipientId: recipient.id,
+            tenantId: scope.tenantId,
+            workspaceId: scope.workspaceId,
+            notificationId: def.id,
+            channel: s.channel,
+            reason: s.reason,
+            details: s.details,
+          });
+        }
         await runHook("notification.rate_limited", {
           notificationId: def.id,
           recipientId: recipient.id,
           limit,
         });
         return {
-          notification: null,
+          notification: notificationRecord,
           inboxItems: [],
           deliveries: [],
           skippedChannels: [],
-          skipped: allChannels.map((ch) => ({
-            channel: ch,
-            reason: "rate_limited" as SkipReason,
-            details: `Rate limit exceeded: ${limit.max} per ${limit.windowMs}ms`,
-          })),
+          skipped,
           deferredChannels: [],
           digested: false,
           rateLimited: true,

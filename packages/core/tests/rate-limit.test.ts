@@ -53,10 +53,10 @@ describe("rate limits", () => {
     expect(first.rateLimited).toBe(false);
     expect(second.rateLimited).toBe(false);
     expect(third.rateLimited).toBe(true);
-    expect(third.notification).toBeNull();
+    expect(third.notification).not.toBeNull();
     expect(third.inboxItems).toEqual([]);
     expect(db._state.inboxItems).toHaveLength(2);
-    expect(db._state.notifications).toHaveLength(2);
+    expect(db._state.notifications).toHaveLength(3);
   });
 
   test("fires notification.rate_limited hook with limit config", async () => {
@@ -97,7 +97,7 @@ describe("rate limits", () => {
       payload: { msg: "b" },
     });
     expect(blocked.rateLimited).toBe(true);
-    expect(db._state.notifications).toHaveLength(1);
+    expect(db._state.notifications).toHaveLength(2);
 
     await new Promise((r) => setTimeout(r, 50));
 
@@ -107,7 +107,7 @@ describe("rate limits", () => {
       payload: { msg: "c" },
     });
     expect(allowed.rateLimited).toBe(false);
-    expect(db._state.notifications).toHaveLength(2);
+    expect(db._state.notifications).toHaveLength(3);
   });
 
   test("per-recipient scope is independent across recipients", async () => {
@@ -156,7 +156,7 @@ describe("rate limits", () => {
       payload: { msg: "3" },
     });
     expect(third.rateLimited).toBe(true);
-    expect(db._state.notifications).toHaveLength(2);
+    expect(db._state.notifications).toHaveLength(3);
   });
 
   test("rate limit runs before digest — dropped instead of buffered", async () => {

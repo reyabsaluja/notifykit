@@ -206,7 +206,7 @@ describe("skip reasons", () => {
       payload: { msg: "sale" },
     });
 
-    expect(result.notification).toBeNull();
+    expect(result.notification).not.toBeNull();
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0]!.channel).toBe("email");
     expect(result.skipped[0]!.reason).toBe("preferences_disabled");
