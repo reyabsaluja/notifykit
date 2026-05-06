@@ -879,6 +879,9 @@ export function createNotifyKit<
         notificationId: def.id,
         windowMs: input.dedupeWindowMs,
       });
+      if (Math.random() < 0.01) {
+        database.dedupe.prune().catch(() => {});
+      }
       if (duplicate) {
         const allChannels = [...new Set(def.channels.map((c) => c.type))];
         const skipped: SkippedDelivery[] = allChannels.map((ch) => ({
@@ -900,9 +903,6 @@ export function createNotifyKit<
           rateLimited: false,
           idempotent: false,
         };
-      }
-      if (Math.random() < 0.01) {
-        database.dedupe.prune().catch(() => {});
       }
     }
 
