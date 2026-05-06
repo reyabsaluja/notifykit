@@ -362,7 +362,9 @@ export function createNotifyKit<
   const T extends readonly NotificationDefinition<string, PayloadSchema>[],
 >(config: CreateNotifyKitInput<T>): NotifyKit<T> {
   const { notifications, database, providers, on } = config;
-  const onTimelineError = config.onTimelineError ?? ((err: unknown) => console.error("[notifykit] timeline append error:", err));
+  const onTimelineError = config.onTimelineError ?? ((err: unknown) => {
+    console.error("[notifykit] timeline append error:", err);
+  });
   const timelineRetentionMs = config.timelineRetentionMs ?? 7 * 24 * 60 * 60 * 1000;
   const timelineAdapter = database.timeline ?? {
     async append() { return []; },
