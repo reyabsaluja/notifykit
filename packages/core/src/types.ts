@@ -775,6 +775,10 @@ export type SendInput<
      * the same key + notificationId + recipientId within the TTL window return
      * the original result without re-processing.
      *
+     * The composite key is scoped to (key, notificationId, recipientId) — tenantId
+     * is intentionally excluded. The same logical send retried with a different
+     * tenant context is still considered a duplicate.
+     *
      * Not supported for digested notifications — digest sends buffer payloads
      * without creating a notification record, so there is nothing to deduplicate.
      * The key is silently ignored when the notification has a `digest` config.
