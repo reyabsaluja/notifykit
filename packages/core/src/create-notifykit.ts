@@ -716,7 +716,7 @@ export function createNotifyKit<
       const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
       const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
       try {
-        return await withIdempotencyLock(lockKey, () => sendInner(rawInput));
+        return await withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
       } catch (err) {
         if (isUniqueConstraintError(err)) {
           const existing = await database.notifications.findByIdempotencyKey(compositeKey);
@@ -728,7 +728,7 @@ export function createNotifyKit<
               if (replay) return replay;
             }
             await database.notifications.clearIdempotencyKey(existing.id);
-            return withIdempotencyLock(lockKey, () => sendInner(rawInput));
+            return withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
           }
         }
         throw err;
@@ -737,7 +737,7 @@ export function createNotifyKit<
     return sendInner(rawInput);
   }
 
-  async function sendInner(rawInput: SendInput<T>): Promise<SendResult> {
+  async function sendInner(rawInput: SendInput<T>, preComputedCompositeKey?: string): Promise<SendResult> {
     const input = rawInput as {
       recipientId: string;
       tenantId?: string;
@@ -795,9 +795,9 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
-    const compositeIdempotencyKey = input.idempotencyKey
+    const compositeIdempotencyKey = preComputedCompositeKey ?? (input.idempotencyKey
       ? idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId)
-      : undefined;
+      : undefined);
 
     // Idempotency key dedup — if key exists and is within TTL, replay.
     if (compositeIdempotencyKey) {
