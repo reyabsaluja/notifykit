@@ -2648,7 +2648,7 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
-      while (pendingTimelineWrites.size > 0) {
+      for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
         await Promise.all(Array.from(pendingTimelineWrites));
       }
       if (errors.length > 0) {
