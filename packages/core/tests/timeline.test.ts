@@ -292,6 +292,77 @@ describe("timeline", () => {
     }
   });
 
+  test("records idempotent replay", async () => {
+    const db = memoryAdapter();
+    const emailProvider = fakeEmailProvider();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [
+        inbox({ title: "{{msg}}" }),
+        email({ subject: "{{msg}}", body: "{{msg}}" }),
+      ],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: emailProvider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const first = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "idem-1",
+    });
+
+    const second = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "idem-1",
+    });
+
+    expect(second.idempotent).toBe(true);
+    const timeline = await notify.timeline(first.notification!.id);
+    const replayEvent = timeline.find((e) => e.event === "idempotent.replay");
+    expect(replayEvent).toBeDefined();
+  });
+
+  test("records fallback triggered after primary delivery failure", async () => {
+    const db = memoryAdapter();
+    const failingProvider = {
+      id: "failing-email",
+      async send() {
+        throw new Error("send failed");
+      },
+    };
+    const def = notification({
+      id: "password_reset",
+      payload: { link: "string" },
+      channels: [email({ subject: "Reset", body: "{{link}}" })],
+      fallback: inbox({ title: "Fallback: {{link}}" }),
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: failingProvider },
+      retry: { maxAttempts: 1, delayMs: () => 0 },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "password_reset",
+      payload: { link: "/reset/abc" },
+    });
+
+    const timeline = await notify.timeline(result.notification!.id);
+    const fallbackEvent = timeline.find((e) => e.event === "fallback.triggered");
+    expect(fallbackEvent).toBeDefined();
+  });
+
   test("records quiet hours deferral", async () => {
     const db = memoryAdapter();
     const emailProvider = fakeEmailProvider();
