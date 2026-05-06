@@ -652,9 +652,9 @@ export function createNotifyKit<
   }
 
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
-    const rawKey = (rawInput as { idempotencyKey?: string }).idempotencyKey;
-    if (rawKey) {
-      const lockKey = `${(rawInput as { notificationId: string }).notificationId}:${(rawInput as { recipientId: string }).recipientId}:${rawKey}`;
+    const input = rawInput as { notificationId: string; recipientId: string; idempotencyKey?: string };
+    if (input.idempotencyKey) {
+      const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
       return withIdempotencyLock(lockKey, () => sendInner(rawInput));
     }
     return sendInner(rawInput);
