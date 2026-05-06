@@ -437,6 +437,8 @@ export function createNotifyKit<
     }
   }
 
+  const pendingTimelineWrites: Promise<unknown>[] = [];
+
   function recordTimeline(
     ctx: {
       notificationRecordId: string;
@@ -449,7 +451,7 @@ export function createNotifyKit<
     message: string,
     opts?: { deliveryId?: string; channel?: ChannelType; provider?: string; metadata?: Record<string, unknown> },
   ): void {
-    database.timeline.append([{
+    const p = database.timeline.append([{
       notificationRecordId: ctx.notificationRecordId,
       deliveryId: opts?.deliveryId,
       recipientId: ctx.recipientId,
@@ -462,6 +464,12 @@ export function createNotifyKit<
       message,
       metadata: opts?.metadata,
     }]).catch(onTimelineError);
+    pendingTimelineWrites.push(p);
+  }
+
+  async function flushTimeline(): Promise<void> {
+    const pending = pendingTimelineWrites.splice(0);
+    if (pending.length > 0) await Promise.all(pending);
   }
 
   // Per-key serialization for idempotency checks. Prevents concurrent sends
@@ -768,6 +776,7 @@ export function createNotifyKit<
 
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as { notificationId: string; recipientId: string; idempotencyKey?: string };
+    let result: SendResult;
     if (input.idempotencyKey) {
       if (input.idempotencyKey.length > 256) {
         throw new NotifyKitError(
@@ -782,7 +791,7 @@ export function createNotifyKit<
       const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
       const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
       try {
-        return await withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
+        result = await withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
       } catch (err) {
         if (isIdempotencyKeyConstraintError(err) || isUniqueConstraintError(err)) {
           const existing = await database.notifications.findByIdempotencyKey(compositeKey);
@@ -791,16 +800,25 @@ export function createNotifyKit<
             const age = Date.now() - existing.createdAt.getTime();
             if (age < ttl) {
               const replay = await buildIdempotentReplay(existing);
-              if (replay) return replay;
+              if (replay) {
+                await flushTimeline();
+                return replay;
+              }
             }
             await database.notifications.clearIdempotencyKey(existing.id);
-            return withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
+            result = await withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
+          } else {
+            throw err;
           }
+        } else {
+          throw err;
         }
-        throw err;
       }
+    } else {
+      result = await sendInner(rawInput);
     }
-    return sendInner(rawInput);
+    await flushTimeline();
+    return result;
   }
 
   async function sendInner(rawInput: SendInput<T>, preComputedCompositeKey?: string): Promise<SendResult> {
