@@ -143,6 +143,8 @@ export async function createSqliteTables(
     `ALTER TABLE notifykit_recipients ADD COLUMN phone TEXT`,
     `ALTER TABLE notifykit_notifications ADD COLUMN tenant_id TEXT`,
     `ALTER TABLE notifykit_notifications ADD COLUMN workspace_id TEXT`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN payload_schema TEXT`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN definition_version INTEGER`,
     `ALTER TABLE notifykit_inbox_items ADD COLUMN tenant_id TEXT`,
     `ALTER TABLE notifykit_inbox_items ADD COLUMN workspace_id TEXT`,
     `ALTER TABLE notifykit_deliveries ADD COLUMN tenant_id TEXT`,
