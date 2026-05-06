@@ -483,6 +483,31 @@ export function createNotifyKit<
     }
   }
 
+  async function persistSkip(ctx: {
+    notificationRecordId: string;
+    recipientId: string;
+    tenantId?: string;
+    workspaceId?: string;
+    notificationId: string;
+    channel: ChannelType;
+    reason: SkipReason;
+    details?: string;
+  }): Promise<void> {
+    await database.deliveries.create({
+      notificationRecordId: ctx.notificationRecordId,
+      recipientId: ctx.recipientId,
+      tenantId: ctx.tenantId,
+      workspaceId: ctx.workspaceId,
+      notificationId: ctx.notificationId,
+      channel: ctx.channel,
+      provider: "none",
+      status: "skipped",
+      skipReason: ctx.reason,
+      skipDetails: ctx.details,
+      attempts: 0,
+    });
+  }
+
   function storageKey(parts: readonly string[]): string {
     return JSON.stringify(parts);
   }
@@ -1347,18 +1372,15 @@ export function createNotifyKit<
         const skipReason = resolvedByToSkipReason(entry?.resolvedBy);
         const skipDetails = entry?.reason;
         skipped.push({ channel: ch.type, reason: skipReason, details: skipDetails });
-        await database.deliveries.create({
+        await persistSkip({
           notificationRecordId: notificationRecord.id,
           recipientId: recipient.id,
           tenantId: scope.tenantId,
           workspaceId: scope.workspaceId,
           notificationId: def.id,
-          channel: ch.type as DeliveryRecord["channel"],
-          provider: "none",
-          status: "skipped",
-          skipReason,
-          skipDetails,
-          attempts: 0,
+          channel: ch.type,
+          reason: skipReason,
+          details: skipDetails,
         });
         if (def.fallback && !isLegacyFallback(def.fallback)) {
           const trigger: FallbackTrigger =
@@ -1395,18 +1417,15 @@ export function createNotifyKit<
         if (!recipient.email) {
           skippedChannels.push("email");
           skipped.push({ channel: "email", reason: "missing_address", details: "Recipient has no email address" });
-          await database.deliveries.create({
+          await persistSkip({
             notificationRecordId: notificationRecord.id,
             recipientId: recipient.id,
             tenantId: scope.tenantId,
             workspaceId: scope.workspaceId,
             notificationId: def.id,
             channel: "email",
-            provider: provider.id,
-            status: "skipped",
-            skipReason: "missing_address",
-            skipDetails: "Recipient has no email address",
-            attempts: 0,
+            reason: "missing_address",
+            details: "Recipient has no email address",
           });
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "email" });
@@ -1513,18 +1532,15 @@ export function createNotifyKit<
         if (!recipient.phone) {
           skippedChannels.push("sms");
           skipped.push({ channel: "sms", reason: "missing_address", details: "Recipient has no phone number" });
-          await database.deliveries.create({
+          await persistSkip({
             notificationRecordId: notificationRecord.id,
             recipientId: recipient.id,
             tenantId: scope.tenantId,
             workspaceId: scope.workspaceId,
             notificationId: def.id,
             channel: "sms",
-            provider: provider.id,
-            status: "skipped",
-            skipReason: "missing_address",
-            skipDetails: "Recipient has no phone number",
-            attempts: 0,
+            reason: "missing_address",
+            details: "Recipient has no phone number",
           });
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "sms" });
