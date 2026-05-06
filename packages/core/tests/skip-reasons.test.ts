@@ -284,4 +284,79 @@ describe("skip reasons", () => {
 
     await notify.close();
   });
+
+  test("app_default disabled channel produces preferences_disabled reason", async () => {
+    const email = channel.email();
+    const inbox = channel.inbox();
+    const def = notification({
+      id: "news",
+      payload: { msg: "string" },
+      channels: [
+        inbox({ title: "{{msg}}" }),
+        email({ subject: "hi", body: "{{msg}}" }),
+      ],
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: fakeEmailProvider() },
+      defaults: { channels: { email: false } },
+    });
+
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "news",
+      payload: { msg: "hello" },
+    });
+
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]!.channel).toBe("email");
+    expect(result.skipped[0]!.reason).toBe("preferences_disabled");
+  });
+
+  test("multiple channels skipped for different reasons in one send", async () => {
+    const email = channel.email();
+    const sms = channel.sms();
+    const inbox = channel.inbox();
+    const def = notification({
+      id: "multi",
+      payload: { msg: "string" },
+      channels: [
+        inbox({ title: "{{msg}}" }),
+        email({ subject: "hi", body: "{{msg}}" }),
+        sms({ body: "{{msg}}" }),
+      ],
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: fakeEmailProvider(), sms: fakeSmsProvider() },
+    });
+
+    // Recipient has email but no phone, and disables inbox
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "multi",
+      channels: { inbox: false },
+    });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "multi",
+      payload: { msg: "hello" },
+    });
+
+    expect(result.skipped).toHaveLength(2);
+    const inboxSkip = result.skipped.find((s) => s.channel === "inbox");
+    const smsSkip = result.skipped.find((s) => s.channel === "sms");
+    expect(inboxSkip).toBeDefined();
+    expect(inboxSkip!.reason).toBe("preferences_disabled");
+    expect(smsSkip).toBeDefined();
+    expect(smsSkip!.reason).toBe("missing_address");
+  });
 });
