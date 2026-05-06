@@ -473,9 +473,14 @@ export function createNotifyKit<
     });
   }
 
+  const pendingTimelineWrites = new Set<Promise<void>>();
+
   async function flushTimeline(buffer: TimelineBuffer): Promise<void> {
     const batch = buffer.splice(0);
-    if (batch.length > 0) await timelineAdapter.append(batch).catch(onTimelineError);
+    if (batch.length === 0) return;
+    const p = timelineAdapter.append(batch).then(() => {}).catch(onTimelineError);
+    pendingTimelineWrites.add(p);
+    try { await p; } finally { pendingTimelineWrites.delete(p); }
   }
 
   // Per-key serialization for idempotency checks. Prevents concurrent sends
@@ -2643,6 +2648,9 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
+      while (pendingTimelineWrites.size > 0) {
+        await Promise.all(Array.from(pendingTimelineWrites));
+      }
       if (errors.length > 0) {
         throw errors[0];
       }
