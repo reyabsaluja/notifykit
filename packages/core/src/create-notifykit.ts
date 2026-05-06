@@ -23,12 +23,15 @@ import type {
   NotificationRecord,
   PayloadSchema,
   PreferenceExplanation,
+  PreferenceResolutionLayer,
   Queue,
   Recipient,
   RecipientPreference,
   RetryPolicy,
   SendInput,
   SecurityScope,
+  SkipReason,
+  SkippedDelivery,
   SmsProvider,
   UpdatePreferenceInput,
   UpsertRecipientInput,
@@ -47,6 +50,8 @@ import { resolveChannel, resolvePreferences, type ResolutionContext } from "./re
 import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, assertSafeWebhookUrl, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 import { validateConfig, formatValidationIssues } from "./validate.js";
+
+export const SKIP_PROVIDER = "skip" as const;
 
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
@@ -106,10 +111,22 @@ export type CreateNotifyKitInput<
 };
 
 export type SendResult = {
+  /**
+   * The persisted notification record. Only null when `digested` is true.
+   *
+   * **BREAKING (pre-v1):** Previously null on suppression/rate-limit; now
+   * always persisted so skipped deliveries have a parent record.
+   */
   notification: NotificationRecord | null;
   inboxItems: InboxItem[];
+  /** All delivery records including skipped ones (status "skipped"). */
   deliveries: DeliveryRecord[];
+  /**
+   * @deprecated Use `skipped[]` which includes the reason. Rate-limited sends
+   * populate `skipped[]` but leave this array empty. Will be removed in v1.
+   */
   skippedChannels: ChannelType[];
+  skipped: SkippedDelivery[];
   /**
    * Channel types that were deferred to fire after quiet hours end. The inbox
    * channel still delivers immediately because it's user-pulled viewing.
@@ -122,9 +139,9 @@ export type SendResult = {
    */
   digested: boolean;
   /**
-   * True if the send was dropped because the recipient has hit the
-   * notification's rate limit. No records are written and no hooks fire
-   * except `notification.rate_limited`.
+   * True if the send was rate-limited. A notification record and skipped
+   * delivery records are still persisted; the `notification.rate_limited`
+   * hook fires but no actual delivery is attempted.
    */
   rateLimited: boolean;
 };
@@ -458,6 +475,93 @@ export function createNotifyKit<
     return redactPayload(payload, def.redact);
   }
 
+  function resolvedByToSkipReason(
+    resolvedBy: PreferenceResolutionLayer | undefined,
+  ): SkipReason {
+    switch (resolvedBy) {
+      case "destination_unavailable":
+        return "missing_address";
+      case "required_override":
+        return "required_override";
+      case "user_notification":
+      case "user_category":
+      case "user_global":
+        return "preferences_disabled";
+      case "tenant_setting":
+      case "category_default":
+      case "notification_default":
+      case "app_default":
+        return "preferences_disabled";
+      case undefined:
+        return "suppressed";
+      default: {
+        const unexpected: never = resolvedBy;
+        throw new NotifyKitError(
+          `Unknown preference resolution layer: ${String(unexpected)}.`,
+          { code: "INTERNAL_ERROR" },
+        );
+      }
+    }
+  }
+
+  async function persistSkip(ctx: {
+    notificationRecordId: string;
+    recipientId: string;
+    tenantId?: string;
+    workspaceId?: string;
+    notificationId: string;
+    channel: ChannelType;
+    reason: SkipReason;
+    details?: string;
+  }): Promise<DeliveryRecord> {
+    return database.deliveries.create({
+      notificationRecordId: ctx.notificationRecordId,
+      recipientId: ctx.recipientId,
+      tenantId: ctx.tenantId,
+      workspaceId: ctx.workspaceId,
+      notificationId: ctx.notificationId,
+      channel: ctx.channel,
+      provider: SKIP_PROVIDER,
+      status: "skipped",
+      skipReason: ctx.reason,
+      skipDetails: ctx.details,
+      attempts: 0,
+    });
+  }
+
+  async function createSkippedNotification(ctx: {
+    recipient: Recipient;
+    scope: SecurityScope;
+    def: NotificationDefinition<string, PayloadSchema>;
+    payload: Record<string, unknown>;
+    skipped: SkippedDelivery[];
+  }): Promise<{ notificationRecord: NotificationRecord; skippedRecords: DeliveryRecord[] }> {
+    const notificationRecord = await database.notifications.create({
+      recipientId: ctx.recipient.id,
+      tenantId: ctx.scope.tenantId,
+      workspaceId: ctx.scope.workspaceId,
+      notificationId: ctx.def.id,
+      payload: ctx.payload,
+      payloadSchema: { ...ctx.def.payload },
+      definitionVersion: ctx.def.version,
+    });
+    await runHook("notification.created", {
+      notification: notificationRecord,
+      redactedPayload: redactForDef(ctx.def, notificationRecord.payload),
+    });
+    const base = {
+      notificationRecordId: notificationRecord.id,
+      recipientId: ctx.recipient.id,
+      tenantId: ctx.scope.tenantId,
+      workspaceId: ctx.scope.workspaceId,
+      notificationId: ctx.def.id,
+    };
+    const skippedRecords = await Promise.all(
+      ctx.skipped.map((s) => persistSkip({ ...base, channel: s.channel, reason: s.reason, details: s.details })),
+    );
+    return { notificationRecord, skippedRecords };
+  }
+
   function storageKey(parts: readonly string[]): string {
     return JSON.stringify(parts);
   }
@@ -587,16 +691,26 @@ export function createNotifyKit<
     })();
     if (!hasAnyAllowed && !hasMatchingFallback) {
       const skippedChannels = prefResult.channels.map((ch) => ch.channel);
+      const skipped: SkippedDelivery[] = prefResult.channels.map((ch) => ({
+        channel: ch.channel,
+        reason: resolvedByToSkipReason(ch.resolvedBy),
+        details: ch.reason,
+      }));
+      const { notificationRecord, skippedRecords } = await createSkippedNotification({
+        recipient, scope, def, payload, skipped,
+      });
       await runHook("notification.suppressed", {
         notificationId: def.id,
         recipientId: recipient.id,
         skippedChannels,
+        skipped,
       });
       return {
-        notification: null,
+        notification: notificationRecord,
         inboxItems: [],
-        deliveries: [],
+        deliveries: skippedRecords,
         skippedChannels,
+        skipped,
         deferredChannels: [],
         digested: false,
         rateLimited: false,
@@ -620,16 +734,26 @@ export function createNotifyKit<
         notificationId: def.id,
       });
       if (!result.allowed) {
+        const allChannels = [...new Set(def.channels.map((c) => c.type))];
+        const skipped: SkippedDelivery[] = allChannels.map((ch) => ({
+          channel: ch,
+          reason: "rate_limited" as SkipReason,
+          details: `Rate limit exceeded: ${limit.max} per ${limit.windowMs}ms`,
+        }));
+        const { notificationRecord, skippedRecords } = await createSkippedNotification({
+          recipient, scope, def, payload, skipped,
+        });
         await runHook("notification.rate_limited", {
           notificationId: def.id,
           recipientId: recipient.id,
           limit,
         });
         return {
-          notification: null,
+          notification: notificationRecord,
           inboxItems: [],
-          deliveries: [],
+          deliveries: skippedRecords,
           skippedChannels: [],
+          skipped,
           deferredChannels: [],
           digested: false,
           rateLimited: true,
@@ -681,6 +805,7 @@ export function createNotifyKit<
         inboxItems: [],
         deliveries: [],
         skippedChannels: [],
+        skipped: [],
         deferredChannels: [],
         digested: true,
         rateLimited: false,
@@ -1293,19 +1418,31 @@ export function createNotifyKit<
     const inboxItems: InboxItem[] = [];
     const deliveries: DeliveryRecord[] = [];
     const skippedChannels: ChannelType[] = [];
+    const skipped: SkippedDelivery[] = [];
     const deferredChannels: ChannelType[] = [];
     const pendingFallbacks: Array<{ trigger: FallbackTrigger; fromChannel: ChannelType }> = [];
+    const pendingSkips: Array<{ channel: ChannelType; reason: SkipReason; details?: string }> = [];
+
+    const queueSkip = (channel: ChannelType, reason: SkipReason, details?: string) => {
+      skipped.push({ channel, reason, details });
+      pendingSkips.push({ channel, reason, details });
+    };
 
     for (const ch of def.channels) {
       if (onlySet && !onlySet.has(ch.type)) continue;
       if (deferSet.has(ch.type)) {
         deferredChannels.push(ch.type);
+        // Deferred channels are tracked in deliveries, but not result.skipped[].
+        pendingSkips.push({ channel: ch.type, reason: "quiet_hours_deferred", details: "Deferred until quiet hours end" });
         continue;
       }
       if (!isChannelAllowed(ch.type)) {
         skippedChannels.push(ch.type);
+        const entry = explanation.channels.find((e) => e.channel === ch.type);
+        const skipReason = resolvedByToSkipReason(entry?.resolvedBy);
+        const skipDetails = entry?.reason;
+        queueSkip(ch.type, skipReason, skipDetails);
         if (def.fallback && !isLegacyFallback(def.fallback)) {
-          const entry = explanation.channels.find((e) => e.channel === ch.type);
           const trigger: FallbackTrigger =
             entry?.resolvedBy === "destination_unavailable"
               ? "missing_address"
@@ -1339,6 +1476,7 @@ export function createNotifyKit<
         const provider = providers!.email!;
         if (!recipient.email) {
           skippedChannels.push("email");
+          queueSkip("email", "missing_address", "Recipient has no email address");
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "email" });
           }
@@ -1443,6 +1581,7 @@ export function createNotifyKit<
         const provider = providers!.sms!;
         if (!recipient.phone) {
           skippedChannels.push("sms");
+          queueSkip("sms", "missing_address", "Recipient has no phone number");
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "sms" });
           }
@@ -1486,6 +1625,20 @@ export function createNotifyKit<
       }
     }
 
+    if (pendingSkips.length > 0) {
+      const skippedRecords = await Promise.all(pendingSkips.map((s) => persistSkip({
+        notificationRecordId: notificationRecord.id,
+        recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        notificationId: def.id,
+        channel: s.channel,
+        reason: s.reason,
+        details: s.details,
+      })));
+      deliveries.push(...skippedRecords);
+    }
+
     if (pendingFallbacks.length > 0 && def.fallback && !isLegacyFallback(def.fallback)) {
       const attempted = new Set<ChannelType>(
         def.channels.map((c) => c.type),
@@ -1517,6 +1670,7 @@ export function createNotifyKit<
       inboxItems,
       deliveries,
       skippedChannels,
+      skipped,
       deferredChannels,
       digested: false,
       rateLimited: false,

@@ -335,7 +335,9 @@ describe("category defaults from config", () => {
     });
     expect(result.skippedChannels).toContain("inbox");
     expect(result.inboxItems).toHaveLength(0);
-    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries).toHaveLength(2);
+    expect(result.deliveries.filter((d) => d.status === "sent")).toHaveLength(1);
+    expect(result.deliveries.filter((d) => d.status === "skipped")).toHaveLength(1);
   });
 });
 

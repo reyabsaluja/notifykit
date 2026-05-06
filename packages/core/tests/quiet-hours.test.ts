@@ -143,7 +143,9 @@ describe("quiet hours in send()", () => {
 
     expect(result.deferredChannels).toEqual(["email"]);
     expect(result.inboxItems).toHaveLength(1);
-    expect(result.deliveries).toEqual([]);
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.status).toBe("skipped");
+    expect(result.deliveries[0]!.skipReason).toBe("quiet_hours_deferred");
     expect(provider.sent).toEqual([]);
     expect(db._state.scheduledSends).toHaveLength(1);
     expect(db._state.scheduledSends[0]!.reason).toBe("quiet_hours");
@@ -221,7 +223,10 @@ describe("quiet hours in send()", () => {
     await notify.flushScheduledSends();
 
     expect(provider.sent).toEqual([]);
-    expect(db._state.deliveries).toEqual([]);
+    const skippedDeliveries = db._state.deliveries.filter((d) => d.status === "skipped");
+    expect(skippedDeliveries).toHaveLength(2);
+    expect(skippedDeliveries.find((d) => d.skipReason === "quiet_hours_deferred")).toBeDefined();
+    expect(skippedDeliveries.find((d) => d.skipReason === "preferences_disabled")).toBeDefined();
   });
 
   test("upsertRecipient({ quietHours: null }) clears the window", async () => {

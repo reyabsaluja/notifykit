@@ -1,6 +1,6 @@
 export { channel } from "./channel.js";
 export { notification } from "./notification.js";
-export { createNotifyKit } from "./create-notifykit.js";
+export { createNotifyKit, SKIP_PROVIDER } from "./create-notifykit.js";
 export {
   GLOBAL_PREFERENCE_KEY,
   categoryPreferenceKey,
@@ -40,6 +40,7 @@ export {
   validateConfig,
   formatValidationIssues,
 } from "./validate.js";
+export { SKIP_REASONS } from "./types.js";
 
 export type {
   Authorize,
@@ -152,6 +153,8 @@ export type {
   ScheduledSendStatus,
   SecurityScope,
   SendInput,
+  SkipReason,
+  SkippedDelivery,
   SmsChannelConfig,
   SmsProvider,
   UpdatePreferenceInput,

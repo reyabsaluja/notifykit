@@ -70,6 +70,8 @@ export async function createPgTables(
       body TEXT,
       provider_message_id TEXT,
       error TEXT,
+      skip_reason TEXT,
+      skip_details TEXT,
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL,
@@ -78,6 +80,8 @@ export async function createPgTables(
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_deliveries_recipient
       ON notifykit_deliveries (recipient_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_deliveries_notification_status
+      ON notifykit_deliveries (notification_record_id, status)`,
     `CREATE TABLE IF NOT EXISTS notifykit_preferences (
       recipient_id TEXT NOT NULL,
       tenant_id TEXT NOT NULL DEFAULT '',
@@ -149,6 +153,8 @@ export async function createPgTables(
     `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
     `ALTER TABLE notifykit_deliveries ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
     `ALTER TABLE notifykit_deliveries ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+    `ALTER TABLE notifykit_deliveries ADD COLUMN IF NOT EXISTS skip_reason TEXT`,
+    `ALTER TABLE notifykit_deliveries ADD COLUMN IF NOT EXISTS skip_details TEXT`,
     `ALTER TABLE notifykit_digest_buffers ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
     `ALTER TABLE notifykit_digest_buffers ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
     `ALTER TABLE notifykit_rate_limit_events ADD COLUMN IF NOT EXISTS tenant_id TEXT`,

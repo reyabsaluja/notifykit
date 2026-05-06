@@ -397,9 +397,35 @@ export type DigestBufferEntry = {
   updatedAt: Date;
 };
 
-export type DeliveryStatus = "pending" | "sent" | "failed";
+export const SKIP_REASONS = [
+  "preferences_disabled",
+  "required_override",
+  "missing_address",
+  "missing_provider",
+  "rate_limited",
+  "quiet_hours_deferred",
+  "duplicate",
+  "idempotent_replay",
+  "condition_false",
+  "expired",
+  "unsubscribed",
+  "suppressed",
+  "invalid_payload",
+  "disabled_in_dev",
+] as const;
 
-export type DeliveryChannel = "email" | "webhook" | "sms";
+export type SkipReason = (typeof SKIP_REASONS)[number];
+
+export type SkippedDelivery = {
+  channel: ChannelType;
+  reason: SkipReason;
+  details?: string;
+};
+
+export type DeliveryStatus = "pending" | "sent" | "failed" | "skipped";
+
+/** Includes "inbox" for skip-only records; actual delivery jobs use "email" | "webhook" | "sms". */
+export type DeliveryChannel = "email" | "webhook" | "sms" | "inbox";
 
 export type DeliveryRecord = {
   id: string;
@@ -419,6 +445,10 @@ export type DeliveryRecord = {
   body?: string;
   providerMessageId?: string;
   error?: string;
+  /** Set when `status` is `"skipped"`. */
+  skipReason?: SkipReason;
+  /** Additional human-readable context for the skip. */
+  skipDetails?: string;
   attempts: number;
   createdAt: Date;
   updatedAt: Date;
@@ -711,6 +741,7 @@ export type Hooks = {
     notificationId: string;
     recipientId: string;
     skippedChannels: ChannelType[];
+    skipped: SkippedDelivery[];
   }) => void | Promise<void>;
 };
 

@@ -95,14 +95,16 @@ export const deliveries = pgTable(
     tenantId: text("tenant_id"),
     workspaceId: text("workspace_id"),
     notificationId: text("notification_id").notNull(),
-    channel: text("channel").notNull().$type<"email" | "webhook" | "sms">(),
+    channel: text("channel").notNull().$type<"email" | "webhook" | "sms" | "inbox">(),
     provider: text("provider").notNull(),
-    status: text("status").notNull().$type<"pending" | "sent" | "failed">(),
+    status: text("status").notNull().$type<"pending" | "sent" | "failed" | "skipped">(),
     to: text("to"),
     subject: text("subject"),
     body: text("body"),
     providerMessageId: text("provider_message_id"),
     error: text("error"),
+    skipReason: text("skip_reason"),
+    skipDetails: text("skip_details"),
     attempts: integer("attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
@@ -112,6 +114,10 @@ export const deliveries = pgTable(
   (table) => ({
     recipientIdx: index("idx_notifykit_deliveries_recipient").on(
       table.recipientId,
+    ),
+    notificationStatusIdx: index("idx_notifykit_deliveries_notification_status").on(
+      table.notificationRecordId,
+      table.status,
     ),
   }),
 );

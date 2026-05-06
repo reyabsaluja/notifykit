@@ -382,7 +382,10 @@ describe("digests", () => {
     expect(db._state.inboxItems).toHaveLength(1);
     expect(db._state.inboxItems[0]!.title).toBe("2 from Ada");
     expect(provider.sent).toHaveLength(0);
-    expect(db._state.deliveries).toEqual([]);
+    const skippedDeliveries = db._state.deliveries.filter((d) => d.status === "skipped");
+    expect(skippedDeliveries).toHaveLength(1);
+    expect(skippedDeliveries[0]!.channel).toBe("email");
+    expect(skippedDeliveries[0]!.skipReason).toBe("preferences_disabled");
   });
 
   test("drain() without pending flushes resolves", async () => {
