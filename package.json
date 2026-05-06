@@ -1,0 +1,35 @@
+{
+  "name": "notifykit-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reyabsaluja/notifykit"
+  },
+  "homepage": "https://github.com/reyabsaluja/notifykit",
+  "bugs": "https://github.com/reyabsaluja/notifykit/issues",
+  "engines": {
+    "node": ">=18"
+  },
+  "workspaces": [
+    "packages/*",
+    "examples/*",
+    "docs"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "build": "bun run --cwd packages/core build && bun run --cwd packages/drizzle-adapter build && bun run --cwd packages/realtime-ws build && bun run --cwd packages/realtime-pg build && bun run --cwd packages/react build && bun run --cwd packages/next build && bun run --cwd packages/cli build && bun run --cwd packages/resend build && bun run --cwd packages/create-app build",
+    "example": "bun run --cwd examples/basic start",
+    "example:drizzle": "bun run --cwd examples/drizzle start",
+    "example:handler": "bun run --cwd examples/handler start",
+    "typecheck": "tsc -p packages/core/tsconfig.check.json",
+    "docs:dev": "bun run --cwd docs dev",
+    "docs:build": "bun run --cwd docs build"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/bun": "^1.1.13"
+  }
+}

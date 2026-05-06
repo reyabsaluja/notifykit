@@ -1,0 +1,51 @@
+{
+  "name": "notifykit-react",
+  "version": "0.0.1",
+  "description": "React hooks and components for NotifyKit inboxes and preferences.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reyabsaluja/notifykit",
+    "directory": "packages/react"
+  },
+  "homepage": "https://github.com/reyabsaluja/notifykit",
+  "bugs": "https://github.com/reyabsaluja/notifykit/issues",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build",
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "notifykit": "^0.0.1",
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.2",
+    "notifykit": "^0.0.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "typescript": "^5.6.3"
+  },
+  "sideEffects": false
+}

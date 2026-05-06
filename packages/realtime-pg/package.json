@@ -1,0 +1,45 @@
+{
+  "name": "@notifykit/realtime-pg",
+  "version": "0.0.1",
+  "description": "Postgres LISTEN/NOTIFY realtime adapter for NotifyKit.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reyabsaluja/notifykit",
+    "directory": "packages/realtime-pg"
+  },
+  "homepage": "https://github.com/reyabsaluja/notifykit",
+  "bugs": "https://github.com/reyabsaluja/notifykit/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build",
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "notifykit": "^0.0.1"
+  },
+  "devDependencies": {
+    "notifykit": "^0.0.1",
+    "typescript": "^5.6.3"
+  },
+  "sideEffects": false
+}

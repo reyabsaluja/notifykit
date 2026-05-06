@@ -1,0 +1,365 @@
+import { describe, expect, test } from "bun:test";
+import {
+  channel,
+  createHandler,
+  createNotifyKit,
+  fakeEmailProvider,
+  memoryAdapter,
+  notification,
+  signUnsubscribeToken,
+  verifyUnsubscribeToken,
+} from "../src/index.js";
+
+const inbox = channel.inbox();
+const email = channel.email();
+
+const def = notification({
+  id: "comment_mentioned",
+  payload: { actorName: "string" },
+  channels: [
+    inbox({ title: "{{actorName}} mentioned you" }),
+    email({
+      subject: "{{actorName}} mentioned you",
+      body: "Unsubscribe: {{_unsubscribeUrl}}",
+    }),
+  ],
+});
+
+const BASE = "http://localhost/api/notifykit";
+const TEST_SECRET = "test-secret-that-is-at-least-32-chars-long!!";
+
+function buildKit(options: { secret?: string; baseUrl?: string } = {}) {
+  const provider = fakeEmailProvider();
+  const db = memoryAdapter();
+  const unsubscribe =
+    options.secret === undefined
+      ? undefined
+      : {
+          secret: options.secret,
+          baseUrl: options.baseUrl ?? BASE,
+        };
+  const notify = createNotifyKit({
+    notifications: [def] as const,
+    database: db,
+    providers: { email: provider },
+    unsubscribe,
+  });
+  const handler = createHandler(notify, {
+    identify: () => "user_1",
+    unsubscribeSecret: options.secret,
+  });
+  return { notify, provider, db, handler };
+}
+
+describe("token sign / verify", () => {
+  test("round-trips claims", () => {
+    const token = signUnsubscribeToken(
+      { recipientId: "u1", notificationId: "x" },
+      TEST_SECRET,
+    );
+    expect(verifyUnsubscribeToken(token, TEST_SECRET)).toEqual({
+      recipientId: "u1",
+      notificationId: "x",
+    });
+  });
+
+  test("fails with wrong secret", () => {
+    const token = signUnsubscribeToken(
+      { recipientId: "u1", notificationId: "x" },
+      TEST_SECRET,
+    );
+    expect(verifyUnsubscribeToken(token, "other")).toBeNull();
+  });
+
+  test("fails on tampered payload", () => {
+    const token = signUnsubscribeToken(
+      { recipientId: "u1", notificationId: "x" },
+      TEST_SECRET,
+    );
+    const [, sig] = token.split(".");
+    const tampered = `${Buffer.from("u2:x").toString("base64url")}.${sig}`;
+    expect(verifyUnsubscribeToken(tampered, TEST_SECRET)).toBeNull();
+  });
+
+  test("fails on malformed token", () => {
+    expect(verifyUnsubscribeToken("garbage", TEST_SECRET)).toBeNull();
+    expect(verifyUnsubscribeToken("", TEST_SECRET)).toBeNull();
+    expect(verifyUnsubscribeToken("a.b.c", TEST_SECRET)).toBeNull();
+  });
+
+  test("handles ids containing colons and slashes", () => {
+    const token = signUnsubscribeToken(
+      { recipientId: "user:42/x", notificationId: "ns:topic/a" },
+      TEST_SECRET,
+    );
+    expect(verifyUnsubscribeToken(token, TEST_SECRET)).toEqual({
+      recipientId: "user:42/x",
+      notificationId: "ns:topic/a",
+    });
+  });
+});
+
+describe("email rendering", () => {
+  test("{{_unsubscribeUrl}} expands to a verifiable URL", async () => {
+    const { notify, provider } = buildKit({ secret: TEST_SECRET });
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey" },
+    });
+    expect(provider.sent).toHaveLength(1);
+    const body = provider.sent[0]!.body;
+    expect(body).toMatch(/\/unsubscribe\?token=/);
+    const url = new URL(body.replace(/^Unsubscribe: /, ""));
+    const token = url.searchParams.get("token")!;
+    expect(verifyUnsubscribeToken(token, TEST_SECRET)).toEqual({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+    });
+  });
+
+  test("signed unsubscribe tokens preserve tenant scope", async () => {
+    const { notify, handler, provider } = buildKit({ secret: TEST_SECRET });
+    await notify.upsertRecipient({
+      id: "user_1",
+      tenantId: "tenant_a",
+      email: "a@example.com",
+    });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: {
+        actorName: "Rey",
+        postTitle: "Tenant Plan",
+        postUrl: "/t",
+      },
+    });
+
+    const body = provider.sent[0]!.body;
+    const token = new URL(body.match(/https?:\/\/\S+/)![0]).searchParams.get(
+      "token",
+    )!;
+    const claims = verifyUnsubscribeToken(token, TEST_SECRET)!;
+    expect(claims.tenantId).toBe("tenant_a");
+
+    const confirmRes = await handler(
+      new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`),
+    );
+    expect(confirmRes.status).toBe(200);
+    const confirmHtml = await confirmRes.text();
+    expect(confirmHtml).toMatch(/<form/i);
+
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const scoped = await notify.preferences.get({
+      recipientId: "user_1",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+    });
+    expect(scoped?.channels.email).toBe(false);
+  });
+
+  test("without unsubscribe config, the placeholder renders empty", async () => {
+    const { notify, provider } = buildKit(); // no secret
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey" },
+    });
+    expect(provider.sent[0]!.body).toBe("Unsubscribe: ");
+  });
+});
+
+describe("handler route", () => {
+  test("GET with valid token shows confirmation form without changing preferences", async () => {
+    const { notify, handler } = buildKit({ secret: TEST_SECRET });
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    const token = signUnsubscribeToken(
+      { recipientId: "user_1", notificationId: "comment_mentioned" },
+      TEST_SECRET,
+    );
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    const text = await res.text();
+    expect(text).toContain("comment_mentioned");
+    expect(text).toMatch(/<form/i);
+    expect(text).toMatch(/method="POST"/i);
+
+    const pref = await notify.preferences.get({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+    });
+    expect(pref).toBeNull();
+  });
+
+  test("POST one-click with token in query returns 200 and flips preference", async () => {
+    const { notify, handler } = buildKit({ secret: TEST_SECRET });
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    const token = signUnsubscribeToken(
+      { recipientId: "user_1", notificationId: "comment_mentioned" },
+      TEST_SECRET,
+    );
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const pref = await notify.preferences.get({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+    });
+    expect(pref?.channels.email).toBe(false);
+  });
+
+  test("POST one-click with form body works", async () => {
+    const { notify, handler } = buildKit({ secret: TEST_SECRET });
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    const token = signUnsubscribeToken(
+      { recipientId: "user_1", notificationId: "comment_mentioned" },
+      TEST_SECRET,
+    );
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const pref = await notify.preferences.get({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+    });
+    expect(pref?.channels.email).toBe(false);
+  });
+
+  test("invalid token returns 400 and does NOT change preferences", async () => {
+    const { notify, handler } = buildKit({ secret: TEST_SECRET });
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe?token=garbage`),
+    );
+    expect(res.status).toBe(400);
+    const pref = await notify.preferences.get({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+    });
+    expect(pref).toBeNull();
+  });
+
+  test("missing token returns 400", async () => {
+    const { handler } = buildKit({ secret: TEST_SECRET });
+    const res = await handler(new Request(`${BASE}/unsubscribe`));
+    expect(res.status).toBe(400);
+  });
+
+  test("without unsubscribeSecret, route 404s", async () => {
+    const { handler } = buildKit(); // no secret
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe?token=anything`),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("subsequent sends skip email after unsubscribe", async () => {
+    const { notify, handler, provider } = buildKit({ secret: TEST_SECRET });
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    await notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey" },
+    });
+    expect(provider.sent).toHaveLength(1);
+
+    const token = signUnsubscribeToken(
+      { recipientId: "user_1", notificationId: "comment_mentioned" },
+      TEST_SECRET,
+    );
+    await handler(
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
+    );
+
+    const result = await notify.send({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Ada" },
+    });
+    expect(result.skippedChannels).toContain("email");
+    expect(provider.sent).toHaveLength(1);
+  });
+
+  test("token for unknown notification returns 404 on POST", async () => {
+    const { notify, handler } = buildKit({ secret: TEST_SECRET });
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    const token = signUnsubscribeToken(
+      { recipientId: "user_1", notificationId: "does_not_exist" },
+      TEST_SECRET,
+    );
+    const res = await handler(
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("unsubscribe bypasses identify()", async () => {
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: fakeEmailProvider() },
+      unsubscribe: { secret: TEST_SECRET, baseUrl: BASE },
+    });
+    await notify.upsertRecipient({ id: "user_1", email: "u@x.com" });
+    const handler = createHandler(notify, {
+      identify: () => null,
+      unsubscribeSecret: TEST_SECRET,
+    });
+    const token = signUnsubscribeToken(
+      { recipientId: "user_1", notificationId: "comment_mentioned" },
+      TEST_SECRET,
+    );
+    const getRes = await handler(
+      new Request(`${BASE}/unsubscribe?token=${encodeURIComponent(token)}`),
+    );
+    expect(getRes.status).toBe(200);
+    const postRes = await handler(
+      new Request(`${BASE}/unsubscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
+      }),
+    );
+    expect(postRes.status).toBe(200);
+  });
+
+  test("secret rotation: token signed with old secret verifies with [new, old] array", () => {
+    const oldSecret = "old-secret-that-is-at-least-32-chars-long!!";
+    const newSecret = "new-secret-that-is-at-least-32-chars-long!!";
+    const claims = { recipientId: "u1", notificationId: "comment_mentioned" };
+    const token = signUnsubscribeToken(claims, oldSecret);
+
+    expect(verifyUnsubscribeToken(token, oldSecret)).toEqual(claims);
+    expect(verifyUnsubscribeToken(token, newSecret)).toBeNull();
+    expect(verifyUnsubscribeToken(token, [newSecret, oldSecret])).toEqual(claims);
+  });
+});

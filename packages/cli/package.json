@@ -1,0 +1,44 @@
+{
+  "name": "notifykit-cli",
+  "version": "0.0.1",
+  "description": "Command-line tools for validating and running NotifyKit definitions.",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reyabsaluja/notifykit",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/reyabsaluja/notifykit",
+  "bugs": "https://github.com/reyabsaluja/notifykit/issues",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "notifykit": "./dist/bin/notifykit.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/bin/notifykit.js', 0o755)\"",
+    "prepublishOnly": "npm run build",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.13",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "notifykit": "^0.0.1",
+    "tsx": "^4.21.0"
+  }
+}

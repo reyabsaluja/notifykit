@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "moduleResolution": "Bundler",
+    "types": ["@types/bun"]
+  },
+  "include": ["tests/types.check.ts"]
+}
