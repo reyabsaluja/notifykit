@@ -143,14 +143,12 @@ describe("quiet hours in send()", () => {
 
     expect(result.deferredChannels).toEqual(["email"]);
     expect(result.inboxItems).toHaveLength(1);
-    expect(result.deliveries).toEqual([]);
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.status).toBe("skipped");
+    expect(result.deliveries[0]!.skipReason).toBe("quiet_hours_deferred");
     expect(provider.sent).toEqual([]);
     expect(db._state.scheduledSends).toHaveLength(1);
     expect(db._state.scheduledSends[0]!.reason).toBe("quiet_hours");
-    const deferredRecords = db._state.deliveries.filter((d) => d.skipReason === "quiet_hours_deferred");
-    expect(deferredRecords).toHaveLength(1);
-    expect(deferredRecords[0]!.channel).toBe("email");
-    expect(deferredRecords[0]!.status).toBe("skipped");
   });
 
   test("flushScheduledSends fires the deferred email", async () => {

@@ -406,7 +406,8 @@ describe("NotifyKit core", () => {
 
     expect(result.skippedChannels).toEqual(["email"]);
     expect(result.inboxItems).toHaveLength(1);
-    expect(result.deliveries).toHaveLength(0);
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.status).toBe("skipped");
     expect(provider.sent).toHaveLength(0);
   });
 

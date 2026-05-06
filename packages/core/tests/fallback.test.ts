@@ -579,7 +579,8 @@ describe("rule-based fallback", () => {
     });
 
     expect(result.notification).not.toBeNull();
-    expect(result.deliveries).toHaveLength(0);
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.status).toBe("skipped");
     expect(result.inboxItems).toHaveLength(0);
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0]!.reason).toBe("preferences_disabled");
@@ -841,7 +842,8 @@ describe("sms channel and sms fallback", () => {
     });
 
     expect(result.notification).not.toBeNull();
-    expect(result.deliveries).toHaveLength(0);
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.status).toBe("skipped");
     expect(result.skipped).toHaveLength(1);
     expect(smsProvider.sent).toHaveLength(0);
   });
