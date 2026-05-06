@@ -429,6 +429,8 @@ export function createNotifyKit<
     let reject!: (e: unknown) => void;
     const result = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
 
+    // fn runs as both fulfilled/rejected handler: each queued operation executes
+    // regardless of its predecessor's outcome (errors don't abort the queue).
     const newChain = entry.chain.then(fn, fn).then(resolve, reject);
     entry.chain = newChain;
 
