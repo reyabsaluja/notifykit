@@ -662,18 +662,16 @@ export function createNotifyKit<
         notification: notificationRecord,
         redactedPayload: redactForDef(def, notificationRecord.payload),
       });
-      for (const s of skipped) {
-        await persistSkip({
-          notificationRecordId: notificationRecord.id,
-          recipientId: recipient.id,
-          tenantId: scope.tenantId,
-          workspaceId: scope.workspaceId,
-          notificationId: def.id,
-          channel: s.channel,
-          reason: s.reason,
-          details: s.details,
-        });
-      }
+      await Promise.all(skipped.map((s) => persistSkip({
+        notificationRecordId: notificationRecord.id,
+        recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        notificationId: def.id,
+        channel: s.channel,
+        reason: s.reason,
+        details: s.details,
+      })));
       await runHook("notification.suppressed", {
         notificationId: def.id,
         recipientId: recipient.id,
@@ -724,18 +722,16 @@ export function createNotifyKit<
           payloadSchema: { ...def.payload },
           definitionVersion: def.version,
         });
-        for (const s of skipped) {
-          await persistSkip({
-            notificationRecordId: notificationRecord.id,
-            recipientId: recipient.id,
-            tenantId: scope.tenantId,
-            workspaceId: scope.workspaceId,
-            notificationId: def.id,
-            channel: s.channel,
-            reason: s.reason,
-            details: s.details,
-          });
-        }
+        await Promise.all(skipped.map((s) => persistSkip({
+          notificationRecordId: notificationRecord.id,
+          recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: def.id,
+          channel: s.channel,
+          reason: s.reason,
+          details: s.details,
+        })));
         await runHook("notification.rate_limited", {
           notificationId: def.id,
           recipientId: recipient.id,
