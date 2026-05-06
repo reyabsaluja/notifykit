@@ -397,21 +397,24 @@ export type DigestBufferEntry = {
   updatedAt: Date;
 };
 
-export type SkipReason =
-  | "preferences_disabled"
-  | "required_override"
-  | "missing_address"
-  | "missing_provider"
-  | "rate_limited"
-  | "quiet_hours_deferred"
-  | "duplicate"
-  | "idempotent_replay"
-  | "condition_false"
-  | "expired"
-  | "unsubscribed"
-  | "suppressed"
-  | "invalid_payload"
-  | "disabled_in_dev";
+export const SKIP_REASONS = [
+  "preferences_disabled",
+  "required_override",
+  "missing_address",
+  "missing_provider",
+  "rate_limited",
+  "quiet_hours_deferred",
+  "duplicate",
+  "idempotent_replay",
+  "condition_false",
+  "expired",
+  "unsubscribed",
+  "suppressed",
+  "invalid_payload",
+  "disabled_in_dev",
+] as const;
+
+export type SkipReason = (typeof SKIP_REASONS)[number];
 
 export type SkippedDelivery = {
   channel: ChannelType;

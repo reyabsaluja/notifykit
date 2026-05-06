@@ -16,7 +16,7 @@ import type {
   SkipReason,
   UpsertRecipientInput,
 } from "notifykit";
-import { createId } from "notifykit";
+import { SKIP_REASONS, createId } from "notifykit";
 import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
@@ -1003,11 +1003,7 @@ function rowToInboxItem(row: typeof inboxItems.$inferSelect): InboxItem {
   };
 }
 
-const VALID_SKIP_REASONS: Set<string> = new Set<SkipReason>([
-  "preferences_disabled", "required_override", "missing_address", "missing_provider",
-  "rate_limited", "quiet_hours_deferred", "duplicate", "idempotent_replay",
-  "condition_false", "expired", "unsubscribed", "suppressed", "invalid_payload", "disabled_in_dev",
-]);
+const VALID_SKIP_REASONS: ReadonlySet<string> = new Set(SKIP_REASONS);
 
 function rowToDelivery(row: typeof deliveries.$inferSelect): DeliveryRecord {
   return {

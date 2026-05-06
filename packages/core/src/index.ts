@@ -40,6 +40,7 @@ export {
   validateConfig,
   formatValidationIssues,
 } from "./validate.js";
+export { SKIP_REASONS } from "./types.js";
 
 export type {
   Authorize,

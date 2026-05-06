@@ -492,8 +492,11 @@ export function createNotifyKit<
       case undefined:
         return "suppressed";
       default: {
-        const _exhaustive: never = resolvedBy;
-        return "suppressed";
+        const unexpected: never = resolvedBy;
+        throw new NotifyKitError(
+          `Unknown preference resolution layer: ${String(unexpected)}.`,
+          { code: "INTERNAL_ERROR" },
+        );
       }
     }
   }
