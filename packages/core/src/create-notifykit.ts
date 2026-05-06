@@ -1803,6 +1803,7 @@ export function createNotifyKit<
           s,
         );
         if (result.status === "marked") {
+          await runHook("inbox.updated", { inboxItem: result.item });
           await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.updated",
             item: result.item,
@@ -1818,6 +1819,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const count = await database.inbox.markAllRead(recipientId, s);
         if (count > 0) {
+          await runHook("inbox.all_read", { recipientId, count });
           await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.all_read",
             count,
@@ -1829,6 +1831,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const result = await database.inbox.archiveForRecipient(inboxItemId, recipientId, s);
         if (result.status === "ok") {
+          await runHook("inbox.archived", { inboxItem: result.item });
           await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.archived",
             item: result.item,
@@ -1840,6 +1843,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const result = await database.inbox.unarchiveForRecipient(inboxItemId, recipientId, s);
         if (result.status === "ok") {
+          await runHook("inbox.unarchived", { inboxItem: result.item });
           await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.unarchived",
             item: result.item,
@@ -1851,6 +1855,7 @@ export function createNotifyKit<
         const s = scope ? normalizeOrgId(scope) : scope;
         const result = await database.inbox.deleteForRecipient(inboxItemId, recipientId, s);
         if (result.status === "deleted") {
+          await runHook("inbox.deleted", { inboxItemId, recipientId });
           await publishRealtime(recipientId, s ?? {}, {
             type: "inbox.deleted",
             itemId: inboxItemId,
