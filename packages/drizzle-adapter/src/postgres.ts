@@ -1074,10 +1074,14 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         return rows.map(rowToTimelineEvent);
       },
       async prune(olderThan: Date): Promise<number> {
-        const result = await db
-          .delete(timelineEvents)
+        const rows = await db
+          .select({ n: drizzleCount() })
+          .from(timelineEvents)
           .where(lt(timelineEvents.timestamp, olderThan));
-        return (result as any)?.rowCount ?? 0;
+        const n = rows[0]?.n ?? 0;
+        if (n === 0) return 0;
+        await db.delete(timelineEvents).where(lt(timelineEvents.timestamp, olderThan));
+        return n;
       },
     },
   };
