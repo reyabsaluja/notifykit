@@ -113,6 +113,7 @@ export type SendResult = {
   inboxItems: InboxItem[];
   /** Only contains attempted deliveries (sent/failed). Skipped records are in `skipped[]` and persisted to `deliveries.list()` separately. */
   deliveries: DeliveryRecord[];
+  /** @deprecated Use `skipped[]` which includes the reason. Will be removed in v1. */
   skippedChannels: ChannelType[];
   skipped: SkippedDelivery[];
   /**
@@ -127,9 +128,9 @@ export type SendResult = {
    */
   digested: boolean;
   /**
-   * True if the send was dropped because the recipient has hit the
-   * notification's rate limit. No records are written and no hooks fire
-   * except `notification.rate_limited`.
+   * True if the send was rate-limited. A notification record and skipped
+   * delivery records are still persisted; the `notification.rate_limited`
+   * hook fires but no actual delivery is attempted.
    */
   rateLimited: boolean;
 };
