@@ -143,6 +143,8 @@ export async function createPgTables(
     `ALTER TABLE notifykit_recipients ADD COLUMN IF NOT EXISTS phone TEXT`,
     `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
     `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS payload_schema JSONB`,
+    `ALTER TABLE notifykit_notifications ADD COLUMN IF NOT EXISTS definition_version INTEGER`,
     `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
     `ALTER TABLE notifykit_inbox_items ADD COLUMN IF NOT EXISTS workspace_id TEXT`,
     `ALTER TABLE notifykit_deliveries ADD COLUMN IF NOT EXISTS tenant_id TEXT`,
