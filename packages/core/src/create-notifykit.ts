@@ -653,6 +653,16 @@ export function createNotifyKit<
     return msg.includes("idempotency_key");
   }
 
+  const digestIdempotencyWarned = new Set<string>();
+  function warnIdempotencyKeyIgnoredForDigest(notificationId: string): void {
+    if (digestIdempotencyWarned.has(notificationId)) return;
+    digestIdempotencyWarned.add(notificationId);
+    console.warn(
+      `[notifykit] [${notificationId}] idempotencyKey is ignored for digested notifications. ` +
+      `The key has no effect when digest is configured.`,
+    );
+  }
+
   function storageKey(parts: readonly string[]): string {
     return JSON.stringify(parts);
   }
@@ -911,6 +921,9 @@ export function createNotifyKit<
     }
 
     if (def.digest) {
+      if (input.idempotencyKey) {
+        warnIdempotencyKeyIgnoredForDigest(def.id);
+      }
       const digest = def.digest;
       const groupKey =
         digest.key?.({
