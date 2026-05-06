@@ -253,4 +253,43 @@ describe("idempotency keys", () => {
     expect(second.skipped.length).toBeGreaterThan(0);
     expect(second.inboxItems).toHaveLength(1);
   });
+
+  test("idempotencyKey is silently ignored for digested notifications", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "digest-notif",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      digest: {
+        windowMs: 5000,
+        key: ({ recipientId }) => recipientId,
+        render: ({ payloads }) => ({ msg: payloads.map((p) => p.msg).join(", ") }),
+      },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const first = await notify.send({
+      recipientId: "u1",
+      notificationId: "digest-notif",
+      payload: { msg: "a" },
+      idempotencyKey: "digest-key",
+    });
+    const second = await notify.send({
+      recipientId: "u1",
+      notificationId: "digest-notif",
+      payload: { msg: "b" },
+      idempotencyKey: "digest-key",
+    });
+
+    // Both sends are buffered into the digest — idempotency key has no effect
+    expect(first.digested).toBe(true);
+    expect(first.idempotent).toBe(false);
+    expect(second.digested).toBe(true);
+    expect(second.idempotent).toBe(false);
+  });
 });
