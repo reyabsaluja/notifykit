@@ -23,6 +23,7 @@ import type {
   NotificationRecord,
   PayloadSchema,
   PreferenceExplanation,
+  PreferenceResolutionLayer,
   Queue,
   Recipient,
   RecipientPreference,
@@ -110,6 +111,7 @@ export type CreateNotifyKitInput<
 export type SendResult = {
   notification: NotificationRecord | null;
   inboxItems: InboxItem[];
+  /** Only contains attempted deliveries (sent/failed). Skipped records are in `skipped[]` and persisted to `deliveries.list()` separately. */
   deliveries: DeliveryRecord[];
   skippedChannels: ChannelType[];
   skipped: SkippedDelivery[];
@@ -462,7 +464,7 @@ export function createNotifyKit<
   }
 
   function resolvedByToSkipReason(
-    resolvedBy: string | undefined,
+    resolvedBy: PreferenceResolutionLayer | undefined,
   ): SkipReason {
     switch (resolvedBy) {
       case "destination_unavailable":
