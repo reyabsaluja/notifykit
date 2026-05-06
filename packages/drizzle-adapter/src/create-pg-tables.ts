@@ -36,8 +36,8 @@ export async function createPgTables(
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_notifications_recipient
       ON notifykit_notifications (recipient_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_notifykit_notifications_idempotency_key
-      ON notifykit_notifications (idempotency_key)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_notifykit_notifications_idempotency_key
+      ON notifykit_notifications (idempotency_key) WHERE idempotency_key IS NOT NULL`,
     `CREATE TABLE IF NOT EXISTS notifykit_inbox_items (
       id TEXT PRIMARY KEY,
       notification_record_id TEXT NOT NULL,

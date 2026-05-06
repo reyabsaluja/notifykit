@@ -7,6 +7,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // Foreign keys are intentionally omitted. Deliveries and notifications are
@@ -53,7 +54,7 @@ export const notifications = pgTable(
     recipientIdx: index("idx_notifykit_notifications_recipient").on(
       table.recipientId,
     ),
-    idempotencyKeyIdx: index("idx_notifykit_notifications_idempotency_key").on(
+    idempotencyKeyIdx: uniqueIndex("idx_notifykit_notifications_idempotency_key").on(
       table.idempotencyKey,
     ),
   }),

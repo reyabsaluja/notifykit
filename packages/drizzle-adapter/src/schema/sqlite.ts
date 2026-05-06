@@ -5,6 +5,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 // Foreign keys are intentionally omitted. Deliveries and notifications are
@@ -54,7 +55,7 @@ export const notifications = sqliteTable(
     recipientIdx: index("idx_notifykit_notifications_recipient").on(
       table.recipientId,
     ),
-    idempotencyKeyIdx: index("idx_notifykit_notifications_idempotency_key").on(
+    idempotencyKeyIdx: uniqueIndex("idx_notifykit_notifications_idempotency_key").on(
       table.idempotencyKey,
     ),
   }),
