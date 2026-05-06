@@ -115,6 +115,10 @@ export const deliveries = pgTable(
     recipientIdx: index("idx_notifykit_deliveries_recipient").on(
       table.recipientId,
     ),
+    notificationStatusIdx: index("idx_notifykit_deliveries_notification_status").on(
+      table.notificationRecordId,
+      table.status,
+    ),
   }),
 );
 
