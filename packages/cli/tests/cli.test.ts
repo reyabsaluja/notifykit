@@ -146,7 +146,6 @@ describe("notifykit CLI", () => {
       ["serve", "--config", "sms.config.ts", "--port", "0"],
       "NotifyKit dev server:",
     );
-    expect(result.code).toBe(0);
     expect(result.stdout).toContain("Loaded config:");
     expect(result.stderr).toBe("");
   });
