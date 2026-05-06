@@ -54,8 +54,10 @@ export type DeliveryExplanation = {
   required: boolean;
   classification?: NotificationClassification;
   category?: string;
+  wouldDeduplicate: boolean;
   wouldRateLimit: boolean;
   wouldDigest: boolean;
+  dedupe: { key: string; windowMs: number } | null;
   rateLimit: { current: number; max: number; windowMs: number } | null;
   digest: { windowMs: number } | null;
   quietHours: { active: boolean; resumesAt: Date | null } | null;
@@ -744,6 +746,11 @@ export type DatabaseAdapter = {
       notificationId: string;
       windowMs: number;
     }): Promise<{ duplicate: boolean }>;
+    /**
+     * Read-only check: returns true if the key exists and hasn't expired.
+     * Does not insert or modify any records. Used by `explain()`.
+     */
+    exists(key: string): Promise<boolean>;
     /** Remove expired entries. Called opportunistically. */
     prune(): Promise<void>;
   };

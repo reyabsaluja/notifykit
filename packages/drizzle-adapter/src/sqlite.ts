@@ -1059,6 +1059,15 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           return { duplicate: false };
         });
       },
+      async exists(key: string): Promise<boolean> {
+        const now = new Date();
+        const rows = await db
+          .select()
+          .from(dedupeRecords)
+          .where(and(eq(dedupeRecords.key, key), gte(dedupeRecords.expiresAt, now)))
+          .limit(1);
+        return rows.length > 0;
+      },
       async prune(): Promise<void> {
         const now = new Date();
         await db.delete(dedupeRecords).where(lt(dedupeRecords.expiresAt, now));

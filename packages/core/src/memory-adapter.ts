@@ -526,6 +526,11 @@ export function memoryAdapter(): MemoryAdapter {
         });
         return { duplicate: false };
       },
+      async exists(key: string): Promise<boolean> {
+        const now = Date.now();
+        const record = state.dedupeRecords.find((r) => r.key === key);
+        return !!record && record.expiresAt.getTime() > now;
+      },
       async prune(): Promise<void> {
         const now = Date.now();
         state.dedupeRecords = state.dedupeRecords.filter(

@@ -1080,6 +1080,8 @@ export function createNotifyKit<
       workspaceId?: string;
       notificationId: string;
       payload: unknown;
+      dedupeKey?: string;
+      dedupeWindowMs?: number;
     };
     const def = byId.get(input.notificationId);
     if (!def) {
@@ -1127,6 +1129,14 @@ export function createNotifyKit<
       rateLimitInfo = { current, max: limit.max, windowMs: limit.windowMs };
     }
 
+    let wouldDeduplicate = false;
+    let dedupeInfo: DeliveryExplanation["dedupe"] = null;
+    if (input.dedupeKey && input.dedupeWindowMs && input.dedupeWindowMs > 0) {
+      dedupeInfo = { key: input.dedupeKey, windowMs: input.dedupeWindowMs };
+      const dedupeCompositeKey = JSON.stringify(["dedup", def.id, recipient.id, input.dedupeKey]);
+      wouldDeduplicate = await database.dedupe.exists(dedupeCompositeKey);
+    }
+
     const wouldDigest = !!def.digest;
     const digestInfo: DeliveryExplanation["digest"] = def.digest
       ? { windowMs: def.digest.windowMs }
@@ -1172,8 +1182,10 @@ export function createNotifyKit<
       required: def.required ?? false,
       classification: def.classification,
       category: def.category,
+      wouldDeduplicate,
       wouldRateLimit,
       wouldDigest,
+      dedupe: dedupeInfo,
       rateLimit: rateLimitInfo,
       digest: digestInfo,
       quietHours: quietHoursInfo,
