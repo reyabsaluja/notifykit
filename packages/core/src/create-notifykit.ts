@@ -51,6 +51,8 @@ import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, assertSafeWebhookUrl, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 import { validateConfig, formatValidationIssues } from "./validate.js";
 
+const SKIP_PROVIDER = "skip" as const;
+
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 > = {
@@ -507,7 +509,7 @@ export function createNotifyKit<
       workspaceId: ctx.workspaceId,
       notificationId: ctx.notificationId,
       channel: ctx.channel,
-      provider: "none",
+      provider: SKIP_PROVIDER,
       status: "skipped",
       skipReason: ctx.reason,
       skipDetails: ctx.details,
