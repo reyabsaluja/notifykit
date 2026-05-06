@@ -963,12 +963,14 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
     dedupe: {
       async check(input): Promise<{ duplicate: boolean }> {
         return db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${input.key}))`,
+          );
           const now = new Date();
           const existing = await tx
             .select()
             .from(dedupeRecords)
             .where(eq(dedupeRecords.key, input.key))
-            .for("update")
             .limit(1);
           const row = existing[0];
           if (row && row.expiresAt.getTime() > now.getTime()) {
