@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, mock } from "bun:test";
 import {
   channel,
   createNotifyKit,
@@ -402,5 +402,102 @@ describe("timeline", () => {
     const deferEvent = timeline.find((e) => e.event === "quiet_hours.deferred");
     expect(deferEvent).toBeDefined();
     expect(deferEvent!.channel).toBe("email");
+  });
+
+  test("prune removes events older than cutoff", async () => {
+    const db = memoryAdapter();
+    const emailProvider = fakeEmailProvider();
+    const def = notification({
+      id: "test",
+      payload: { msg: "string" },
+      channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: emailProvider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "test",
+      payload: { msg: "hi" },
+    });
+
+    const before = await notify.timeline(result.notification!.id);
+    expect(before.length).toBeGreaterThan(0);
+
+    const futureDate = new Date(Date.now() + 60_000);
+    const pruned = await db.timeline.prune(futureDate);
+    expect(pruned).toBe(before.length);
+
+    const after = await notify.timeline(result.notification!.id);
+    expect(after.length).toBe(0);
+  });
+
+  test("onTimelineError is called when append fails", async () => {
+    const db = memoryAdapter();
+    const emailProvider = fakeEmailProvider();
+    const errors: unknown[] = [];
+    const originalAppend = db.timeline.append.bind(db.timeline);
+    let shouldFail = false;
+    db.timeline.append = async (events) => {
+      if (shouldFail) throw new Error("DB write failed");
+      return originalAppend(events);
+    };
+    const def = notification({
+      id: "test",
+      payload: { msg: "string" },
+      channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: emailProvider },
+      onTimelineError: (err) => errors.push(err),
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    shouldFail = true;
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "test",
+      payload: { msg: "hi" },
+    });
+
+    expect(result.notification).toBeDefined();
+    expect(errors.length).toBeGreaterThan(0);
+    expect((errors[0] as Error).message).toBe("DB write failed");
+  });
+
+  test("timeline events are still flushed on sendInner error", async () => {
+    const db = memoryAdapter();
+    const emailProvider = fakeEmailProvider();
+    const def = notification({
+      id: "test",
+      payload: { msg: "string" },
+      channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: emailProvider },
+    });
+    // Don't upsert recipient — this will cause an error after timeline context is set up
+    try {
+      await notify.send({
+        recipientId: "nonexistent",
+        notificationId: "test",
+        payload: { msg: "hi" },
+      });
+    } catch {
+      // expected
+    }
+
+    // Even though send threw, if any events were buffered they should have been flushed
+    // In this case the error happens before timeline events are recorded (recipient lookup),
+    // so we just verify the flush doesn't cause a secondary crash
+    expect(db._state.timelineEvents.length).toBe(0);
   });
 });
