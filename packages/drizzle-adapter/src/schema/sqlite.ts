@@ -92,6 +92,9 @@ export const inboxItems = sqliteTable(
       table.readAt,
       table.archivedAt,
     ),
+    notificationRecordIdx: index("idx_notifykit_inbox_notification_record").on(
+      table.notificationRecordId,
+    ),
   }),
 );
 

@@ -56,6 +56,8 @@ export async function createPgTables(
       ON notifykit_inbox_items (recipient_id, archived_at, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_inbox_recipient_unread
       ON notifykit_inbox_items (recipient_id, read_at, archived_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_inbox_notification_record
+      ON notifykit_inbox_items (notification_record_id)`,
     `CREATE TABLE IF NOT EXISTS notifykit_deliveries (
       id TEXT PRIMARY KEY,
       notification_record_id TEXT NOT NULL,
