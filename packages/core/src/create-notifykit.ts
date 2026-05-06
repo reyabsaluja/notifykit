@@ -1420,6 +1420,16 @@ export function createNotifyKit<
       if (deferSet.has(ch.type)) {
         deferredChannels.push(ch.type);
         skipped.push({ channel: ch.type, reason: "quiet_hours_deferred", details: "Deferred until quiet hours end" });
+        await persistSkip({
+          notificationRecordId: notificationRecord.id,
+          recipientId: recipient.id,
+          tenantId: scope.tenantId,
+          workspaceId: scope.workspaceId,
+          notificationId: def.id,
+          channel: ch.type,
+          reason: "quiet_hours_deferred",
+          details: "Deferred until quiet hours end",
+        });
         continue;
       }
       if (!isChannelAllowed(ch.type)) {
