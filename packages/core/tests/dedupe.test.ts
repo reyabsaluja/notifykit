@@ -204,6 +204,21 @@ describe("deduplication keys", () => {
     ).rejects.toThrow("dedupeKey must be 256 characters or fewer");
   });
 
+  test("dedupeWindowMs must be 30 days or fewer", async () => {
+    const { notify } = setup();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    expect(
+      notify.send({
+        recipientId: "u1",
+        notificationId: "mention",
+        payload: { user: "alice", project: "acme" },
+        dedupeKey: "key",
+        dedupeWindowMs: 31 * 24 * 60 * 60 * 1000,
+      }),
+    ).rejects.toThrow("dedupeWindowMs must be 30 days or fewer");
+  });
+
   test("dedupeKey is independent of idempotencyKey", async () => {
     const { emailProvider, notify } = setup();
     await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });

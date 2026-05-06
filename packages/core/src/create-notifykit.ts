@@ -839,6 +839,7 @@ export function createNotifyKit<
 
     // Semantic deduplication check — runs before preference resolution
     if (input.dedupeKey) {
+      const MAX_DEDUPE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
       if (!input.dedupeWindowMs || input.dedupeWindowMs <= 0) {
         throw new NotifyKitError(
           "dedupeWindowMs is required and must be positive when dedupeKey is set.",
@@ -846,6 +847,16 @@ export function createNotifyKit<
             code: "INVALID_INPUT",
             field: "dedupeWindowMs",
             fix: "Pass a positive dedupeWindowMs (e.g. 3600000 for 1 hour).",
+          },
+        );
+      }
+      if (input.dedupeWindowMs > MAX_DEDUPE_WINDOW_MS) {
+        throw new NotifyKitError(
+          "dedupeWindowMs must be 30 days or fewer.",
+          {
+            code: "INVALID_INPUT",
+            field: "dedupeWindowMs",
+            fix: "Pass a dedupeWindowMs of 2592000000 (30 days) or less.",
           },
         );
       }
