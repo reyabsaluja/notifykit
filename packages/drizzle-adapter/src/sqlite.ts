@@ -33,6 +33,7 @@ import {
   scheduledSends,
   timelineEvents,
 } from "./schema/sqlite.js";
+import { rowToTimelineEvent } from "./timeline-utils.js";
 
 function scopeValue(value: string | undefined): string {
   return value ?? "";
@@ -1159,24 +1160,6 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
   };
 }
 
-function rowToTimelineEvent(row: typeof timelineEvents.$inferSelect): TimelineEvent {
-  return {
-    id: row.id,
-    seq: row.seq,
-    notificationRecordId: row.notificationRecordId,
-    deliveryId: row.deliveryId ?? undefined,
-    recipientId: row.recipientId,
-    tenantId: row.tenantId ?? undefined,
-    workspaceId: row.workspaceId ?? undefined,
-    notificationId: row.notificationId,
-    channel: (row.channel ?? undefined) as TimelineEvent["channel"],
-    provider: row.provider ?? undefined,
-    event: row.event as TimelineEvent["event"],
-    message: row.message,
-    metadata: (row.metadata ?? undefined) as Record<string, unknown> | undefined,
-    timestamp: row.timestamp,
-  };
-}
 
 function rowToInboxItem(row: typeof inboxItems.$inferSelect): InboxItem {
   return {
