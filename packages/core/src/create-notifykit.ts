@@ -662,16 +662,8 @@ export function createNotifyKit<
         notification: notificationRecord,
         redactedPayload: redactForDef(def, notificationRecord.payload),
       });
-      const skippedRecords = await Promise.all(skipped.map((s) => persistSkip({
-        notificationRecordId: notificationRecord.id,
-        recipientId: recipient.id,
-        tenantId: scope.tenantId,
-        workspaceId: scope.workspaceId,
-        notificationId: def.id,
-        channel: s.channel,
-        reason: s.reason,
-        details: s.details,
-      })));
+      const base = { notificationRecordId: notificationRecord.id, recipientId: recipient.id, tenantId: scope.tenantId, workspaceId: scope.workspaceId, notificationId: def.id };
+      const skippedRecords = await Promise.all(skipped.map((s) => persistSkip({ ...base, channel: s.channel, reason: s.reason, details: s.details })));
       await runHook("notification.suppressed", {
         notificationId: def.id,
         recipientId: recipient.id,
@@ -726,16 +718,8 @@ export function createNotifyKit<
           notification: notificationRecord,
           redactedPayload: redactForDef(def, notificationRecord.payload),
         });
-        const skippedRecords = await Promise.all(skipped.map((s) => persistSkip({
-          notificationRecordId: notificationRecord.id,
-          recipientId: recipient.id,
-          tenantId: scope.tenantId,
-          workspaceId: scope.workspaceId,
-          notificationId: def.id,
-          channel: s.channel,
-          reason: s.reason,
-          details: s.details,
-        })));
+        const base = { notificationRecordId: notificationRecord.id, recipientId: recipient.id, tenantId: scope.tenantId, workspaceId: scope.workspaceId, notificationId: def.id };
+        const skippedRecords = await Promise.all(skipped.map((s) => persistSkip({ ...base, channel: s.channel, reason: s.reason, details: s.details })));
         await runHook("notification.rate_limited", {
           notificationId: def.id,
           recipientId: recipient.id,
@@ -1414,23 +1398,18 @@ export function createNotifyKit<
     const skipped: SkippedDelivery[] = [];
     const deferredChannels: ChannelType[] = [];
     const pendingFallbacks: Array<{ trigger: FallbackTrigger; fromChannel: ChannelType }> = [];
+    const pendingSkips: Array<{ channel: ChannelType; reason: SkipReason; details?: string }> = [];
+
+    const queueSkip = (channel: ChannelType, reason: SkipReason, details?: string) => {
+      skipped.push({ channel, reason, details });
+      pendingSkips.push({ channel, reason, details });
+    };
 
     for (const ch of def.channels) {
       if (onlySet && !onlySet.has(ch.type)) continue;
       if (deferSet.has(ch.type)) {
         deferredChannels.push(ch.type);
-        skipped.push({ channel: ch.type, reason: "quiet_hours_deferred", details: "Deferred until quiet hours end" });
-        const rec = await persistSkip({
-          notificationRecordId: notificationRecord.id,
-          recipientId: recipient.id,
-          tenantId: scope.tenantId,
-          workspaceId: scope.workspaceId,
-          notificationId: def.id,
-          channel: ch.type,
-          reason: "quiet_hours_deferred",
-          details: "Deferred until quiet hours end",
-        });
-        deliveries.push(rec);
+        queueSkip(ch.type, "quiet_hours_deferred", "Deferred until quiet hours end");
         continue;
       }
       if (!isChannelAllowed(ch.type)) {
@@ -1438,18 +1417,7 @@ export function createNotifyKit<
         const entry = explanation.channels.find((e) => e.channel === ch.type);
         const skipReason = resolvedByToSkipReason(entry?.resolvedBy);
         const skipDetails = entry?.reason;
-        skipped.push({ channel: ch.type, reason: skipReason, details: skipDetails });
-        const rec = await persistSkip({
-          notificationRecordId: notificationRecord.id,
-          recipientId: recipient.id,
-          tenantId: scope.tenantId,
-          workspaceId: scope.workspaceId,
-          notificationId: def.id,
-          channel: ch.type,
-          reason: skipReason,
-          details: skipDetails,
-        });
-        deliveries.push(rec);
+        queueSkip(ch.type, skipReason, skipDetails);
         if (def.fallback && !isLegacyFallback(def.fallback)) {
           const trigger: FallbackTrigger =
             entry?.resolvedBy === "destination_unavailable"
@@ -1484,18 +1452,7 @@ export function createNotifyKit<
         const provider = providers!.email!;
         if (!recipient.email) {
           skippedChannels.push("email");
-          skipped.push({ channel: "email", reason: "missing_address", details: "Recipient has no email address" });
-          const rec = await persistSkip({
-            notificationRecordId: notificationRecord.id,
-            recipientId: recipient.id,
-            tenantId: scope.tenantId,
-            workspaceId: scope.workspaceId,
-            notificationId: def.id,
-            channel: "email",
-            reason: "missing_address",
-            details: "Recipient has no email address",
-          });
-          deliveries.push(rec);
+          queueSkip("email", "missing_address", "Recipient has no email address");
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "email" });
           }
@@ -1600,18 +1557,7 @@ export function createNotifyKit<
         const provider = providers!.sms!;
         if (!recipient.phone) {
           skippedChannels.push("sms");
-          skipped.push({ channel: "sms", reason: "missing_address", details: "Recipient has no phone number" });
-          const rec = await persistSkip({
-            notificationRecordId: notificationRecord.id,
-            recipientId: recipient.id,
-            tenantId: scope.tenantId,
-            workspaceId: scope.workspaceId,
-            notificationId: def.id,
-            channel: "sms",
-            reason: "missing_address",
-            details: "Recipient has no phone number",
-          });
-          deliveries.push(rec);
+          queueSkip("sms", "missing_address", "Recipient has no phone number");
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "sms" });
           }
@@ -1653,6 +1599,20 @@ export function createNotifyKit<
         const latest = await database.deliveries.findById(delivery.id);
         deliveries.push(latest ?? delivery);
       }
+    }
+
+    if (pendingSkips.length > 0) {
+      const skippedRecords = await Promise.all(pendingSkips.map((s) => persistSkip({
+        notificationRecordId: notificationRecord.id,
+        recipientId: recipient.id,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        notificationId: def.id,
+        channel: s.channel,
+        reason: s.reason,
+        details: s.details,
+      })));
+      deliveries.push(...skippedRecords);
     }
 
     if (pendingFallbacks.length > 0 && def.fallback && !isLegacyFallback(def.fallback)) {
