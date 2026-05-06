@@ -243,7 +243,7 @@ describe("skip reasons", () => {
     await notify.close();
   });
 
-  test("returns quiet_hours_deferred skip reason for deferred channels", async () => {
+  test("deferred channels appear in deferredChannels but NOT in skipped[]", async () => {
     const email = channel.email();
     const inbox = channel.inbox();
     const def = notification({
@@ -280,7 +280,9 @@ describe("skip reasons", () => {
     });
 
     expect(result.deferredChannels).toContain("email");
-    expect(result.skipped.some((s) => s.reason === "quiet_hours_deferred" && s.channel === "email")).toBe(true);
+    expect(result.skipped).toEqual([]);
+    const deferredDelivery = result.deliveries.find((d) => d.skipReason === "quiet_hours_deferred");
+    expect(deferredDelivery).toBeDefined();
 
     await notify.close();
   });
