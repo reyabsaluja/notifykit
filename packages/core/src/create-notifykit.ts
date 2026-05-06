@@ -1429,7 +1429,7 @@ export function createNotifyKit<
       if (onlySet && !onlySet.has(ch.type)) continue;
       if (deferSet.has(ch.type)) {
         deferredChannels.push(ch.type);
-        // Bypass queueSkip: deferred channels are delayed, not permanently skipped, so they persist a record but don't appear in result.skipped[]
+        // Deferred channels are tracked in deliveries, but not result.skipped[].
         pendingSkips.push({ channel: ch.type, reason: "quiet_hours_deferred", details: "Deferred until quiet hours end" });
         continue;
       }
