@@ -671,6 +671,7 @@ export function createNotifyKit<
         notificationId: def.id,
         recipientId: recipient.id,
         skippedChannels,
+        skipped,
       });
       return {
         notification: notificationRecord,

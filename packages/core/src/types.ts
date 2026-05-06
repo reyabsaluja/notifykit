@@ -738,6 +738,7 @@ export type Hooks = {
     notificationId: string;
     recipientId: string;
     skippedChannels: ChannelType[];
+    skipped: SkippedDelivery[];
   }) => void | Promise<void>;
 };
 
