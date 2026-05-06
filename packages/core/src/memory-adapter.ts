@@ -538,6 +538,12 @@ export function memoryAdapter(): MemoryAdapter {
           .filter((e) => e.deliveryId === deliveryId)
           .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
       },
+      async prune(olderThan: Date): Promise<number> {
+        const cutoff = olderThan.getTime();
+        const before = state.timelineEvents.length;
+        state.timelineEvents = state.timelineEvents.filter((e) => e.timestamp.getTime() >= cutoff);
+        return before - state.timelineEvents.length;
+      },
     },
     dedupe: {
       async check(input): Promise<{ duplicate: boolean }> {

@@ -1064,6 +1064,12 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           .orderBy(asc(timelineEvents.timestamp));
         return rows.map(rowToTimelineEvent);
       },
+      async prune(olderThan: Date): Promise<number> {
+        const result = await db
+          .delete(timelineEvents)
+          .where(lt(timelineEvents.timestamp, olderThan));
+        return (result as any)?.rowCount ?? 0;
+      },
     },
   };
 }

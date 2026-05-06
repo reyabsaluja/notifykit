@@ -1132,6 +1132,12 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           .orderBy(asc(timelineEvents.timestamp));
         return rows.map(rowToTimelineEvent);
       },
+      async prune(olderThan: Date): Promise<number> {
+        const result = await db
+          .delete(timelineEvents)
+          .where(lt(timelineEvents.timestamp, olderThan));
+        return (result as any)?.changes ?? (result as any)?.rowsAffected ?? 0;
+      },
     },
   };
 }

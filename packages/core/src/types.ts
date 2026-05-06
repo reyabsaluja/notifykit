@@ -801,6 +801,8 @@ export type DatabaseAdapter = {
     listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]>;
     /** List events for a specific delivery, ordered chronologically. */
     listByDeliveryId(deliveryId: string): Promise<TimelineEvent[]>;
+    /** Delete events older than the given date. Returns the number of deleted rows. */
+    prune(olderThan: Date): Promise<number>;
   };
 };
 
