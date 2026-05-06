@@ -43,5 +43,5 @@ jobs:
         with:
           use_bedrock: "true"
           claude_args: |
-            --model us.anthropic.claude-sonnet-4-6
+            --model us.anthropic.claude-opus-4-6-v1
             --max-turns 10
