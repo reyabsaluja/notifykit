@@ -358,6 +358,12 @@ export function createNotifyKit<
 >(config: CreateNotifyKitInput<T>): NotifyKit<T> {
   const { notifications, database, providers, on } = config;
   const onTimelineError = config.onTimelineError ?? ((err: unknown) => console.error("[notifykit] timeline append error:", err));
+  const timelineAdapter = database.timeline ?? {
+    async append() { return []; },
+    async listByNotificationRecordId() { return []; },
+    async listByDeliveryId() { return []; },
+    async prune() { return 0; },
+  };
   const queue = config.queue ?? inlineQueue();
   const retry: RetryPolicy = {
     maxAttempts: config.retry?.maxAttempts ?? defaultRetryPolicy.maxAttempts,
@@ -469,7 +475,7 @@ export function createNotifyKit<
 
   async function flushTimeline(buffer: TimelineBuffer): Promise<void> {
     const batch = buffer.splice(0);
-    if (batch.length > 0) await database.timeline.append(batch).catch(onTimelineError);
+    if (batch.length > 0) await timelineAdapter.append(batch).catch(onTimelineError);
   }
 
   // Per-key serialization for idempotency checks. Prevents concurrent sends
@@ -2673,10 +2679,10 @@ export function createNotifyKit<
     },
     async timeline(notificationRecordId, options) {
       if (options?.deliveryId) {
-        const events = await database.timeline.listByDeliveryId(options.deliveryId);
+        const events = await timelineAdapter.listByDeliveryId(options.deliveryId);
         return events.filter((e) => e.notificationRecordId === notificationRecordId);
       }
-      return database.timeline.listByNotificationRecordId(notificationRecordId);
+      return timelineAdapter.listByNotificationRecordId(notificationRecordId);
     },
   };
 }

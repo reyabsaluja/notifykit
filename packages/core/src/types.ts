@@ -794,7 +794,7 @@ export type DatabaseAdapter = {
     /** Remove expired entries. Called opportunistically. */
     prune(): Promise<void>;
   };
-  timeline: {
+  timeline?: {
     /** Append one or more events. All events in a batch share a single timestamp. */
     append(events: Omit<TimelineEvent, "id" | "timestamp">[]): Promise<TimelineEvent[]>;
     /** List events for a notification record, ordered chronologically. */
