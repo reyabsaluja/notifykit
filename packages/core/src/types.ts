@@ -691,6 +691,11 @@ export type Hooks = {
     limit: RateLimitConfig;
   }) => void | Promise<void>;
   "inbox.created"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
+  "inbox.updated"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
+  "inbox.archived"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
+  "inbox.unarchived"?: (ctx: { inboxItem: InboxItem }) => void | Promise<void>;
+  "inbox.deleted"?: (ctx: { itemId: string; recipientId: string }) => void | Promise<void>;
+  "inbox.all_read"?: (ctx: { recipientId: string; count: number }) => void | Promise<void>;
   "delivery.sent"?: (ctx: {
     delivery: DeliveryRecord;
     /** Payload with sensitive fields replaced by `"[REDACTED]"` per the definition's `redact` list. */
