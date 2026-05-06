@@ -598,7 +598,7 @@ export function createNotifyKit<
     notificationId: string,
     recipientId: string,
   ): string {
-    return `idem:${notificationId}:${recipientId}:${userKey}`;
+    return JSON.stringify(["idem", notificationId, recipientId, userKey]);
   }
 
   function storageKey(parts: readonly string[]): string {
