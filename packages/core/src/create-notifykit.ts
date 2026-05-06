@@ -523,6 +523,39 @@ export function createNotifyKit<
     });
   }
 
+  async function createSkippedNotification(ctx: {
+    recipient: Recipient;
+    scope: SecurityScope;
+    def: NotificationDefinition<string, PayloadSchema>;
+    payload: Record<string, unknown>;
+    skipped: SkippedDelivery[];
+  }): Promise<{ notificationRecord: NotificationRecord; skippedRecords: DeliveryRecord[] }> {
+    const notificationRecord = await database.notifications.create({
+      recipientId: ctx.recipient.id,
+      tenantId: ctx.scope.tenantId,
+      workspaceId: ctx.scope.workspaceId,
+      notificationId: ctx.def.id,
+      payload: ctx.payload,
+      payloadSchema: { ...ctx.def.payload },
+      definitionVersion: ctx.def.version,
+    });
+    await runHook("notification.created", {
+      notification: notificationRecord,
+      redactedPayload: redactForDef(ctx.def, notificationRecord.payload),
+    });
+    const base = {
+      notificationRecordId: notificationRecord.id,
+      recipientId: ctx.recipient.id,
+      tenantId: ctx.scope.tenantId,
+      workspaceId: ctx.scope.workspaceId,
+      notificationId: ctx.def.id,
+    };
+    const skippedRecords = await Promise.all(
+      ctx.skipped.map((s) => persistSkip({ ...base, channel: s.channel, reason: s.reason, details: s.details })),
+    );
+    return { notificationRecord, skippedRecords };
+  }
+
   function storageKey(parts: readonly string[]): string {
     return JSON.stringify(parts);
   }
@@ -657,21 +690,9 @@ export function createNotifyKit<
         reason: resolvedByToSkipReason(ch.resolvedBy),
         details: ch.reason,
       }));
-      const notificationRecord = await database.notifications.create({
-        recipientId: recipient.id,
-        tenantId: scope.tenantId,
-        workspaceId: scope.workspaceId,
-        notificationId: def.id,
-        payload,
-        payloadSchema: { ...def.payload },
-        definitionVersion: def.version,
+      const { notificationRecord, skippedRecords } = await createSkippedNotification({
+        recipient, scope, def, payload, skipped,
       });
-      await runHook("notification.created", {
-        notification: notificationRecord,
-        redactedPayload: redactForDef(def, notificationRecord.payload),
-      });
-      const base = { notificationRecordId: notificationRecord.id, recipientId: recipient.id, tenantId: scope.tenantId, workspaceId: scope.workspaceId, notificationId: def.id };
-      const skippedRecords = await Promise.all(skipped.map((s) => persistSkip({ ...base, channel: s.channel, reason: s.reason, details: s.details })));
       await runHook("notification.suppressed", {
         notificationId: def.id,
         recipientId: recipient.id,
@@ -713,21 +734,9 @@ export function createNotifyKit<
           reason: "rate_limited" as SkipReason,
           details: `Rate limit exceeded: ${limit.max} per ${limit.windowMs}ms`,
         }));
-        const notificationRecord = await database.notifications.create({
-          recipientId: recipient.id,
-          tenantId: scope.tenantId,
-          workspaceId: scope.workspaceId,
-          notificationId: def.id,
-          payload,
-          payloadSchema: { ...def.payload },
-          definitionVersion: def.version,
+        const { notificationRecord, skippedRecords } = await createSkippedNotification({
+          recipient, scope, def, payload, skipped,
         });
-        await runHook("notification.created", {
-          notification: notificationRecord,
-          redactedPayload: redactForDef(def, notificationRecord.payload),
-        });
-        const base = { notificationRecordId: notificationRecord.id, recipientId: recipient.id, tenantId: scope.tenantId, workspaceId: scope.workspaceId, notificationId: def.id };
-        const skippedRecords = await Promise.all(skipped.map((s) => persistSkip({ ...base, channel: s.channel, reason: s.reason, details: s.details })));
         await runHook("notification.rate_limited", {
           notificationId: def.id,
           recipientId: recipient.id,

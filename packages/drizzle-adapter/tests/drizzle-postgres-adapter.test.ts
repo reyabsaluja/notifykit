@@ -239,7 +239,9 @@ describe("drizzlePostgresAdapter", () => {
       },
     });
     expect(result.skippedChannels).toEqual(["email"]);
-    expect(result.deliveries).toHaveLength(0);
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.status).toBe("skipped");
+    expect(result.deliveries[0]!.skipReason).toBe("preferences_disabled");
     expect(ctx.provider.sent).toHaveLength(0);
   });
 
