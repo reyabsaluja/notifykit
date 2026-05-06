@@ -13,6 +13,7 @@ import type {
   RecipientPreference,
   ScheduledSend,
   SecurityScope,
+  SkipReason,
   UpsertRecipientInput,
 } from "notifykit";
 import { createId } from "notifykit";
@@ -931,6 +932,12 @@ function rowToInboxItem(row: typeof inboxItems.$inferSelect): InboxItem {
   };
 }
 
+const VALID_SKIP_REASONS: Set<string> = new Set<SkipReason>([
+  "preferences_disabled", "required_override", "missing_address", "missing_provider",
+  "rate_limited", "quiet_hours_deferred", "duplicate", "idempotent_replay",
+  "condition_false", "expired", "unsubscribed", "suppressed", "invalid_payload", "disabled_in_dev",
+]);
+
 function rowToDelivery(row: typeof deliveries.$inferSelect): DeliveryRecord {
   return {
     id: row.id,
@@ -947,7 +954,7 @@ function rowToDelivery(row: typeof deliveries.$inferSelect): DeliveryRecord {
     body: row.body ?? undefined,
     providerMessageId: row.providerMessageId ?? undefined,
     error: row.error ?? undefined,
-    skipReason: (row.skipReason as DeliveryRecord["skipReason"]) ?? undefined,
+    skipReason: row.skipReason && VALID_SKIP_REASONS.has(row.skipReason) ? row.skipReason as SkipReason : undefined,
     skipDetails: row.skipDetails ?? undefined,
     attempts: row.attempts,
     createdAt: row.createdAt,
