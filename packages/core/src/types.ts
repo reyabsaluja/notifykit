@@ -421,7 +421,8 @@ export type SkippedDelivery = {
 
 export type DeliveryStatus = "pending" | "sent" | "failed" | "skipped";
 
-export type DeliveryChannel = ChannelType;
+/** Includes "inbox" for skip-only records; actual delivery jobs use "email" | "webhook" | "sms". */
+export type DeliveryChannel = "email" | "webhook" | "sms" | "inbox";
 
 export type DeliveryRecord = {
   id: string;
