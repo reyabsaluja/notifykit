@@ -783,49 +783,49 @@ export function createNotifyKit<
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as { notificationId: string; recipientId: string; idempotencyKey?: string };
     const pending: TimelineBuffer = [];
-    let result: SendResult;
-    if (input.idempotencyKey) {
-      if (input.idempotencyKey.length > 256) {
-        throw new NotifyKitError(
-          "idempotencyKey must be 256 characters or fewer.",
-          {
-            code: "INVALID_INPUT",
-            field: "idempotencyKey",
-            fix: "Shorten the idempotencyKey to 256 characters or fewer.",
-          },
-        );
-      }
-      const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
-      const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
-      try {
-        result = await withIdempotencyLock(lockKey, () => sendInner(pending, rawInput, compositeKey));
-      } catch (err) {
-        if (isIdempotencyKeyConstraintError(err) || isUniqueConstraintError(err)) {
-          const existing = await database.notifications.findByIdempotencyKey(compositeKey);
-          if (existing) {
-            const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
-            const age = Date.now() - existing.createdAt.getTime();
-            if (age < ttl) {
-              const replay = await buildIdempotentReplay(existing);
-              if (replay) {
-                await flushTimeline(pending);
-                return replay;
+    try {
+      let result: SendResult;
+      if (input.idempotencyKey) {
+        if (input.idempotencyKey.length > 256) {
+          throw new NotifyKitError(
+            "idempotencyKey must be 256 characters or fewer.",
+            {
+              code: "INVALID_INPUT",
+              field: "idempotencyKey",
+              fix: "Shorten the idempotencyKey to 256 characters or fewer.",
+            },
+          );
+        }
+        const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
+        const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
+        try {
+          result = await withIdempotencyLock(lockKey, () => sendInner(pending, rawInput, compositeKey));
+        } catch (err) {
+          if (isIdempotencyKeyConstraintError(err) || isUniqueConstraintError(err)) {
+            const existing = await database.notifications.findByIdempotencyKey(compositeKey);
+            if (existing) {
+              const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
+              const age = Date.now() - existing.createdAt.getTime();
+              if (age < ttl) {
+                const replay = await buildIdempotentReplay(existing);
+                if (replay) return replay;
               }
+              await database.notifications.clearIdempotencyKey(existing.id);
+              result = await withIdempotencyLock(lockKey, () => sendInner(pending, rawInput, compositeKey));
+            } else {
+              throw err;
             }
-            await database.notifications.clearIdempotencyKey(existing.id);
-            result = await withIdempotencyLock(lockKey, () => sendInner(pending, rawInput, compositeKey));
           } else {
             throw err;
           }
-        } else {
-          throw err;
         }
+      } else {
+        result = await sendInner(pending, rawInput);
       }
-    } else {
-      result = await sendInner(pending, rawInput);
+      return result;
+    } finally {
+      await flushTimeline(pending);
     }
-    await flushTimeline(pending);
-    return result;
   }
 
   async function sendInner(pending: TimelineBuffer, rawInput: SendInput<T>, preComputedCompositeKey?: string): Promise<SendResult> {
@@ -1334,56 +1334,46 @@ export function createNotifyKit<
     // around until we confirm delivery succeeded.
     const record = await database.scheduledSends.claim(id);
     if (!record) return;
+    const def = byId.get(record.notificationId);
+    if (!def) {
+      await database.scheduledSends.complete(id);
+      return;
+    }
+    const recipient = await database.recipients.findById(record.recipientId);
+    if (!recipient) {
+      await database.scheduledSends.complete(id);
+      return;
+    }
+    const scope = resolveScope(record, recipient);
+    const payload = def.validate
+      ? record.payload
+      : validatePayload(def.payload, record.payload, def.id);
+    const existingNotification = record.notificationRecordId
+      ? {
+          id: record.notificationRecordId,
+          recipientId: record.recipientId,
+          tenantId: record.tenantId,
+          workspaceId: record.workspaceId,
+          notificationId: record.notificationId,
+          payload,
+          createdAt: record.createdAt,
+        }
+      : undefined;
+    const scheduledPending: TimelineBuffer = [];
     try {
-      const def = byId.get(record.notificationId);
-      if (!def) {
-        // Definition was removed since the row was created. There's nothing
-        // we can deliver, so complete the row to stop it from blocking
-        // future sweeps.
-        await database.scheduledSends.complete(id);
-        return;
-      }
-      const recipient = await database.recipients.findById(record.recipientId);
-      if (!recipient) {
-        // Recipient no longer exists. Same reasoning — complete to drop.
-        await database.scheduledSends.complete(id);
-        return;
-      }
-      const scope = resolveScope(record, recipient);
-      // The payload was already validated (and potentially transformed) by
-      // send() before being stored. Re-running a custom validator could apply
-      // a non-idempotent transform a second time, and custom validators may
-      // deliberately accept a different input shape than the primitive schema.
-      const payload = def.validate
-        ? record.payload
-        : validatePayload(def.payload, record.payload, def.id);
-      const existingNotification = record.notificationRecordId
-        ? {
-            id: record.notificationRecordId,
-            recipientId: record.recipientId,
-            tenantId: record.tenantId,
-            workspaceId: record.workspaceId,
-            notificationId: record.notificationId,
-            payload,
-            createdAt: record.createdAt,
-          }
-        : undefined;
-      const scheduledPending: TimelineBuffer = [];
       await deliver(scheduledPending, recipient, def, payload, {
         onlyChannels: ["email", "webhook", "sms"],
         scope,
         existingNotification,
       });
-      await flushTimeline(scheduledPending);
-      // Only delete after delivery has been enqueued/completed successfully.
       await database.scheduledSends.complete(id);
     } catch (err) {
-      // Something blew up after the claim. Release so a retry sweep can pick
-      // the row up again — we do NOT want silent data loss.
       await database.scheduledSends.release(id).catch((releaseErr) => {
         console.error("[notifykit] scheduled send release failed:", releaseErr);
       });
       throw err;
+    } finally {
+      await flushTimeline(scheduledPending);
     }
   }
 
@@ -1454,26 +1444,28 @@ export function createNotifyKit<
       }
 
       const digestPending: TimelineBuffer = [];
-      if (deferChannels.length > 0) {
-        const result = await deliver(digestPending, recipient, def, validated, { deferChannels, scope, prefResult });
-        await flushTimeline(digestPending);
-        const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
-        const record = await database.scheduledSends.create({
-          recipientId: recipient.id,
-          tenantId: scope.tenantId,
-          workspaceId: scope.workspaceId,
-          notificationId: def.id,
-          notificationRecordId: result.notification?.id,
-          payload: validated,
-          scheduledFor,
-          reason: "quiet_hours",
-        });
-        scheduleDeferredFlush(record.id, scheduledFor);
-        return;
-      }
+      try {
+        if (deferChannels.length > 0) {
+          const result = await deliver(digestPending, recipient, def, validated, { deferChannels, scope, prefResult });
+          const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
+          const record = await database.scheduledSends.create({
+            recipientId: recipient.id,
+            tenantId: scope.tenantId,
+            workspaceId: scope.workspaceId,
+            notificationId: def.id,
+            notificationRecordId: result.notification?.id,
+            payload: validated,
+            scheduledFor,
+            reason: "quiet_hours",
+          });
+          scheduleDeferredFlush(record.id, scheduledFor);
+          return;
+        }
 
-      await deliver(digestPending, recipient, def, validated, { scope, prefResult });
-      await flushTimeline(digestPending);
+        await deliver(digestPending, recipient, def, validated, { scope, prefResult });
+      } finally {
+        await flushTimeline(digestPending);
+      }
     } catch (err) {
       const permanent =
         err instanceof NotifyKitError &&
@@ -2078,201 +2070,200 @@ export function createNotifyKit<
       workspaceId: job.workspaceId,
       notificationId: job.notificationId,
     };
-    let lastError: Error | null = null;
-    for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
-      if (attempt > 1) {
-        const wait = retry.delayMs(attempt);
-        recordTimeline(jobPending, jobTlCtx, "delivery.attempt", `Retry attempt ${attempt}/${retry.maxAttempts} (delay: ${wait}ms)`, {
-          deliveryId: job.deliveryId,
-          channel: job.channel,
-          provider: job.provider,
-          metadata: { attempt, maxAttempts: retry.maxAttempts, delayMs: wait },
-        });
-        if (wait > 0) {
-          await new Promise<void>((r) => setTimeout(r, wait));
-        }
-      }
-      try {
-        let result: { providerMessageId?: string };
-        if (job.channel === "email") {
-          const provider = providers!.email!;
-          result = await provider.send({
-            to: job.to,
-            subject: job.subject,
-            body: job.body,
-          });
-        } else if (job.channel === "webhook") {
-          const provider = providers!.webhook!;
-          result = await provider.send({
-            url: job.url,
-            headers: job.headers,
-            payload: {
-              notificationId: job.notificationId,
-              recipientId: job.recipientId,
-              tenantId: job.tenantId,
-              workspaceId: job.workspaceId,
-              payload: job.payload,
-              sentAt: new Date().toISOString(),
-            },
-          });
-        } else {
-          const provider = providers!.sms!;
-          result = await provider.send({
-            to: job.to,
-            body: job.body,
-          });
-        }
-
-        const updated = await database.deliveries.update(job.deliveryId, {
-          status: "sent",
-          providerMessageId: result.providerMessageId,
-          attempts: attempt,
-          sentAt: new Date(),
-          error: undefined,
-        });
-        recordTimeline(jobPending, jobTlCtx, "delivery.sent", `Delivery sent on attempt ${attempt}`, {
-          deliveryId: job.deliveryId,
-          channel: job.channel,
-          provider: job.provider,
-        });
-        if (result.providerMessageId) {
-          recordTimeline(jobPending, jobTlCtx, "provider.message_id_stored", `Provider message ID: ${result.providerMessageId}`, {
+    try {
+      let lastError: Error | null = null;
+      for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
+        if (attempt > 1) {
+          const wait = retry.delayMs(attempt);
+          recordTimeline(jobPending, jobTlCtx, "delivery.attempt", `Retry attempt ${attempt}/${retry.maxAttempts} (delay: ${wait}ms)`, {
             deliveryId: job.deliveryId,
             channel: job.channel,
             provider: job.provider,
-            metadata: { providerMessageId: result.providerMessageId },
+            metadata: { attempt, maxAttempts: retry.maxAttempts, delayMs: wait },
           });
+          if (wait > 0) {
+            await new Promise<void>((r) => setTimeout(r, wait));
+          }
         }
         try {
-          if (updated) {
-            const jobDef = byId.get(job.notificationId);
-            await runHook("delivery.sent", {
-              delivery: updated,
-              redactedPayload: jobDef
-                ? redactForDef(jobDef, job.payload)
-                : job.payload,
+          let result: { providerMessageId?: string };
+          if (job.channel === "email") {
+            const provider = providers!.email!;
+            result = await provider.send({
+              to: job.to,
+              subject: job.subject,
+              body: job.body,
+            });
+          } else if (job.channel === "webhook") {
+            const provider = providers!.webhook!;
+            result = await provider.send({
+              url: job.url,
+              headers: job.headers,
+              payload: {
+                notificationId: job.notificationId,
+                recipientId: job.recipientId,
+                tenantId: job.tenantId,
+                workspaceId: job.workspaceId,
+                payload: job.payload,
+                sentAt: new Date().toISOString(),
+              },
+            });
+          } else {
+            const provider = providers!.sms!;
+            result = await provider.send({
+              to: job.to,
+              body: job.body,
             });
           }
-        } finally {
-          fallbackDeliveryIds.delete(job.deliveryId);
-        }
-        await flushTimeline(jobPending);
-        return;
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        recordTimeline(jobPending, jobTlCtx, "provider.error", `Provider error on attempt ${attempt}: ${lastError.message}`, {
-          deliveryId: job.deliveryId,
-          channel: job.channel,
-          provider: job.provider,
-          metadata: { attempt, error: lastError.message, permanent: !!(lastError as any).permanent },
-        });
-        try {
-          await database.deliveries.update(job.deliveryId, {
+
+          const updated = await database.deliveries.update(job.deliveryId, {
+            status: "sent",
+            providerMessageId: result.providerMessageId,
             attempts: attempt,
-            error: lastError.message,
+            sentAt: new Date(),
+            error: undefined,
           });
-        } catch (updateErr) {
-          console.error("[notifykit] delivery attempt update error:", updateErr);
+          recordTimeline(jobPending, jobTlCtx, "delivery.sent", `Delivery sent on attempt ${attempt}`, {
+            deliveryId: job.deliveryId,
+            channel: job.channel,
+            provider: job.provider,
+          });
+          if (result.providerMessageId) {
+            recordTimeline(jobPending, jobTlCtx, "provider.message_id_stored", `Provider message ID: ${result.providerMessageId}`, {
+              deliveryId: job.deliveryId,
+              channel: job.channel,
+              provider: job.provider,
+              metadata: { providerMessageId: result.providerMessageId },
+            });
+          }
+          try {
+            if (updated) {
+              const jobDef = byId.get(job.notificationId);
+              await runHook("delivery.sent", {
+                delivery: updated,
+                redactedPayload: jobDef
+                  ? redactForDef(jobDef, job.payload)
+                  : job.payload,
+              });
+            }
+          } finally {
+            fallbackDeliveryIds.delete(job.deliveryId);
+          }
+          return;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          recordTimeline(jobPending, jobTlCtx, "provider.error", `Provider error on attempt ${attempt}: ${lastError.message}`, {
+            deliveryId: job.deliveryId,
+            channel: job.channel,
+            provider: job.provider,
+            metadata: { attempt, error: lastError.message, permanent: !!(lastError as any).permanent },
+          });
+          try {
+            await database.deliveries.update(job.deliveryId, {
+              attempts: attempt,
+              error: lastError.message,
+            });
+          } catch (updateErr) {
+            console.error("[notifykit] delivery attempt update error:", updateErr);
+          }
+          if ((lastError as any).permanent) break;
         }
-        if ((lastError as any).permanent) break;
       }
-    }
-    const failed = await database.deliveries.update(job.deliveryId, {
-      status: "failed",
-      failedAt: new Date(),
-    });
-    recordTimeline(jobPending, jobTlCtx, "delivery.failed", `Delivery failed after ${retry.maxAttempts} attempt(s): ${lastError?.message ?? "unknown error"}`, {
-      deliveryId: job.deliveryId,
-      channel: job.channel,
-      provider: job.provider,
-      metadata: { attempts: retry.maxAttempts, error: lastError?.message },
-    });
-    const isFallbackDelivery = fallbackDeliveryIds.has(job.deliveryId);
-    fallbackDeliveryIds.delete(job.deliveryId);
-    if (failed) {
-      const failedDef = byId.get(job.notificationId);
-      await runHook("delivery.failed", {
-        delivery: failed,
-        error: lastError ?? new Error("Delivery failed"),
-        redactedPayload: failedDef
-          ? redactForDef(failedDef, job.payload)
-          : job.payload,
+      const failed = await database.deliveries.update(job.deliveryId, {
+        status: "failed",
+        failedAt: new Date(),
       });
-    }
-
-    if (isFallbackDelivery) {
-      await flushTimeline(jobPending);
-      return;
-    }
-
-    const def = byId.get(job.notificationId);
-    if (def?.fallback) {
-      recordTimeline(jobPending, jobTlCtx, "fallback.triggered", `Fallback triggered after "${job.channel}" delivery failed`, {
+      recordTimeline(jobPending, jobTlCtx, "delivery.failed", `Delivery failed after ${retry.maxAttempts} attempt(s): ${lastError?.message ?? "unknown error"}`, {
         deliveryId: job.deliveryId,
         channel: job.channel,
         provider: job.provider,
-        metadata: { trigger: "channel.failed" },
+        metadata: { attempts: retry.maxAttempts, error: lastError?.message },
       });
-      try {
-        if (isLegacyFallback(def.fallback)) {
-          const fallbackScope: SecurityScope = {
-            tenantId: job.tenantId,
-            workspaceId: job.workspaceId,
-          };
-          const fallbackRecipient = await database.recipients.findById(job.recipientId);
-          const resCtx = await buildResolutionCtx(
-            fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
-            def,
-            fallbackScope,
-          );
-          const inboxResolution = resolveChannel("inbox", resCtx);
-          if (inboxResolution.allowed) {
-            const fallback = def.fallback;
-            const item = await database.inbox.create({
-              notificationRecordId: job.notificationRecordId,
-              recipientId: job.recipientId,
-              tenantId: job.tenantId,
-              workspaceId: job.workspaceId,
-              notificationId: job.notificationId,
-              title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
-              body:
-                fallback.body !== undefined
-                  ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
-                  : undefined,
-              actionUrl: fallback.actionUrl !== undefined
-                ? sanitizeActionUrl(renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false }))
-                : undefined,
-            });
-            await runHook("inbox.created", { inboxItem: item });
-            await publishRealtime(job.recipientId, fallbackScope, {
-              type: "inbox.created",
-              item,
-            });
-          }
-        } else {
-          const attempted = new Set<ChannelType>(
-            def.channels.map((c) => c.type),
-          );
-          attempted.add(job.channel);
-          const rule = matchFallbackRules(def.fallback, "channel.failed", job.channel, attempted);
-          if (rule) {
-            attempted.add(rule.then.type);
-            await executeFallbackChannel(rule.then, {
-              notificationRecordId: job.notificationRecordId,
-              recipientId: job.recipientId,
-              tenantId: job.tenantId,
-              workspaceId: job.workspaceId,
-              notificationId: job.notificationId,
-              payload: job.payload,
-              insideQueue: true,
-            });
-          }
-        }
-      } catch (fallbackErr) {
-        console.error("[notifykit] fallback after channel.failed error:", fallbackErr);
+      const isFallbackDelivery = fallbackDeliveryIds.has(job.deliveryId);
+      fallbackDeliveryIds.delete(job.deliveryId);
+      if (failed) {
+        const failedDef = byId.get(job.notificationId);
+        await runHook("delivery.failed", {
+          delivery: failed,
+          error: lastError ?? new Error("Delivery failed"),
+          redactedPayload: failedDef
+            ? redactForDef(failedDef, job.payload)
+            : job.payload,
+        });
       }
+
+      if (isFallbackDelivery) return;
+
+      const def = byId.get(job.notificationId);
+      if (def?.fallback) {
+        recordTimeline(jobPending, jobTlCtx, "fallback.triggered", `Fallback triggered after "${job.channel}" delivery failed`, {
+          deliveryId: job.deliveryId,
+          channel: job.channel,
+          provider: job.provider,
+          metadata: { trigger: "channel.failed" },
+        });
+        try {
+          if (isLegacyFallback(def.fallback)) {
+            const fallbackScope: SecurityScope = {
+              tenantId: job.tenantId,
+              workspaceId: job.workspaceId,
+            };
+            const fallbackRecipient = await database.recipients.findById(job.recipientId);
+            const resCtx = await buildResolutionCtx(
+              fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
+              def,
+              fallbackScope,
+            );
+            const inboxResolution = resolveChannel("inbox", resCtx);
+            if (inboxResolution.allowed) {
+              const fallback = def.fallback;
+              const item = await database.inbox.create({
+                notificationRecordId: job.notificationRecordId,
+                recipientId: job.recipientId,
+                tenantId: job.tenantId,
+                workspaceId: job.workspaceId,
+                notificationId: job.notificationId,
+                title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
+                body:
+                  fallback.body !== undefined
+                    ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
+                    : undefined,
+                actionUrl: fallback.actionUrl !== undefined
+                  ? sanitizeActionUrl(renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false }))
+                  : undefined,
+              });
+              await runHook("inbox.created", { inboxItem: item });
+              await publishRealtime(job.recipientId, fallbackScope, {
+                type: "inbox.created",
+                item,
+              });
+            }
+          } else {
+            const attempted = new Set<ChannelType>(
+              def.channels.map((c) => c.type),
+            );
+            attempted.add(job.channel);
+            const rule = matchFallbackRules(def.fallback, "channel.failed", job.channel, attempted);
+            if (rule) {
+              attempted.add(rule.then.type);
+              await executeFallbackChannel(rule.then, {
+                notificationRecordId: job.notificationRecordId,
+                recipientId: job.recipientId,
+                tenantId: job.tenantId,
+                workspaceId: job.workspaceId,
+                notificationId: job.notificationId,
+                payload: job.payload,
+                insideQueue: true,
+              });
+            }
+          }
+        } catch (fallbackErr) {
+          console.error("[notifykit] fallback after channel.failed error:", fallbackErr);
+        }
+      }
+    } finally {
+      await flushTimeline(jobPending);
     }
-    await flushTimeline(jobPending);
   }
 
   async function updatePreference(
