@@ -774,6 +774,10 @@ export type SendInput<
      * Optional idempotency key. When provided, duplicate `send()` calls with
      * the same key + notificationId + recipientId within the TTL window return
      * the original result without re-processing.
+     *
+     * Not supported for digested notifications — digest sends buffer payloads
+     * without creating a notification record, so there is nothing to deduplicate.
+     * The key is silently ignored when the notification has a `digest` config.
      */
     idempotencyKey?: string;
   };

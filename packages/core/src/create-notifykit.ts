@@ -740,6 +740,8 @@ export function createNotifyKit<
               reason: (d.skipReason ?? "idempotent_replay") as SkipReason,
               details: d.skipDetails,
             }));
+          // digested is always false here: digest sends never create a
+          // NotificationRecord, so findByIdempotencyKey can only find non-digest sends.
           return {
             notification: existing,
             inboxItems: existingInboxItems,
