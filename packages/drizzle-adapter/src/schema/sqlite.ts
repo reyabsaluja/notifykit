@@ -231,6 +231,22 @@ export const digestBuffers = sqliteTable(
   }),
 );
 
+export const dedupeRecords = sqliteTable(
+  "notifykit_dedupe_records",
+  {
+    key: text("key").primaryKey(),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    expiresAtIdx: index("idx_notifykit_dedupe_expires_at").on(table.expiresAt),
+  }),
+);
+
 export const notifyKitSchema = {
   recipients,
   notifications,
@@ -240,6 +256,7 @@ export const notifyKitSchema = {
   digestBuffers,
   rateLimitEvents,
   scheduledSends,
+  dedupeRecords,
 };
 
 export type NotifyKitSqliteSchema = typeof notifyKitSchema;

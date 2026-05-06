@@ -21,6 +21,7 @@ import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, 
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import {
+  dedupeRecords,
   deliveries,
   digestBuffers,
   inboxItems,
@@ -102,6 +103,7 @@ export type DrizzleSqliteAdapter = DatabaseAdapter & {
     digestBuffers: typeof digestBuffers;
     rateLimitEvents: typeof rateLimitEvents;
     scheduledSends: typeof scheduledSends;
+    dedupeRecords: typeof dedupeRecords;
   };
 };
 
@@ -122,6 +124,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       digestBuffers,
       rateLimitEvents,
       scheduledSends,
+      dedupeRecords,
     },
 
     recipients: {
@@ -1025,6 +1028,49 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
           claimedAt: row.claimedAt ?? null,
           createdAt: row.createdAt,
         }));
+      },
+    },
+
+    dedupe: {
+      async check(input): Promise<{ duplicate: boolean }> {
+        return atomic(async () => {
+          const now = new Date();
+          const existing = await db
+            .select()
+            .from(dedupeRecords)
+            .where(eq(dedupeRecords.key, input.key))
+            .limit(1);
+          const row = existing[0];
+          if (row && row.expiresAt.getTime() > now.getTime()) {
+            return { duplicate: true };
+          }
+          if (row) {
+            await db.delete(dedupeRecords).where(eq(dedupeRecords.key, input.key));
+          }
+          await db.insert(dedupeRecords).values({
+            key: input.key,
+            recipientId: input.recipientId,
+            tenantId: input.tenantId ?? null,
+            workspaceId: input.workspaceId ?? null,
+            notificationId: input.notificationId,
+            expiresAt: new Date(now.getTime() + input.windowMs),
+            createdAt: now,
+          });
+          return { duplicate: false };
+        });
+      },
+      async exists(key: string): Promise<boolean> {
+        const now = new Date();
+        const rows = await db
+          .select()
+          .from(dedupeRecords)
+          .where(and(eq(dedupeRecords.key, key), gte(dedupeRecords.expiresAt, now)))
+          .limit(1);
+        return rows.length > 0;
+      },
+      async prune(): Promise<void> {
+        const now = new Date();
+        await db.delete(dedupeRecords).where(lt(dedupeRecords.expiresAt, now));
       },
     },
   };

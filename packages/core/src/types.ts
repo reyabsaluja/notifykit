@@ -43,6 +43,7 @@ export type ChannelOutcome =
   | "disabled"
   | "delayed"
   | "unavailable"
+  | "deduplicated"
   | "rate_limited"
   | "digested";
 
@@ -54,8 +55,10 @@ export type DeliveryExplanation = {
   required: boolean;
   classification?: NotificationClassification;
   category?: string;
+  wouldDeduplicate: boolean;
   wouldRateLimit: boolean;
   wouldDigest: boolean;
+  dedupe: { key: string; windowMs: number } | null;
   rateLimit: { current: number; max: number; windowMs: number } | null;
   digest: { windowMs: number } | null;
   quietHours: { active: boolean; resumesAt: Date | null } | null;
@@ -388,6 +391,18 @@ export type RateLimitEvent = {
   occurredAt: Date;
 };
 
+export type DedupeRecord = {
+  /** Composite key: (dedupeKey, notificationId, recipientId). */
+  key: string;
+  recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
+  notificationId: string;
+  /** When this dedup entry expires and can be cleaned up. */
+  expiresAt: Date;
+  createdAt: Date;
+};
+
 export type DigestBufferEntry = {
   /** Composite "key" used to group payloads within a window. */
   key: string;
@@ -717,6 +732,29 @@ export type DatabaseAdapter = {
     /** All rows, regardless of state. For tests and admin tooling. */
     list(): Promise<ScheduledSend[]>;
   };
+  dedupe: {
+    /**
+     * Check if a dedup key exists and is still within its window. If not,
+     * atomically insert the key with the given window. Returns
+     * `{ duplicate: false }` when the key was inserted (first occurrence),
+     * `{ duplicate: true }` when the key already exists and hasn't expired.
+     */
+    check(input: {
+      key: string;
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      notificationId: string;
+      windowMs: number;
+    }): Promise<{ duplicate: boolean }>;
+    /**
+     * Read-only check: returns true if the key exists and hasn't expired.
+     * Does not insert or modify any records. Used by `explain()`.
+     */
+    exists(key: string): Promise<boolean>;
+    /** Remove expired entries. Called opportunistically. */
+    prune(): Promise<void>;
+  };
 };
 
 export type Hooks = {
@@ -724,6 +762,12 @@ export type Hooks = {
     notification: NotificationRecord;
     /** Payload with sensitive fields replaced by `"[REDACTED]"` per the definition's `redact` list. */
     redactedPayload: Record<string, unknown>;
+  }) => void | Promise<void>;
+  "notification.deduplicated"?: (ctx: {
+    notificationId: string;
+    recipientId: string;
+    dedupeKey: string;
+    windowMs: number;
   }) => void | Promise<void>;
   "notification.rate_limited"?: (ctx: {
     notificationId: string;
@@ -785,6 +829,23 @@ export type SendInput<
      * The key is silently ignored when the notification has a `digest` config.
      */
     idempotencyKey?: string;
+    /**
+     * Semantic deduplication key. Different from idempotency: dedup prevents
+     * semantically duplicate notifications (e.g. "user X was mentioned" sent
+     * twice within a window), while idempotency prevents retries of the exact
+     * same API call.
+     *
+     * When provided together with `dedupeWindowMs`, duplicate sends with the
+     * same (dedupeKey, notificationId, recipientId) within the window are
+     * skipped with reason `"duplicate"`.
+     */
+    dedupeKey?: string;
+    /**
+     * Time window in milliseconds for deduplication. Required when `dedupeKey`
+     * is provided. Sends with the same dedup key within this window after the
+     * first are skipped.
+     */
+    dedupeWindowMs?: number;
   };
 }[T[number]["id"]];
 

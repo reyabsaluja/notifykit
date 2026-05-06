@@ -136,6 +136,17 @@ export async function createPgTables(
       ON notifykit_scheduled_sends (scheduled_for)`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_scheduled_sends_status_due
       ON notifykit_scheduled_sends (status, scheduled_for)`,
+    `CREATE TABLE IF NOT EXISTS notifykit_dedupe_records (
+      key TEXT PRIMARY KEY,
+      recipient_id TEXT NOT NULL,
+      tenant_id TEXT,
+      workspace_id TEXT,
+      notification_id TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_dedupe_expires_at
+      ON notifykit_dedupe_records (expires_at)`,
   ];
 
   for (const stmt of statements) {
