@@ -111,6 +111,12 @@ export type CreateNotifyKitInput<
 };
 
 export type SendResult = {
+  /**
+   * The persisted notification record. Only null when `digested` is true.
+   *
+   * **BREAKING (pre-v1):** Previously null on suppression/rate-limit; now
+   * always persisted so skipped deliveries have a parent record.
+   */
   notification: NotificationRecord | null;
   inboxItems: InboxItem[];
   /** All delivery records including skipped ones (status "skipped"). */
