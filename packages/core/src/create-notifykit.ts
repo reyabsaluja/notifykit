@@ -441,20 +441,20 @@ export function createNotifyKit<
     },
     event: TimelineEventType,
     message: string,
-    extra?: { deliveryId?: string; channel?: ChannelType; provider?: string; metadata?: Record<string, unknown> },
+    opts?: { deliveryId?: string; channel?: ChannelType; provider?: string; metadata?: Record<string, unknown> },
   ): void {
     database.timeline.append([{
       notificationRecordId: ctx.notificationRecordId,
-      deliveryId: extra?.deliveryId,
+      deliveryId: opts?.deliveryId,
       recipientId: ctx.recipientId,
       tenantId: ctx.tenantId,
       workspaceId: ctx.workspaceId,
       notificationId: ctx.notificationId,
-      channel: extra?.channel,
-      provider: extra?.provider,
+      channel: opts?.channel,
+      provider: opts?.provider,
       event,
       message,
-      metadata: extra?.metadata,
+      metadata: opts?.metadata,
     }]).catch((err) => {
       console.error("[notifykit] timeline append error:", err);
     });
