@@ -2678,8 +2678,7 @@ export function createNotifyKit<
     },
     async timeline(notificationRecordId, options) {
       if (options?.deliveryId) {
-        const events = await timelineAdapter.listByDeliveryId(options.deliveryId);
-        return events.filter((e) => e.notificationRecordId === notificationRecordId);
+        return timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId);
       }
       return timelineAdapter.listByNotificationRecordId(notificationRecordId);
     },

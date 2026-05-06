@@ -535,9 +535,9 @@ export function memoryAdapter(): MemoryAdapter {
           .filter((e) => e.notificationRecordId === notificationRecordId)
           .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.seq - b.seq);
       },
-      async listByDeliveryId(deliveryId: string): Promise<TimelineEvent[]> {
+      async listByDeliveryId(deliveryId: string, notificationRecordId?: string): Promise<TimelineEvent[]> {
         return state.timelineEvents
-          .filter((e) => e.deliveryId === deliveryId)
+          .filter((e) => e.deliveryId === deliveryId && (!notificationRecordId || e.notificationRecordId === notificationRecordId))
           .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.seq - b.seq);
       },
       async prune(olderThan: Date): Promise<number> {

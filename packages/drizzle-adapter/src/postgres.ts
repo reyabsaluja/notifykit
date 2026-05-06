@@ -1065,11 +1065,13 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
         return rows.map(rowToTimelineEvent);
       },
-      async listByDeliveryId(deliveryId: string): Promise<TimelineEvent[]> {
+      async listByDeliveryId(deliveryId: string, notificationRecordId?: string): Promise<TimelineEvent[]> {
+        const conditions = [eq(timelineEvents.deliveryId, deliveryId)];
+        if (notificationRecordId) conditions.push(eq(timelineEvents.notificationRecordId, notificationRecordId));
         const rows = await db
           .select()
           .from(timelineEvents)
-          .where(eq(timelineEvents.deliveryId, deliveryId))
+          .where(and(...conditions))
           .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
         return rows.map(rowToTimelineEvent);
       },
