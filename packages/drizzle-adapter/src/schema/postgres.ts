@@ -270,6 +270,9 @@ export const timelineEvents = pgTable(
       table.deliveryId,
       table.timestamp,
     ),
+    timestampIdx: index("idx_notifykit_timeline_timestamp").on(
+      table.timestamp,
+    ),
   }),
 );
 
