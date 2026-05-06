@@ -431,7 +431,7 @@ export function createNotifyKit<
     chain.then(cleanup);
     // Safety net: evict stale entries if fn() never settles.
     const timer = setTimeout(cleanup, LOCK_TIMEOUT_MS);
-    chain.then(() => clearTimeout(timer));
+    chain.finally(() => clearTimeout(timer));
     return result;
   }
 
