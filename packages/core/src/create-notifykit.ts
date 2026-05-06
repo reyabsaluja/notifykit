@@ -601,11 +601,14 @@ export function createNotifyKit<
     return JSON.stringify(["idem", notificationId, recipientId, userKey]);
   }
 
-  async function buildIdempotentReplay(existing: NotificationRecord): Promise<SendResult> {
+  async function buildIdempotentReplay(existing: NotificationRecord): Promise<SendResult | null> {
     const [existingDeliveries, existingInboxItems] = await Promise.all([
       database.deliveries.listByNotificationRecordId(existing.id),
       database.inbox.listByNotificationRecordId(existing.id),
     ]);
+    if (existingDeliveries.length === 0 && existingInboxItems.length === 0) {
+      return null;
+    }
     const skipped: SkippedDelivery[] = existingDeliveries
       .filter((d) => d.status === "skipped")
       .map((d) => ({
@@ -701,10 +704,12 @@ export function createNotifyKit<
             const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
             const age = Date.now() - existing.createdAt.getTime();
             if (age < ttl) {
-              return buildIdempotentReplay(existing);
+              const replay = await buildIdempotentReplay(existing);
+              if (replay) return replay;
+            } else {
+              await database.notifications.clearIdempotencyKey(existing.id);
+              return sendInner(rawInput);
             }
-            await database.notifications.clearIdempotencyKey(existing.id);
-            return sendInner(rawInput);
           }
         }
         throw err;
@@ -782,7 +787,8 @@ export function createNotifyKit<
         const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
         const age = Date.now() - existing.createdAt.getTime();
         if (age < ttl) {
-          return buildIdempotentReplay(existing);
+          const replay = await buildIdempotentReplay(existing);
+          if (replay) return replay;
         }
         await database.notifications.clearIdempotencyKey(existing.id);
       }

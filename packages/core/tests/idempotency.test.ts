@@ -292,4 +292,46 @@ describe("idempotency keys", () => {
     expect(second.digested).toBe(true);
     expect(second.idempotent).toBe(false);
   });
+
+  test("incomplete notification record (no deliveries) is not replayed", async () => {
+    const db = memoryAdapter();
+    const emailProvider = fakeEmailProvider();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [
+        inbox({ title: "{{msg}}" }),
+        email({ subject: "{{msg}}", body: "Body: {{msg}}" }),
+      ],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: emailProvider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    // Simulate an incomplete record (created but delivery never finished)
+    const compositeKey = JSON.stringify(["idem", "alert", "u1", "incomplete-key"]);
+    db._state.notifications.push({
+      id: "orphan-record",
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "old" },
+      idempotencyKey: compositeKey,
+      createdAt: new Date(),
+    });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "new" },
+      idempotencyKey: "incomplete-key",
+    });
+
+    // Should NOT replay the incomplete record — should process fresh
+    expect(result.idempotent).toBe(false);
+    expect(result.deliveries.length).toBeGreaterThan(0);
+    expect(emailProvider.sent).toHaveLength(1);
+  });
 });
