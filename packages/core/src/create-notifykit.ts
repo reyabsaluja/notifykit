@@ -51,7 +51,7 @@ import { signUnsubscribeToken } from "./unsubscribe.js";
 import { NotifyKitError, assertSafeWebhookUrl, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 import { validateConfig, formatValidationIssues } from "./validate.js";
 
-const SKIP_PROVIDER = "skip" as const;
+export const SKIP_PROVIDER = "skip" as const;
 
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
@@ -121,7 +121,10 @@ export type SendResult = {
   inboxItems: InboxItem[];
   /** All delivery records including skipped ones (status "skipped"). */
   deliveries: DeliveryRecord[];
-  /** @deprecated Use `skipped[]` which includes the reason. Will be removed in v1. */
+  /**
+   * @deprecated Use `skipped[]` which includes the reason. Rate-limited sends
+   * populate `skipped[]` but leave this array empty. Will be removed in v1.
+   */
   skippedChannels: ChannelType[];
   skipped: SkippedDelivery[];
   /**

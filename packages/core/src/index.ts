@@ -1,6 +1,6 @@
 export { channel } from "./channel.js";
 export { notification } from "./notification.js";
-export { createNotifyKit } from "./create-notifykit.js";
+export { createNotifyKit, SKIP_PROVIDER } from "./create-notifykit.js";
 export {
   GLOBAL_PREFERENCE_KEY,
   categoryPreferenceKey,
