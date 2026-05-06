@@ -2662,7 +2662,8 @@ export function createNotifyKit<
     },
     async timeline(notificationRecordId, options) {
       if (options?.deliveryId) {
-        return database.timeline.listByDeliveryId(options.deliveryId);
+        const events = await database.timeline.listByDeliveryId(options.deliveryId);
+        return events.filter((e) => e.notificationRecordId === notificationRecordId);
       }
       return database.timeline.listByNotificationRecordId(notificationRecordId);
     },
