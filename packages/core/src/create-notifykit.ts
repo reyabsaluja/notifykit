@@ -437,8 +437,10 @@ export function createNotifyKit<
     }
   }
 
+  type TimelineBuffer = Omit<TimelineEvent, "id" | "timestamp">[];
+
   function recordTimeline(
-    pending: Promise<unknown>[],
+    buffer: TimelineBuffer,
     ctx: {
       notificationRecordId: string;
       recipientId: string;
@@ -450,7 +452,7 @@ export function createNotifyKit<
     message: string,
     opts?: { deliveryId?: string; channel?: ChannelType; provider?: string; metadata?: Record<string, unknown> },
   ): void {
-    const p = database.timeline.append([{
+    buffer.push({
       notificationRecordId: ctx.notificationRecordId,
       deliveryId: opts?.deliveryId,
       recipientId: ctx.recipientId,
@@ -462,13 +464,12 @@ export function createNotifyKit<
       event,
       message,
       metadata: opts?.metadata,
-    }]).catch(onTimelineError);
-    pending.push(p);
+    });
   }
 
-  async function flushTimeline(pending: Promise<unknown>[]): Promise<void> {
-    const batch = pending.splice(0);
-    if (batch.length > 0) await Promise.all(batch);
+  async function flushTimeline(buffer: TimelineBuffer): Promise<void> {
+    const batch = buffer.splice(0);
+    if (batch.length > 0) await database.timeline.append(batch).catch(onTimelineError);
   }
 
   // Per-key serialization for idempotency checks. Prevents concurrent sends
@@ -775,7 +776,7 @@ export function createNotifyKit<
 
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as { notificationId: string; recipientId: string; idempotencyKey?: string };
-    const pending: Promise<unknown>[] = [];
+    const pending: TimelineBuffer = [];
     let result: SendResult;
     if (input.idempotencyKey) {
       if (input.idempotencyKey.length > 256) {
@@ -821,7 +822,7 @@ export function createNotifyKit<
     return result;
   }
 
-  async function sendInner(pending: Promise<unknown>[], rawInput: SendInput<T>, preComputedCompositeKey?: string): Promise<SendResult> {
+  async function sendInner(pending: TimelineBuffer, rawInput: SendInput<T>, preComputedCompositeKey?: string): Promise<SendResult> {
     const input = rawInput as {
       recipientId: string;
       tenantId?: string;
@@ -1361,7 +1362,7 @@ export function createNotifyKit<
             createdAt: record.createdAt,
           }
         : undefined;
-      const scheduledPending: Promise<unknown>[] = [];
+      const scheduledPending: TimelineBuffer = [];
       await deliver(scheduledPending, recipient, def, payload, {
         onlyChannels: ["email", "webhook", "sms"],
         scope,
@@ -1446,7 +1447,7 @@ export function createNotifyKit<
         }
       }
 
-      const digestPending: Promise<unknown>[] = [];
+      const digestPending: TimelineBuffer = [];
       if (deferChannels.length > 0) {
         const result = await deliver(digestPending, recipient, def, validated, { deferChannels, scope, prefResult });
         await flushTimeline(digestPending);
@@ -1731,7 +1732,7 @@ export function createNotifyKit<
   };
 
   async function deliver(
-    pending: Promise<unknown>[],
+    pending: TimelineBuffer,
     recipient: Recipient,
     def: NotificationDefinition<string, PayloadSchema>,
     payload: Record<string, unknown>,
@@ -2063,7 +2064,7 @@ export function createNotifyKit<
   }
 
   async function processDeliveryJob(job: DeliveryJob): Promise<void> {
-    const jobPending: Promise<unknown>[] = [];
+    const jobPending: TimelineBuffer = [];
     const jobTlCtx = {
       notificationRecordId: job.notificationRecordId,
       recipientId: job.recipientId,
