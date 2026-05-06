@@ -706,10 +706,9 @@ export function createNotifyKit<
             if (age < ttl) {
               const replay = await buildIdempotentReplay(existing);
               if (replay) return replay;
-            } else {
-              await database.notifications.clearIdempotencyKey(existing.id);
-              return sendInner(rawInput);
             }
+            await database.notifications.clearIdempotencyKey(existing.id);
+            return withIdempotencyLock(lockKey, () => sendInner(rawInput));
           }
         }
         throw err;
