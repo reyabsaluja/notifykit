@@ -262,8 +262,8 @@ describe("skip reasons", () => {
     });
 
     const now = new Date();
-    const startHour = now.getHours() - 1;
-    const endHour = now.getHours() + 1;
+    const startHour = now.getUTCHours() - 1;
+    const endHour = now.getUTCHours() + 1;
     const start = `${String((startHour + 24) % 24).padStart(2, "0")}:00`;
     const end = `${String(endHour % 24).padStart(2, "0")}:00`;
 
