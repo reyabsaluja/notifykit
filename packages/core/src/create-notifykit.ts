@@ -480,8 +480,12 @@ export function createNotifyKit<
       case "notification_default":
       case "app_default":
         return "preferences_disabled";
-      default:
+      case undefined:
         return "suppressed";
+      default: {
+        const _exhaustive: never = resolvedBy;
+        return "suppressed";
+      }
     }
   }
 
