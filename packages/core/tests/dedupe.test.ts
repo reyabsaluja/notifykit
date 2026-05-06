@@ -264,4 +264,72 @@ describe("deduplication keys", () => {
     expect(result.skipped[0].reason).toBe("duplicate");
     expect(emailProvider.sent).toHaveLength(1);
   });
+
+  test("concurrent sends with same dedupeKey only deliver once", async () => {
+    const { db, emailProvider, notify } = setup();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        notify.send({
+          recipientId: "u1",
+          notificationId: "mention",
+          payload: { user: "alice", project: "acme" },
+          dedupeKey: "concurrent-dedup",
+          dedupeWindowMs: 60_000,
+        }),
+      ),
+    );
+
+    const delivered = results.filter((r) => r.skipped.length === 0);
+    const deduped = results.filter((r) => r.skipped.some((s) => s.reason === "duplicate"));
+
+    expect(delivered).toHaveLength(1);
+    expect(deduped).toHaveLength(9);
+    expect(emailProvider.sent).toHaveLength(1);
+    // All 10 create notification records (dedup still persists for audit)
+    expect(db._state.notifications).toHaveLength(10);
+  });
+
+  test("dedupeKey does not interfere with digested notifications", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "digest-notif",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      digest: {
+        windowMs: 5000,
+        key: ({ recipientId }) => recipientId,
+        render: ({ payloads }) => ({ msg: payloads.map((p) => p.msg).join(", ") }),
+      },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const first = await notify.send({
+      recipientId: "u1",
+      notificationId: "digest-notif",
+      payload: { msg: "a" },
+      dedupeKey: "digest-dedup",
+      dedupeWindowMs: 60_000,
+    });
+    const second = await notify.send({
+      recipientId: "u1",
+      notificationId: "digest-notif",
+      payload: { msg: "b" },
+      dedupeKey: "digest-dedup",
+      dedupeWindowMs: 60_000,
+    });
+
+    // Dedup fires before the digest path — second send is skipped
+    expect(first.digested).toBe(true);
+    expect(first.skipped).toHaveLength(0);
+    expect(second.digested).toBe(false);
+    expect(second.skipped.length).toBeGreaterThan(0);
+    expect(second.skipped[0].reason).toBe("duplicate");
+  });
 });
