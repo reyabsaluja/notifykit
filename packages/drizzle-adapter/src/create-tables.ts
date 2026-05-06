@@ -147,6 +147,25 @@ export async function createSqliteTables(
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_dedupe_expires_at
       ON notifykit_dedupe_records (expires_at)`,
+    `CREATE TABLE IF NOT EXISTS notifykit_timeline_events (
+      id TEXT PRIMARY KEY,
+      notification_record_id TEXT NOT NULL,
+      delivery_id TEXT,
+      recipient_id TEXT NOT NULL,
+      tenant_id TEXT,
+      workspace_id TEXT,
+      notification_id TEXT NOT NULL,
+      channel TEXT,
+      provider TEXT,
+      event TEXT NOT NULL,
+      message TEXT NOT NULL,
+      metadata TEXT,
+      timestamp INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_timeline_notification_record
+      ON notifykit_timeline_events (notification_record_id, timestamp)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifykit_timeline_delivery
+      ON notifykit_timeline_events (delivery_id, timestamp)`,
   ];
 
   for (const stmt of statements) {

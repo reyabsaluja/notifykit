@@ -14,6 +14,7 @@ import type {
   ScheduledSend,
   SecurityScope,
   SkipReason,
+  TimelineEvent,
   UpsertRecipientInput,
 } from "notifykit";
 import { SKIP_REASONS, createId } from "notifykit";
@@ -30,6 +31,7 @@ import {
   rateLimitEvents,
   recipients,
   scheduledSends,
+  timelineEvents,
 } from "./schema/postgres.js";
 
 function scopeValue(value: string | undefined): string {
@@ -74,6 +76,7 @@ export type DrizzlePostgresAdapter = DatabaseAdapter & {
     rateLimitEvents: typeof rateLimitEvents;
     scheduledSends: typeof scheduledSends;
     dedupeRecords: typeof dedupeRecords;
+    timelineEvents: typeof timelineEvents;
   };
 };
 
@@ -89,6 +92,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
       rateLimitEvents,
       scheduledSends,
       dedupeRecords,
+      timelineEvents,
     },
 
     recipients: {
@@ -1005,6 +1009,80 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         await db.delete(dedupeRecords).where(lt(dedupeRecords.expiresAt, now));
       },
     },
+    timeline: {
+      async append(events): Promise<TimelineEvent[]> {
+        const now = new Date();
+        const records: TimelineEvent[] = events.map((e) => ({
+          id: createId("tl"),
+          notificationRecordId: e.notificationRecordId,
+          deliveryId: e.deliveryId,
+          recipientId: e.recipientId,
+          tenantId: e.tenantId,
+          workspaceId: e.workspaceId,
+          notificationId: e.notificationId,
+          channel: e.channel as TimelineEvent["channel"],
+          provider: e.provider,
+          event: e.event,
+          message: e.message,
+          metadata: e.metadata,
+          timestamp: now,
+        }));
+        if (records.length > 0) {
+          await db.insert(timelineEvents).values(
+            records.map((r) => ({
+              id: r.id,
+              notificationRecordId: r.notificationRecordId,
+              deliveryId: r.deliveryId ?? null,
+              recipientId: r.recipientId,
+              tenantId: r.tenantId ?? null,
+              workspaceId: r.workspaceId ?? null,
+              notificationId: r.notificationId,
+              channel: r.channel ?? null,
+              provider: r.provider ?? null,
+              event: r.event,
+              message: r.message,
+              metadata: r.metadata ?? null,
+              timestamp: r.timestamp,
+            })),
+          );
+        }
+        return records;
+      },
+      async listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]> {
+        const rows = await db
+          .select()
+          .from(timelineEvents)
+          .where(eq(timelineEvents.notificationRecordId, notificationRecordId))
+          .orderBy(asc(timelineEvents.timestamp));
+        return rows.map(rowToTimelineEvent);
+      },
+      async listByDeliveryId(deliveryId: string): Promise<TimelineEvent[]> {
+        const rows = await db
+          .select()
+          .from(timelineEvents)
+          .where(eq(timelineEvents.deliveryId, deliveryId))
+          .orderBy(asc(timelineEvents.timestamp));
+        return rows.map(rowToTimelineEvent);
+      },
+    },
+  };
+}
+
+function rowToTimelineEvent(row: typeof timelineEvents.$inferSelect): TimelineEvent {
+  return {
+    id: row.id,
+    notificationRecordId: row.notificationRecordId,
+    deliveryId: row.deliveryId ?? undefined,
+    recipientId: row.recipientId,
+    tenantId: row.tenantId ?? undefined,
+    workspaceId: row.workspaceId ?? undefined,
+    notificationId: row.notificationId,
+    channel: (row.channel ?? undefined) as TimelineEvent["channel"],
+    provider: row.provider ?? undefined,
+    event: row.event as TimelineEvent["event"],
+    message: row.message,
+    metadata: (row.metadata ?? undefined) as Record<string, unknown> | undefined,
+    timestamp: row.timestamp,
   };
 }
 

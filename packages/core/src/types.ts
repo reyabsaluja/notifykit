@@ -418,6 +418,45 @@ export type DigestBufferEntry = {
   updatedAt: Date;
 };
 
+export const TIMELINE_EVENT_TYPES = [
+  "payload.validated",
+  "recipient.resolved",
+  "preferences.resolved",
+  "idempotent.replay",
+  "deduplicated",
+  "rate_limited",
+  "digest.buffered",
+  "quiet_hours.deferred",
+  "inbox.created",
+  "delivery.created",
+  "delivery.attempt",
+  "delivery.sent",
+  "delivery.failed",
+  "provider.message_id_stored",
+  "provider.error",
+  "fallback.triggered",
+  "channel.skipped",
+  "notification.suppressed",
+] as const;
+
+export type TimelineEventType = (typeof TIMELINE_EVENT_TYPES)[number];
+
+export type TimelineEvent = {
+  id: string;
+  notificationRecordId: string;
+  deliveryId?: string;
+  recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
+  notificationId: string;
+  channel?: ChannelType;
+  provider?: string;
+  event: TimelineEventType;
+  message: string;
+  metadata?: Record<string, unknown>;
+  timestamp: Date;
+};
+
 export const SKIP_REASONS = [
   "preferences_disabled",
   "required_override",
@@ -754,6 +793,14 @@ export type DatabaseAdapter = {
     exists(key: string): Promise<boolean>;
     /** Remove expired entries. Called opportunistically. */
     prune(): Promise<void>;
+  };
+  timeline: {
+    /** Append one or more events to the timeline. */
+    append(events: Omit<TimelineEvent, "id" | "timestamp">[]): Promise<TimelineEvent[]>;
+    /** List events for a notification record, ordered chronologically. */
+    listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]>;
+    /** List events for a specific delivery, ordered chronologically. */
+    listByDeliveryId(deliveryId: string): Promise<TimelineEvent[]>;
   };
 };
 

@@ -13,6 +13,7 @@ import type {
   RecipientPreference,
   ScheduledSend,
   SecurityScope,
+  TimelineEvent,
   UpsertRecipientInput,
 } from "./types.js";
 import { createId } from "./utils.js";
@@ -28,6 +29,7 @@ export type MemoryAdapter = DatabaseAdapter & {
     rateLimits: RateLimitEvent[];
     scheduledSends: ScheduledSend[];
     dedupeRecords: DedupeRecord[];
+    timelineEvents: TimelineEvent[];
   };
 };
 
@@ -42,6 +44,7 @@ export function memoryAdapter(): MemoryAdapter {
     rateLimits: [] as RateLimitEvent[],
     scheduledSends: [] as ScheduledSend[],
     dedupeRecords: [] as DedupeRecord[],
+    timelineEvents: [] as TimelineEvent[],
   };
 
   function matchesScope(record: SecurityScope, scope?: SecurityScope): boolean {
@@ -502,6 +505,38 @@ export function memoryAdapter(): MemoryAdapter {
       },
       async list(): Promise<ScheduledSend[]> {
         return state.scheduledSends.map((s) => ({ ...s }));
+      },
+    },
+    timeline: {
+      async append(events): Promise<TimelineEvent[]> {
+        const now = new Date();
+        const records: TimelineEvent[] = events.map((e) => ({
+          id: createId("tl"),
+          notificationRecordId: e.notificationRecordId,
+          deliveryId: e.deliveryId,
+          recipientId: e.recipientId,
+          tenantId: e.tenantId,
+          workspaceId: e.workspaceId,
+          notificationId: e.notificationId,
+          channel: e.channel,
+          provider: e.provider,
+          event: e.event,
+          message: e.message,
+          metadata: e.metadata,
+          timestamp: now,
+        }));
+        state.timelineEvents.push(...records);
+        return records;
+      },
+      async listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]> {
+        return state.timelineEvents
+          .filter((e) => e.notificationRecordId === notificationRecordId)
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      },
+      async listByDeliveryId(deliveryId: string): Promise<TimelineEvent[]> {
+        return state.timelineEvents
+          .filter((e) => e.deliveryId === deliveryId)
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
       },
     },
     dedupe: {

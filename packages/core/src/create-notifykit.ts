@@ -33,6 +33,8 @@ import type {
   SkipReason,
   SkippedDelivery,
   SmsProvider,
+  TimelineEvent,
+  TimelineEventType,
   UpdatePreferenceInput,
   UpsertRecipientInput,
   WebhookProvider,
@@ -330,6 +332,15 @@ export type NotifyKit<
     payload: Record<string, unknown>,
   ): Record<string, unknown>;
   /**
+   * Retrieve the debug timeline for a notification. Returns lifecycle events
+   * in chronological order showing every decision, side effect, and provider
+   * interaction. Optionally filter to a specific delivery.
+   */
+  timeline(
+    notificationRecordId: string,
+    options?: { deliveryId?: string },
+  ): Promise<TimelineEvent[]>;
+  /**
    * The realtime adapter passed to `createNotifyKit`, or `undefined` if none
    * was provided. Exposed so handlers and transports can subscribe clients;
    * core inbox mutations publish their own realtime events.
@@ -418,6 +429,35 @@ export function createNotifyKit<
         ? err
         : new Error(`Hook "${String(name)}" threw a non-error value.`);
     }
+  }
+
+  function recordTimeline(
+    ctx: {
+      notificationRecordId: string;
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      notificationId: string;
+    },
+    event: TimelineEventType,
+    message: string,
+    extra?: { deliveryId?: string; channel?: ChannelType; provider?: string; metadata?: Record<string, unknown> },
+  ): void {
+    database.timeline.append([{
+      notificationRecordId: ctx.notificationRecordId,
+      deliveryId: extra?.deliveryId,
+      recipientId: ctx.recipientId,
+      tenantId: ctx.tenantId,
+      workspaceId: ctx.workspaceId,
+      notificationId: ctx.notificationId,
+      channel: extra?.channel,
+      provider: extra?.provider,
+      event,
+      message,
+      metadata: extra?.metadata,
+    }]).catch((err) => {
+      console.error("[notifykit] timeline append error:", err);
+    });
   }
 
   // Per-key serialization for idempotency checks. Prevents concurrent sends
@@ -819,6 +859,16 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
+    // Timeline context used for early events (before notificationRecord exists).
+    // The real notificationRecordId is patched in once the record is created.
+    const tlCtx = {
+      notificationRecordId: "",
+      recipientId: recipient.id,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      notificationId: def.id,
+    };
+
     const compositeIdempotencyKey = preComputedCompositeKey ?? (input.idempotencyKey
       ? idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId)
       : undefined);
@@ -831,7 +881,10 @@ export function createNotifyKit<
         const age = Date.now() - existing.createdAt.getTime();
         if (age < ttl) {
           const replay = await buildIdempotentReplay(existing);
-          if (replay) return replay;
+          if (replay) {
+            recordTimeline({ ...tlCtx, notificationRecordId: existing.id }, "idempotent.replay", `Idempotent replay of notification ${existing.id}`);
+            return replay;
+          }
         }
         await database.notifications.clearIdempotencyKey(existing.id);
       }
@@ -892,6 +945,9 @@ export function createNotifyKit<
         const { notificationRecord, skippedRecords } = await createSkippedNotification({
           recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
         });
+        recordTimeline({ ...tlCtx, notificationRecordId: notificationRecord.id }, "deduplicated", `Duplicate send blocked: key "${input.dedupeKey}" within ${input.dedupeWindowMs}ms window`, {
+          metadata: { dedupeKey: input.dedupeKey, windowMs: input.dedupeWindowMs },
+        });
         await runHook("notification.deduplicated", {
           notificationId: def.id,
           recipientId: recipient.id,
@@ -939,6 +995,11 @@ export function createNotifyKit<
       const { notificationRecord, skippedRecords } = await createSkippedNotification({
         recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
       });
+      const suppressCtx = { ...tlCtx, notificationRecordId: notificationRecord.id };
+      recordTimeline(suppressCtx, "preferences.resolved", `All channels disabled by preferences`);
+      recordTimeline(suppressCtx, "notification.suppressed", `Notification suppressed: no deliverable channels`, {
+        metadata: { skippedChannels },
+      });
       await runHook("notification.suppressed", {
         notificationId: def.id,
         recipientId: recipient.id,
@@ -983,6 +1044,9 @@ export function createNotifyKit<
         }));
         const { notificationRecord, skippedRecords } = await createSkippedNotification({
           recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
+        });
+        recordTimeline({ ...tlCtx, notificationRecordId: notificationRecord.id }, "rate_limited", `Rate limit exceeded: ${limit.max} per ${limit.windowMs}ms`, {
+          metadata: { max: limit.max, windowMs: limit.windowMs, scope: rateLimitScope },
         });
         await runHook("notification.rate_limited", {
           notificationId: def.id,
@@ -1678,6 +1742,21 @@ export function createNotifyKit<
       });
     }
 
+    const deliverTlCtx = {
+      notificationRecordId: notificationRecord.id,
+      recipientId: recipient.id,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      notificationId: def.id,
+    };
+    if (!options.existingNotification) {
+      recordTimeline(deliverTlCtx, "payload.validated", "Payload validated successfully");
+      recordTimeline(deliverTlCtx, "recipient.resolved", `Recipient "${recipient.id}" resolved`, {
+        metadata: { email: recipient.email ? "present" : "absent", phone: recipient.phone ? "present" : "absent" },
+      });
+      recordTimeline(deliverTlCtx, "preferences.resolved", `Preference resolution complete: ${explanation.channels.filter((c) => c.allowed).map((c) => c.channel).join(", ") || "none"} enabled`);
+    }
+
     const inboxItems: InboxItem[] = [];
     const deliveries: DeliveryRecord[] = [];
     const skippedChannels: ChannelType[] = [];
@@ -1695,8 +1774,8 @@ export function createNotifyKit<
       if (onlySet && !onlySet.has(ch.type)) continue;
       if (deferSet.has(ch.type)) {
         deferredChannels.push(ch.type);
-        // Deferred channels are tracked in deliveries, but not result.skipped[].
         pendingSkips.push({ channel: ch.type, reason: "quiet_hours_deferred", details: "Deferred until quiet hours end" });
+        recordTimeline(deliverTlCtx, "quiet_hours.deferred", `Channel "${ch.type}" deferred until quiet hours end`, { channel: ch.type });
         continue;
       }
       if (!isChannelAllowed(ch.type)) {
@@ -1705,6 +1784,10 @@ export function createNotifyKit<
         const skipReason = resolvedByToSkipReason(entry?.resolvedBy);
         const skipDetails = entry?.reason;
         queueSkip(ch.type, skipReason, skipDetails);
+        recordTimeline(deliverTlCtx, "channel.skipped", `Channel "${ch.type}" skipped: ${skipDetails ?? skipReason}`, {
+          channel: ch.type,
+          metadata: { reason: skipReason, details: skipDetails },
+        });
         if (def.fallback && !isLegacyFallback(def.fallback)) {
           const trigger: FallbackTrigger =
             entry?.resolvedBy === "destination_unavailable"
@@ -1728,6 +1811,7 @@ export function createNotifyKit<
             : undefined,
         });
         inboxItems.push(item);
+        recordTimeline(deliverTlCtx, "inbox.created", `Inbox item created: "${item.title}"`, { channel: "inbox" });
         await runHook("inbox.created", { inboxItem: item });
         await publishRealtime(recipient.id, scope, {
           type: "inbox.created",
@@ -1740,6 +1824,7 @@ export function createNotifyKit<
         if (!recipient.email) {
           skippedChannels.push("email");
           queueSkip("email", "missing_address", "Recipient has no email address");
+          recordTimeline(deliverTlCtx, "channel.skipped", `Channel "email" skipped: recipient has no email address`, { channel: "email", metadata: { reason: "missing_address" } });
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "email" });
           }
@@ -1772,6 +1857,7 @@ export function createNotifyKit<
           body,
           attempts: 0,
         });
+        recordTimeline(deliverTlCtx, "delivery.created", `Email delivery created via ${provider.id}`, { deliveryId: delivery.id, channel: "email", provider: provider.id });
 
         const job: DeliveryJob = {
           deliveryId: delivery.id,
@@ -1821,6 +1907,7 @@ export function createNotifyKit<
           body: JSON.stringify(payload),
           attempts: 0,
         });
+        recordTimeline(deliverTlCtx, "delivery.created", `Webhook delivery created via ${provider.id}`, { deliveryId: delivery.id, channel: "webhook", provider: provider.id });
 
         const job: DeliveryJob = {
           deliveryId: delivery.id,
@@ -1845,6 +1932,7 @@ export function createNotifyKit<
         if (!recipient.phone) {
           skippedChannels.push("sms");
           queueSkip("sms", "missing_address", "Recipient has no phone number");
+          recordTimeline(deliverTlCtx, "channel.skipped", `Channel "sms" skipped: recipient has no phone number`, { channel: "sms", metadata: { reason: "missing_address" } });
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "sms" });
           }
@@ -1866,6 +1954,7 @@ export function createNotifyKit<
           body,
           attempts: 0,
         });
+        recordTimeline(deliverTlCtx, "delivery.created", `SMS delivery created via ${provider.id}`, { deliveryId: delivery.id, channel: "sms", provider: provider.id });
 
         const job: DeliveryJob = {
           deliveryId: delivery.id,
@@ -1918,6 +2007,10 @@ export function createNotifyKit<
         const rule = matchFallbackRules(def.fallback, pf.trigger, pf.fromChannel, attempted);
         if (!rule) continue;
         attempted.add(rule.then.type);
+        recordTimeline(deliverTlCtx, "fallback.triggered", `Fallback to "${rule.then.type}" triggered by "${pf.trigger}" on "${pf.fromChannel}"`, {
+          channel: rule.then.type,
+          metadata: { trigger: pf.trigger, fromChannel: pf.fromChannel },
+        });
         try {
           const result = await executeFallbackChannel(rule.then, fallbackCtx);
           if (result.inboxItem) inboxItems.push(result.inboxItem);
@@ -1942,10 +2035,23 @@ export function createNotifyKit<
   }
 
   async function processDeliveryJob(job: DeliveryJob): Promise<void> {
+    const jobTlCtx = {
+      notificationRecordId: job.notificationRecordId,
+      recipientId: job.recipientId,
+      tenantId: job.tenantId,
+      workspaceId: job.workspaceId,
+      notificationId: job.notificationId,
+    };
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
       if (attempt > 1) {
         const wait = retry.delayMs(attempt);
+        recordTimeline(jobTlCtx, "delivery.attempt", `Retry attempt ${attempt}/${retry.maxAttempts} (delay: ${wait}ms)`, {
+          deliveryId: job.deliveryId,
+          channel: job.channel,
+          provider: job.provider,
+          metadata: { attempt, maxAttempts: retry.maxAttempts, delayMs: wait },
+        });
         if (wait > 0) {
           await new Promise<void>((r) => setTimeout(r, wait));
         }
@@ -1988,6 +2094,19 @@ export function createNotifyKit<
           sentAt: new Date(),
           error: undefined,
         });
+        recordTimeline(jobTlCtx, "delivery.sent", `Delivery sent on attempt ${attempt}`, {
+          deliveryId: job.deliveryId,
+          channel: job.channel,
+          provider: job.provider,
+        });
+        if (result.providerMessageId) {
+          recordTimeline(jobTlCtx, "provider.message_id_stored", `Provider message ID: ${result.providerMessageId}`, {
+            deliveryId: job.deliveryId,
+            channel: job.channel,
+            provider: job.provider,
+            metadata: { providerMessageId: result.providerMessageId },
+          });
+        }
         try {
           if (updated) {
             const jobDef = byId.get(job.notificationId);
@@ -2004,6 +2123,12 @@ export function createNotifyKit<
         return;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        recordTimeline(jobTlCtx, "provider.error", `Provider error on attempt ${attempt}: ${lastError.message}`, {
+          deliveryId: job.deliveryId,
+          channel: job.channel,
+          provider: job.provider,
+          metadata: { attempt, error: lastError.message, permanent: !!(lastError as any).permanent },
+        });
         try {
           await database.deliveries.update(job.deliveryId, {
             attempts: attempt,
@@ -2018,6 +2143,12 @@ export function createNotifyKit<
     const failed = await database.deliveries.update(job.deliveryId, {
       status: "failed",
       failedAt: new Date(),
+    });
+    recordTimeline(jobTlCtx, "delivery.failed", `Delivery failed after ${retry.maxAttempts} attempt(s): ${lastError?.message ?? "unknown error"}`, {
+      deliveryId: job.deliveryId,
+      channel: job.channel,
+      provider: job.provider,
+      metadata: { attempts: retry.maxAttempts, error: lastError?.message },
     });
     const isFallbackDelivery = fallbackDeliveryIds.has(job.deliveryId);
     fallbackDeliveryIds.delete(job.deliveryId);
@@ -2038,6 +2169,12 @@ export function createNotifyKit<
 
     const def = byId.get(job.notificationId);
     if (def?.fallback) {
+      recordTimeline(jobTlCtx, "fallback.triggered", `Fallback triggered after "${job.channel}" delivery failed`, {
+        deliveryId: job.deliveryId,
+        channel: job.channel,
+        provider: job.provider,
+        metadata: { trigger: "channel.failed" },
+      });
       try {
         if (isLegacyFallback(def.fallback)) {
           const fallbackScope: SecurityScope = {
@@ -2500,6 +2637,12 @@ export function createNotifyKit<
       }
       if (!def.redact || def.redact.length === 0) return payload;
       return redactPayload(payload, def.redact);
+    },
+    async timeline(notificationRecordId, options) {
+      if (options?.deliveryId) {
+        return database.timeline.listByDeliveryId(options.deliveryId);
+      }
+      return database.timeline.listByNotificationRecordId(notificationRecordId);
     },
   };
 }
