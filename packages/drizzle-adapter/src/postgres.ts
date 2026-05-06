@@ -962,29 +962,32 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
 
     dedupe: {
       async check(input): Promise<{ duplicate: boolean }> {
-        const now = new Date();
-        const existing = await db
-          .select()
-          .from(dedupeRecords)
-          .where(eq(dedupeRecords.key, input.key))
-          .limit(1);
-        const row = existing[0];
-        if (row && row.expiresAt.getTime() > now.getTime()) {
-          return { duplicate: true };
-        }
-        if (row) {
-          await db.delete(dedupeRecords).where(eq(dedupeRecords.key, input.key));
-        }
-        await db.insert(dedupeRecords).values({
-          key: input.key,
-          recipientId: input.recipientId,
-          tenantId: input.tenantId ?? null,
-          workspaceId: input.workspaceId ?? null,
-          notificationId: input.notificationId,
-          expiresAt: new Date(now.getTime() + input.windowMs),
-          createdAt: now,
+        return db.transaction(async (tx) => {
+          const now = new Date();
+          const existing = await tx
+            .select()
+            .from(dedupeRecords)
+            .where(eq(dedupeRecords.key, input.key))
+            .for("update")
+            .limit(1);
+          const row = existing[0];
+          if (row && row.expiresAt.getTime() > now.getTime()) {
+            return { duplicate: true };
+          }
+          if (row) {
+            await tx.delete(dedupeRecords).where(eq(dedupeRecords.key, input.key));
+          }
+          await tx.insert(dedupeRecords).values({
+            key: input.key,
+            recipientId: input.recipientId,
+            tenantId: input.tenantId ?? null,
+            workspaceId: input.workspaceId ?? null,
+            notificationId: input.notificationId,
+            expiresAt: new Date(now.getTime() + input.windowMs),
+            createdAt: now,
+          });
+          return { duplicate: false };
         });
-        return { duplicate: false };
       },
       async prune(): Promise<void> {
         const now = new Date();
