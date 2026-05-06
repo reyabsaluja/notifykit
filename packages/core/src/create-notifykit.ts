@@ -119,6 +119,11 @@ export type CreateNotifyKitInput<
    * after this window, it is treated as a new send. Default: 24 hours.
    */
   idempotencyKeyTtlMs?: number;
+  /**
+   * Called when a timeline append fails. Defaults to `console.error`.
+   * Use this to route persistent timeline failures to your monitoring system.
+   */
+  onTimelineError?: (error: unknown) => void;
 };
 
 export type SendResult = {
@@ -352,6 +357,7 @@ export function createNotifyKit<
   const T extends readonly NotificationDefinition<string, PayloadSchema>[],
 >(config: CreateNotifyKitInput<T>): NotifyKit<T> {
   const { notifications, database, providers, on } = config;
+  const onTimelineError = config.onTimelineError ?? ((err: unknown) => console.error("[notifykit] timeline append error:", err));
   const queue = config.queue ?? inlineQueue();
   const retry: RetryPolicy = {
     maxAttempts: config.retry?.maxAttempts ?? defaultRetryPolicy.maxAttempts,
@@ -455,9 +461,7 @@ export function createNotifyKit<
       event,
       message,
       metadata: opts?.metadata,
-    }]).catch((err) => {
-      console.error("[notifykit] timeline append error:", err);
-    });
+    }]).catch(onTimelineError);
   }
 
   // Per-key serialization for idempotency checks. Prevents concurrent sends
