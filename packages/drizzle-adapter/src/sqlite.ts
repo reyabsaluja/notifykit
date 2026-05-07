@@ -1099,10 +1099,12 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
             timestamp: now,
           }));
           if (records.length > 0) {
+            const nrId = records[0]!.notificationRecordId;
             await db.transaction(async (tx) => {
               const maxRow = await tx
                 .select({ maxSeq: timelineEvents.seq })
                 .from(timelineEvents)
+                .where(eq(timelineEvents.notificationRecordId, nrId))
                 .orderBy(desc(timelineEvents.seq))
                 .limit(1);
               const baseSeq = maxRow.length > 0 ? maxRow[0]!.maxSeq + 1 : 0;

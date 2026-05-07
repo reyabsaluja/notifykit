@@ -27,6 +27,7 @@ export function rowToTimelineEvent(row: {
     notificationId: row.notificationId,
     channel: (row.channel ?? undefined) as TimelineEvent["channel"],
     provider: row.provider ?? undefined,
+    // Cast, not validate: allows forward-compatibility when newer writers add event types.
     event: row.event as TimelineEvent["event"],
     message: row.message,
     metadata: (row.metadata ?? undefined) as Record<string, unknown> | undefined,
