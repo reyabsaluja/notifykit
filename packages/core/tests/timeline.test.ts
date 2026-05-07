@@ -471,6 +471,43 @@ describe("timeline", () => {
     expect((errors[0] as Error).message).toBe("DB write failed");
   });
 
+  test("onTimelineError failures do not fail sends", async () => {
+    const db = memoryAdapter();
+    const emailProvider = fakeEmailProvider();
+    const originalConsoleError = console.error;
+    console.error = mock(() => {});
+    db.timeline.append = async () => {
+      throw new Error("DB write failed");
+    };
+    const def = notification({
+      id: "test",
+      payload: { msg: "string" },
+      channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: emailProvider },
+      onTimelineError: () => {
+        throw new Error("monitoring failed");
+      },
+    });
+    try {
+      await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+      const result = await notify.send({
+        recipientId: "u1",
+        notificationId: "test",
+        payload: { msg: "hi" },
+      });
+
+      expect(result.notification).toBeDefined();
+      expect(result.deliveries[0]?.status).toBe("sent");
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
   test("timeline events are still flushed on sendInner error", async () => {
     const db = memoryAdapter();
     const emailProvider = fakeEmailProvider();

@@ -489,14 +489,22 @@ export function createNotifyKit<
 
   const pendingTimelineWrites = new Set<Promise<void>>();
 
+  async function reportTimelineError(error: unknown): Promise<void> {
+    try {
+      await onTimelineError(error);
+    } catch (handlerError) {
+      console.error("[notifykit] onTimelineError handler error:", handlerError);
+    }
+  }
+
   async function flushTimeline(buffer: TimelineBuffer): Promise<void> {
     const batch = buffer.splice(0);
     if (batch.length === 0) return;
-    const p = timelineAdapter.append(batch).then(() => {}).catch(onTimelineError);
+    const p = timelineAdapter.append(batch).then(() => {}).catch(reportTimelineError);
     pendingTimelineWrites.add(p);
     try { await p; } finally { pendingTimelineWrites.delete(p); }
     if (timelineRetentionMs > 0 && Math.random() < 0.01) {
-      const pruneP = timelineAdapter.prune(new Date(Date.now() - timelineRetentionMs)).then(() => {}).catch(onTimelineError);
+      const pruneP = timelineAdapter.prune(new Date(Date.now() - timelineRetentionMs)).then(() => {}).catch(reportTimelineError);
       pendingTimelineWrites.add(pruneP);
       pruneP.finally(() => pendingTimelineWrites.delete(pruneP));
     }
