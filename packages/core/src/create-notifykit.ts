@@ -824,7 +824,14 @@ export function createNotifyKit<
               const age = Date.now() - existing.createdAt.getTime();
               if (age < ttl) {
                 const replay = await buildIdempotentReplay(existing);
-                if (replay) return replay;
+                if (replay) {
+                  recordTimeline(pending, {
+                    notificationRecordId: existing.id,
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                  }, "idempotent.replay", `Idempotent replay of notification ${existing.id}`);
+                  return replay;
+                }
               }
               await database.notifications.clearIdempotencyKey(existing.id);
               result = await withIdempotencyLock(lockKey, () => sendInner(pending, rawInput, compositeKey));
