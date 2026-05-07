@@ -2734,16 +2734,10 @@ export function createNotifyKit<
       return redactPayload(payload, def.redact);
     },
     async timeline(notificationRecordId, options) {
-      let events: TimelineEvent[];
       if (options?.deliveryId) {
-        events = await timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId);
-      } else {
-        events = await timelineAdapter.listByNotificationRecordId(notificationRecordId);
+        return timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId, options?.limit);
       }
-      if (options?.limit != null && options.limit < events.length) {
-        return events.slice(0, options.limit);
-      }
-      return events;
+      return timelineAdapter.listByNotificationRecordId(notificationRecordId, options?.limit);
     },
     async pruneTimeline(olderThan) {
       if (!olderThan && timelineRetentionMs === 0) return 0;

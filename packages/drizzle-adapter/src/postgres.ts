@@ -1073,22 +1073,26 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         }
         return records;
       },
-      async listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]> {
-        const rows = await db
+      async listByNotificationRecordId(notificationRecordId: string, limit?: number): Promise<TimelineEvent[]> {
+        let query = db
           .select()
           .from(timelineEvents)
           .where(eq(timelineEvents.notificationRecordId, notificationRecordId))
           .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
+        if (limit != null) query = query.limit(limit) as typeof query;
+        const rows = await query;
         return rows.map(rowToTimelineEvent);
       },
-      async listByDeliveryId(deliveryId: string, notificationRecordId?: string): Promise<TimelineEvent[]> {
+      async listByDeliveryId(deliveryId: string, notificationRecordId?: string, limit?: number): Promise<TimelineEvent[]> {
         const conditions = [eq(timelineEvents.deliveryId, deliveryId)];
         if (notificationRecordId) conditions.push(eq(timelineEvents.notificationRecordId, notificationRecordId));
-        const rows = await db
+        let query = db
           .select()
           .from(timelineEvents)
           .where(and(...conditions))
           .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
+        if (limit != null) query = query.limit(limit) as typeof query;
+        const rows = await query;
         return rows.map(rowToTimelineEvent);
       },
       async prune(olderThan: Date): Promise<number> {

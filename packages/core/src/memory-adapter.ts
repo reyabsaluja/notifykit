@@ -532,15 +532,17 @@ export function memoryAdapter(): MemoryAdapter {
         state.timelineEvents.push(...records);
         return records;
       },
-      async listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]> {
-        return state.timelineEvents
+      async listByNotificationRecordId(notificationRecordId: string, limit?: number): Promise<TimelineEvent[]> {
+        const sorted = state.timelineEvents
           .filter((e) => e.notificationRecordId === notificationRecordId)
           .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.seq - b.seq);
+        return limit != null ? sorted.slice(0, limit) : sorted;
       },
-      async listByDeliveryId(deliveryId: string, notificationRecordId?: string): Promise<TimelineEvent[]> {
-        return state.timelineEvents
+      async listByDeliveryId(deliveryId: string, notificationRecordId?: string, limit?: number): Promise<TimelineEvent[]> {
+        const sorted = state.timelineEvents
           .filter((e) => e.deliveryId === deliveryId && (!notificationRecordId || e.notificationRecordId === notificationRecordId))
           .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.seq - b.seq);
+        return limit != null ? sorted.slice(0, limit) : sorted;
       },
       async prune(olderThan: Date): Promise<number> {
         const cutoff = olderThan.getTime();

@@ -799,9 +799,9 @@ export type DatabaseAdapter = {
     /** Append one or more events. All events in a batch share a single timestamp. */
     append(events: Omit<TimelineEvent, "id" | "seq" | "timestamp">[]): Promise<TimelineEvent[]>;
     /** List events for a notification record, ordered chronologically. */
-    listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]>;
+    listByNotificationRecordId(notificationRecordId: string, limit?: number): Promise<TimelineEvent[]>;
     /** List events for a specific delivery, ordered chronologically. */
-    listByDeliveryId(deliveryId: string, notificationRecordId?: string): Promise<TimelineEvent[]>;
+    listByDeliveryId(deliveryId: string, notificationRecordId?: string, limit?: number): Promise<TimelineEvent[]>;
     /** Delete events older than the given date. Returns the number of deleted rows. */
     prune(olderThan: Date): Promise<number>;
   };
