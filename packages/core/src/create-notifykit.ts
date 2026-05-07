@@ -2118,6 +2118,10 @@ export function createNotifyKit<
     };
   }
 
+  function isPermanentError(err: Error): boolean {
+    return "permanent" in err && (err as Error & { permanent: unknown }).permanent === true;
+  }
+
   async function processDeliveryJob(job: DeliveryJob, parentBuffer?: TimelineBuffer): Promise<void> {
     const ownsBuffer = !parentBuffer;
     const jobPending: TimelineBuffer = parentBuffer ?? [];
@@ -2214,7 +2218,7 @@ export function createNotifyKit<
             deliveryId: job.deliveryId,
             channel: job.channel,
             provider: job.provider,
-            metadata: { attempt, error: lastError.message, permanent: !!(lastError as any).permanent },
+            metadata: { attempt, error: lastError.message, permanent: isPermanentError(lastError) },
           });
           try {
             await database.deliveries.update(job.deliveryId, {
@@ -2224,7 +2228,7 @@ export function createNotifyKit<
           } catch (updateErr) {
             console.error("[notifykit] delivery attempt update error:", updateErr);
           }
-          if ((lastError as any).permanent) break;
+          if (isPermanentError(lastError)) break;
         }
       }
       const failed = await database.deliveries.update(job.deliveryId, {
