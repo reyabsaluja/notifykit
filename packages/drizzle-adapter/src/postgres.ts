@@ -64,6 +64,15 @@ function preferenceScopeConditions(scope?: SecurityScope) {
   ];
 }
 
+function fnv1aHashToInt(str: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 type PgDb = PgDatabase<PgQueryResultHKT, any, any>;
 
 export type DrizzlePostgresAdapter = DatabaseAdapter & {
@@ -1030,13 +1039,14 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           timestamp: now,
         }));
         if (records.length > 0) {
-          // Lock key derived from fnv1a("notifykit_timeline_seq") to avoid collisions.
-          const TIMELINE_SEQ_LOCK = 3_217_891_453;
+          const nrId = records[0]!.notificationRecordId;
+          const lockKey = fnv1aHashToInt(nrId);
           await db.transaction(async (tx) => {
-            await tx.execute(sql`SELECT pg_advisory_xact_lock(${TIMELINE_SEQ_LOCK})`);
+            await tx.execute(sql`SELECT pg_advisory_xact_lock(${lockKey})`);
             const maxRow = await tx
               .select({ maxSeq: timelineEvents.seq })
               .from(timelineEvents)
+              .where(eq(timelineEvents.notificationRecordId, nrId))
               .orderBy(desc(timelineEvents.seq))
               .limit(1);
             const baseSeq = maxRow.length > 0 ? maxRow[0]!.maxSeq + 1 : 0;

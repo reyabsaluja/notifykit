@@ -1080,53 +1080,55 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
     },
     timeline: {
       async append(events): Promise<TimelineEvent[]> {
-        const now = new Date();
-        const records: TimelineEvent[] = events.map((e, i) => ({
-          id: createId("tl"),
-          seq: i,
-          notificationRecordId: e.notificationRecordId,
-          deliveryId: e.deliveryId,
-          recipientId: e.recipientId,
-          tenantId: e.tenantId,
-          workspaceId: e.workspaceId,
-          notificationId: e.notificationId,
-          channel: e.channel as TimelineEvent["channel"],
-          provider: e.provider,
-          event: e.event,
-          message: e.message,
-          metadata: e.metadata,
-          timestamp: now,
-        }));
-        if (records.length > 0) {
-          await db.transaction(async (tx) => {
-            const maxRow = await tx
-              .select({ maxSeq: timelineEvents.seq })
-              .from(timelineEvents)
-              .orderBy(desc(timelineEvents.seq))
-              .limit(1);
-            const baseSeq = maxRow.length > 0 ? maxRow[0]!.maxSeq + 1 : 0;
-            for (let i = 0; i < records.length; i++) records[i]!.seq = baseSeq + i;
-            await tx.insert(timelineEvents).values(
-              records.map((r) => ({
-                id: r.id,
-                seq: r.seq,
-                notificationRecordId: r.notificationRecordId,
-                deliveryId: r.deliveryId ?? null,
-                recipientId: r.recipientId,
-                tenantId: r.tenantId ?? null,
-                workspaceId: r.workspaceId ?? null,
-                notificationId: r.notificationId,
-                channel: r.channel ?? null,
-                provider: r.provider ?? null,
-                event: r.event,
-                message: r.message,
-                metadata: r.metadata ?? null,
-                timestamp: r.timestamp,
-              })),
-            );
-          });
-        }
-        return records;
+        return atomic(async () => {
+          const now = new Date();
+          const records: TimelineEvent[] = events.map((e, i) => ({
+            id: createId("tl"),
+            seq: i,
+            notificationRecordId: e.notificationRecordId,
+            deliveryId: e.deliveryId,
+            recipientId: e.recipientId,
+            tenantId: e.tenantId,
+            workspaceId: e.workspaceId,
+            notificationId: e.notificationId,
+            channel: e.channel as TimelineEvent["channel"],
+            provider: e.provider,
+            event: e.event,
+            message: e.message,
+            metadata: e.metadata,
+            timestamp: now,
+          }));
+          if (records.length > 0) {
+            await db.transaction(async (tx) => {
+              const maxRow = await tx
+                .select({ maxSeq: timelineEvents.seq })
+                .from(timelineEvents)
+                .orderBy(desc(timelineEvents.seq))
+                .limit(1);
+              const baseSeq = maxRow.length > 0 ? maxRow[0]!.maxSeq + 1 : 0;
+              for (let i = 0; i < records.length; i++) records[i]!.seq = baseSeq + i;
+              await tx.insert(timelineEvents).values(
+                records.map((r) => ({
+                  id: r.id,
+                  seq: r.seq,
+                  notificationRecordId: r.notificationRecordId,
+                  deliveryId: r.deliveryId ?? null,
+                  recipientId: r.recipientId,
+                  tenantId: r.tenantId ?? null,
+                  workspaceId: r.workspaceId ?? null,
+                  notificationId: r.notificationId,
+                  channel: r.channel ?? null,
+                  provider: r.provider ?? null,
+                  event: r.event,
+                  message: r.message,
+                  metadata: r.metadata ?? null,
+                  timestamp: r.timestamp,
+                })),
+              );
+            });
+          }
+          return records;
+        });
       },
       async listByNotificationRecordId(notificationRecordId: string): Promise<TimelineEvent[]> {
         const rows = await db

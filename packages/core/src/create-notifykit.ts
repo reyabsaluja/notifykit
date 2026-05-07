@@ -488,6 +488,7 @@ export function createNotifyKit<
   }
 
   const pendingTimelineWrites = new Set<Promise<void>>();
+  let pruneFailures = 0;
 
   async function reportTimelineError(error: unknown): Promise<void> {
     try {
@@ -503,10 +504,18 @@ export function createNotifyKit<
     const p = timelineAdapter.append(batch).then(() => {}).catch(reportTimelineError);
     pendingTimelineWrites.add(p);
     try { await p; } finally { pendingTimelineWrites.delete(p); }
-    if (timelineRetentionMs > 0 && Math.random() < 0.01) {
-      const pruneP = timelineAdapter.prune(new Date(Date.now() - timelineRetentionMs)).then(() => {}).catch(reportTimelineError);
-      pendingTimelineWrites.add(pruneP);
-      pruneP.finally(() => pendingTimelineWrites.delete(pruneP));
+    if (timelineRetentionMs > 0) {
+      const pruneProbability = pruneFailures >= 10 ? 1 : 0.01;
+      if (Math.random() < pruneProbability) {
+        const pruneP = timelineAdapter.prune(new Date(Date.now() - timelineRetentionMs))
+          .then(() => { pruneFailures = 0; })
+          .catch((err: unknown) => {
+            pruneFailures++;
+            return reportTimelineError(err);
+          });
+        pendingTimelineWrites.add(pruneP);
+        pruneP.finally(() => pendingTimelineWrites.delete(pruneP));
+      }
     }
   }
 
@@ -2654,6 +2663,9 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
+      // Bounded: a flush can spawn a pruneP (1 extra promise at most), so 10
+      // iterations is more than sufficient. Unbounded would risk infinite loops
+      // if a buggy adapter continuously adds promises.
       for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
         await Promise.all(Array.from(pendingTimelineWrites));
       }
@@ -2690,6 +2702,9 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
+      // Bounded: a flush can spawn a pruneP (1 extra promise at most), so 10
+      // iterations is more than sufficient. Unbounded would risk infinite loops
+      // if a buggy adapter continuously adds promises.
       for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
         await Promise.all(Array.from(pendingTimelineWrites));
       }
