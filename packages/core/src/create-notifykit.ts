@@ -490,7 +490,9 @@ export function createNotifyKit<
     pendingTimelineWrites.add(p);
     try { await p; } finally { pendingTimelineWrites.delete(p); }
     if (timelineRetentionMs > 0 && Math.random() < 0.01) {
-      timelineAdapter.prune(new Date(Date.now() - timelineRetentionMs)).catch(onTimelineError);
+      const pruneP = timelineAdapter.prune(new Date(Date.now() - timelineRetentionMs)).then(() => {}).catch(onTimelineError);
+      pendingTimelineWrites.add(pruneP);
+      pruneP.finally(() => pendingTimelineWrites.delete(pruneP));
     }
   }
 
