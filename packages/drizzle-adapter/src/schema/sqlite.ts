@@ -276,6 +276,7 @@ export const timelineEvents = sqliteTable(
       table.timestamp,
       table.seq,
     ),
+    timestampIdx: index("idx_notifykit_timeline_timestamp").on(table.timestamp),
   }),
 );
 
