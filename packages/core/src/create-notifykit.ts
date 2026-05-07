@@ -1554,7 +1554,8 @@ export function createNotifyKit<
     if (insideQueue) {
       await processDeliveryJob(job, parentBuffer);
     } else {
-      await queue.enqueue(job, (j) => processDeliveryJob(j, parentBuffer));
+      if (parentBuffer) await flushTimeline(parentBuffer);
+      await queue.enqueue(job, (j) => processDeliveryJob(j));
     }
   }
 
@@ -1930,7 +1931,8 @@ export function createNotifyKit<
           payload,
         };
 
-        await queue.enqueue(job, (j) => processDeliveryJob(j, pending));
+        await flushTimeline(pending);
+        await queue.enqueue(job, (j) => processDeliveryJob(j));
 
         // Re-read after enqueue so inline queues return final state; async
         // queues return "pending" here (callers use drain() + deliveries.list).
@@ -1979,7 +1981,8 @@ export function createNotifyKit<
           payload,
         };
 
-        await queue.enqueue(job, (j) => processDeliveryJob(j, pending));
+        await flushTimeline(pending);
+        await queue.enqueue(job, (j) => processDeliveryJob(j));
 
         const latest = await database.deliveries.findById(delivery.id);
         deliveries.push(latest ?? delivery);
@@ -2026,7 +2029,8 @@ export function createNotifyKit<
           payload,
         };
 
-        await queue.enqueue(job, (j) => processDeliveryJob(j, pending));
+        await flushTimeline(pending);
+        await queue.enqueue(job, (j) => processDeliveryJob(j));
 
         const latest = await database.deliveries.findById(delivery.id);
         deliveries.push(latest ?? delivery);
