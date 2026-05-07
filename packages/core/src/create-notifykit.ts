@@ -2723,6 +2723,7 @@ export function createNotifyKit<
       return events;
     },
     async pruneTimeline(olderThan) {
+      if (!olderThan && timelineRetentionMs === 0) return 0;
       const cutoff = olderThan ?? new Date(Date.now() - timelineRetentionMs);
       return timelineAdapter.prune(cutoff);
     },
