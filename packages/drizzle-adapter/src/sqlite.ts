@@ -1147,14 +1147,16 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
         return rows.map(rowToTimelineEvent);
       },
       async prune(olderThan: Date): Promise<number> {
-        const rows = await db
-          .select({ n: drizzleCount() })
-          .from(timelineEvents)
-          .where(lt(timelineEvents.timestamp, olderThan));
-        const n = rows[0]?.n ?? 0;
-        if (n === 0) return 0;
-        await db.delete(timelineEvents).where(lt(timelineEvents.timestamp, olderThan));
-        return n;
+        return await db.transaction(async (tx) => {
+          const rows = await tx
+            .select({ n: drizzleCount() })
+            .from(timelineEvents)
+            .where(lt(timelineEvents.timestamp, olderThan));
+          const n = rows[0]?.n ?? 0;
+          if (n === 0) return 0;
+          await tx.delete(timelineEvents).where(lt(timelineEvents.timestamp, olderThan));
+          return n;
+        });
       },
     },
   };
