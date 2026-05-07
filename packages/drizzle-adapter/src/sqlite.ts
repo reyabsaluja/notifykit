@@ -14,10 +14,11 @@ import type {
   ScheduledSend,
   SecurityScope,
   SkipReason,
+  TimelineEvent,
   UpsertRecipientInput,
 } from "notifykit";
 import { SKIP_REASONS, createId } from "notifykit";
-import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte } from "drizzle-orm";
+import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import {
@@ -30,7 +31,9 @@ import {
   rateLimitEvents,
   recipients,
   scheduledSends,
+  timelineEvents,
 } from "./schema/sqlite.js";
+import { rowToTimelineEvent } from "./timeline-utils.js";
 
 function scopeValue(value: string | undefined): string {
   return value ?? "";
@@ -104,6 +107,7 @@ export type DrizzleSqliteAdapter = DatabaseAdapter & {
     rateLimitEvents: typeof rateLimitEvents;
     scheduledSends: typeof scheduledSends;
     dedupeRecords: typeof dedupeRecords;
+    timelineEvents: typeof timelineEvents;
   };
 };
 
@@ -125,6 +129,7 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       rateLimitEvents,
       scheduledSends,
       dedupeRecords,
+      timelineEvents,
     },
 
     recipients: {
@@ -1071,6 +1076,93 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
       async prune(): Promise<void> {
         const now = new Date();
         await db.delete(dedupeRecords).where(lt(dedupeRecords.expiresAt, now));
+      },
+    },
+    timeline: {
+      async append(events): Promise<TimelineEvent[]> {
+        return atomic(async () => {
+          const now = new Date();
+          const records: TimelineEvent[] = events.map((e, i) => ({
+            id: createId("tl"),
+            seq: i,
+            notificationRecordId: e.notificationRecordId,
+            deliveryId: e.deliveryId,
+            recipientId: e.recipientId,
+            tenantId: e.tenantId,
+            workspaceId: e.workspaceId,
+            notificationId: e.notificationId,
+            channel: e.channel as TimelineEvent["channel"],
+            provider: e.provider,
+            event: e.event,
+            message: e.message,
+            metadata: e.metadata,
+            timestamp: now,
+          }));
+          if (records.length > 0) {
+            const nrId = records[0]!.notificationRecordId;
+            const maxRow = await db
+              .select({ maxSeq: timelineEvents.seq })
+              .from(timelineEvents)
+              .where(eq(timelineEvents.notificationRecordId, nrId))
+              .orderBy(desc(timelineEvents.seq))
+              .limit(1);
+            const baseSeq = maxRow.length > 0 ? maxRow[0]!.maxSeq + 1 : 0;
+            for (let i = 0; i < records.length; i++) records[i]!.seq = baseSeq + i;
+            await db.insert(timelineEvents).values(
+              records.map((r) => ({
+                id: r.id,
+                seq: r.seq,
+                notificationRecordId: r.notificationRecordId,
+                deliveryId: r.deliveryId ?? null,
+                recipientId: r.recipientId,
+                tenantId: r.tenantId ?? null,
+                workspaceId: r.workspaceId ?? null,
+                notificationId: r.notificationId,
+                channel: r.channel ?? null,
+                provider: r.provider ?? null,
+                event: r.event,
+                message: r.message,
+                metadata: r.metadata ?? null,
+                timestamp: r.timestamp,
+              })),
+            );
+          }
+          return records;
+        });
+      },
+      async listByNotificationRecordId(notificationRecordId: string, limit?: number): Promise<TimelineEvent[]> {
+        let query = db
+          .select()
+          .from(timelineEvents)
+          .where(eq(timelineEvents.notificationRecordId, notificationRecordId))
+          .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
+        if (limit != null) query = query.limit(limit) as typeof query;
+        const rows = await query;
+        return rows.map(rowToTimelineEvent);
+      },
+      async listByDeliveryId(deliveryId: string, notificationRecordId?: string, limit?: number): Promise<TimelineEvent[]> {
+        const conditions = [eq(timelineEvents.deliveryId, deliveryId)];
+        if (notificationRecordId) conditions.push(eq(timelineEvents.notificationRecordId, notificationRecordId));
+        let query = db
+          .select()
+          .from(timelineEvents)
+          .where(and(...conditions))
+          .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
+        if (limit != null) query = query.limit(limit) as typeof query;
+        const rows = await query;
+        return rows.map(rowToTimelineEvent);
+      },
+      async prune(olderThan: Date): Promise<number> {
+        return await db.transaction(async (tx) => {
+          const rows = await tx
+            .select({ n: drizzleCount() })
+            .from(timelineEvents)
+            .where(lt(timelineEvents.timestamp, olderThan));
+          const n = rows[0]?.n ?? 0;
+          if (n === 0) return 0;
+          await tx.delete(timelineEvents).where(lt(timelineEvents.timestamp, olderThan));
+          return n;
+        });
       },
     },
   };

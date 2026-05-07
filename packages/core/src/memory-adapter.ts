@@ -13,6 +13,7 @@ import type {
   RecipientPreference,
   ScheduledSend,
   SecurityScope,
+  TimelineEvent,
   UpsertRecipientInput,
 } from "./types.js";
 import { createId } from "./utils.js";
@@ -28,6 +29,7 @@ export type MemoryAdapter = DatabaseAdapter & {
     rateLimits: RateLimitEvent[];
     scheduledSends: ScheduledSend[];
     dedupeRecords: DedupeRecord[];
+    timelineEvents: TimelineEvent[];
   };
 };
 
@@ -42,7 +44,9 @@ export function memoryAdapter(): MemoryAdapter {
     rateLimits: [] as RateLimitEvent[],
     scheduledSends: [] as ScheduledSend[],
     dedupeRecords: [] as DedupeRecord[],
+    timelineEvents: [] as TimelineEvent[],
   };
+  let timelineSeqCounter = 0;
 
   function matchesScope(record: SecurityScope, scope?: SecurityScope): boolean {
     if (!scope) return true;
@@ -502,6 +506,49 @@ export function memoryAdapter(): MemoryAdapter {
       },
       async list(): Promise<ScheduledSend[]> {
         return state.scheduledSends.map((s) => ({ ...s }));
+      },
+    },
+    timeline: {
+      async append(events): Promise<TimelineEvent[]> {
+        const now = new Date();
+        const baseSeq = timelineSeqCounter;
+        timelineSeqCounter += events.length;
+        const records: TimelineEvent[] = events.map((e, i) => ({
+          id: createId("tl"),
+          seq: baseSeq + i,
+          notificationRecordId: e.notificationRecordId,
+          deliveryId: e.deliveryId,
+          recipientId: e.recipientId,
+          tenantId: e.tenantId,
+          workspaceId: e.workspaceId,
+          notificationId: e.notificationId,
+          channel: e.channel,
+          provider: e.provider,
+          event: e.event,
+          message: e.message,
+          metadata: e.metadata,
+          timestamp: now,
+        }));
+        state.timelineEvents.push(...records);
+        return records;
+      },
+      async listByNotificationRecordId(notificationRecordId: string, limit?: number): Promise<TimelineEvent[]> {
+        const sorted = state.timelineEvents
+          .filter((e) => e.notificationRecordId === notificationRecordId)
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.seq - b.seq);
+        return limit != null ? sorted.slice(0, limit) : sorted;
+      },
+      async listByDeliveryId(deliveryId: string, notificationRecordId?: string, limit?: number): Promise<TimelineEvent[]> {
+        const sorted = state.timelineEvents
+          .filter((e) => e.deliveryId === deliveryId && (!notificationRecordId || e.notificationRecordId === notificationRecordId))
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || a.seq - b.seq);
+        return limit != null ? sorted.slice(0, limit) : sorted;
+      },
+      async prune(olderThan: Date): Promise<number> {
+        const cutoff = olderThan.getTime();
+        const before = state.timelineEvents.length;
+        state.timelineEvents = state.timelineEvents.filter((e) => e.timestamp.getTime() >= cutoff);
+        return before - state.timelineEvents.length;
       },
     },
     dedupe: {

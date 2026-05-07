@@ -13,6 +13,7 @@ export {
   rateLimitEvents,
   recipients,
   scheduledSends,
+  timelineEvents,
   type NotifyKitSqliteSchema,
 } from "./schema/sqlite.js";
 
@@ -31,5 +32,6 @@ export {
   rateLimitEvents as pgRateLimitEvents,
   recipients as pgRecipients,
   scheduledSends as pgScheduledSends,
+  timelineEvents as pgTimelineEvents,
   type NotifyKitPgSchema,
 } from "./schema/postgres.js";

@@ -244,6 +244,37 @@ export const dedupeRecords = pgTable(
   }),
 );
 
+export const timelineEvents = pgTable(
+  "notifykit_timeline_events",
+  {
+    id: text("id").primaryKey(),
+    seq: integer("seq").notNull(),
+    notificationRecordId: text("notification_record_id").notNull(),
+    deliveryId: text("delivery_id"),
+    recipientId: text("recipient_id").notNull(),
+    tenantId: text("tenant_id"),
+    workspaceId: text("workspace_id"),
+    notificationId: text("notification_id").notNull(),
+    channel: text("channel"),
+    provider: text("provider"),
+    event: text("event").notNull(),
+    message: text("message").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    timestamp: timestamp("timestamp", { withTimezone: true, mode: "date" }).notNull(),
+  },
+  (table) => ({
+    notificationRecordIdx: index("idx_notifykit_timeline_notification_record").on(
+      table.notificationRecordId,
+      table.timestamp,
+      table.seq,
+    ),
+    deliveryIdx: index("idx_notifykit_timeline_delivery")
+      .on(table.deliveryId, table.timestamp, table.seq)
+      .where(sql`delivery_id IS NOT NULL`),
+    timestampIdx: index("idx_notifykit_timeline_timestamp").on(table.timestamp),
+  }),
+);
+
 export const notifyKitPgSchema = {
   recipients,
   notifications,
@@ -254,6 +285,7 @@ export const notifyKitPgSchema = {
   rateLimitEvents,
   scheduledSends,
   dedupeRecords,
+  timelineEvents,
 };
 
 export type NotifyKitPgSchema = typeof notifyKitPgSchema;

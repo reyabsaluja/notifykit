@@ -418,6 +418,46 @@ export type DigestBufferEntry = {
   updatedAt: Date;
 };
 
+export const TIMELINE_EVENT_TYPES = [
+  "payload.validated",
+  "recipient.resolved",
+  "preferences.resolved",
+  "idempotent.replay",
+  "deduplicated",
+  "rate_limited",
+  "quiet_hours.deferred",
+  "inbox.created",
+  "delivery.created",
+  "delivery.attempt",
+  "delivery.sent",
+  "delivery.failed",
+  "provider.message_id_stored",
+  "provider.error",
+  "fallback.triggered",
+  "channel.skipped",
+  "notification.suppressed",
+] as const;
+
+export type TimelineEventType = (typeof TIMELINE_EVENT_TYPES)[number];
+
+export type TimelineEvent = {
+  id: string;
+  /** Monotonic insertion order within a batch. Breaks ties when multiple events share a timestamp. */
+  seq: number;
+  notificationRecordId: string;
+  deliveryId?: string;
+  recipientId: string;
+  tenantId?: string;
+  workspaceId?: string;
+  notificationId: string;
+  channel?: ChannelType;
+  provider?: string;
+  event: TimelineEventType;
+  message: string;
+  metadata?: Record<string, unknown>;
+  timestamp: Date;
+};
+
 export const SKIP_REASONS = [
   "preferences_disabled",
   "required_override",
@@ -754,6 +794,16 @@ export type DatabaseAdapter = {
     exists(key: string): Promise<boolean>;
     /** Remove expired entries. Called opportunistically. */
     prune(): Promise<void>;
+  };
+  timeline?: {
+    /** Append one or more events. All events in a batch share a single timestamp. */
+    append(events: Omit<TimelineEvent, "id" | "seq" | "timestamp">[]): Promise<TimelineEvent[]>;
+    /** List events for a notification record, ordered chronologically. */
+    listByNotificationRecordId(notificationRecordId: string, limit?: number): Promise<TimelineEvent[]>;
+    /** List events for a specific delivery, ordered chronologically. */
+    listByDeliveryId(deliveryId: string, notificationRecordId?: string, limit?: number): Promise<TimelineEvent[]>;
+    /** Delete events older than the given date. Returns the number of deleted rows. */
+    prune(olderThan: Date): Promise<number>;
   };
 };
 

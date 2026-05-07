@@ -40,7 +40,7 @@ export {
   validateConfig,
   formatValidationIssues,
 } from "./validate.js";
-export { SKIP_REASONS } from "./types.js";
+export { SKIP_REASONS, TIMELINE_EVENT_TYPES } from "./types.js";
 
 export type {
   Authorize,
@@ -158,6 +158,8 @@ export type {
   SkippedDelivery,
   SmsChannelConfig,
   SmsProvider,
+  TimelineEvent,
+  TimelineEventType,
   UpdatePreferenceInput,
   UpsertRecipientInput,
   WebhookChannelConfig,

@@ -14,6 +14,7 @@ import type {
   ScheduledSend,
   SecurityScope,
   SkipReason,
+  TimelineEvent,
   UpsertRecipientInput,
 } from "notifykit";
 import { SKIP_REASONS, createId } from "notifykit";
@@ -30,7 +31,9 @@ import {
   rateLimitEvents,
   recipients,
   scheduledSends,
+  timelineEvents,
 } from "./schema/postgres.js";
+import { rowToTimelineEvent } from "./timeline-utils.js";
 
 function scopeValue(value: string | undefined): string {
   return value ?? "";
@@ -61,6 +64,17 @@ function preferenceScopeConditions(scope?: SecurityScope) {
   ];
 }
 
+// 32-bit hash for pg_advisory_xact_lock; collisions serialize unrelated
+// appends but don't affect correctness — acceptable below ~65K concurrent IDs.
+function fnv1aHashToInt(str: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 type PgDb = PgDatabase<PgQueryResultHKT, any, any>;
 
 export type DrizzlePostgresAdapter = DatabaseAdapter & {
@@ -74,6 +88,7 @@ export type DrizzlePostgresAdapter = DatabaseAdapter & {
     rateLimitEvents: typeof rateLimitEvents;
     scheduledSends: typeof scheduledSends;
     dedupeRecords: typeof dedupeRecords;
+    timelineEvents: typeof timelineEvents;
   };
 };
 
@@ -89,6 +104,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
       rateLimitEvents,
       scheduledSends,
       dedupeRecords,
+      timelineEvents,
     },
 
     recipients: {
@@ -1003,6 +1019,93 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
       async prune(): Promise<void> {
         const now = new Date();
         await db.delete(dedupeRecords).where(lt(dedupeRecords.expiresAt, now));
+      },
+    },
+    timeline: {
+      async append(events): Promise<TimelineEvent[]> {
+        const now = new Date();
+        const records: TimelineEvent[] = events.map((e, i) => ({
+          id: createId("tl"),
+          seq: i,
+          notificationRecordId: e.notificationRecordId,
+          deliveryId: e.deliveryId,
+          recipientId: e.recipientId,
+          tenantId: e.tenantId,
+          workspaceId: e.workspaceId,
+          notificationId: e.notificationId,
+          channel: e.channel as TimelineEvent["channel"],
+          provider: e.provider,
+          event: e.event,
+          message: e.message,
+          metadata: e.metadata,
+          timestamp: now,
+        }));
+        if (records.length > 0) {
+          const nrId = records[0]!.notificationRecordId;
+          const lockKey = fnv1aHashToInt(nrId);
+          await db.transaction(async (tx) => {
+            await tx.execute(sql`SELECT pg_advisory_xact_lock(${lockKey})`);
+            const maxRow = await tx
+              .select({ maxSeq: timelineEvents.seq })
+              .from(timelineEvents)
+              .where(eq(timelineEvents.notificationRecordId, nrId))
+              .orderBy(desc(timelineEvents.seq))
+              .limit(1);
+            const baseSeq = maxRow.length > 0 ? maxRow[0]!.maxSeq + 1 : 0;
+            for (let i = 0; i < records.length; i++) records[i]!.seq = baseSeq + i;
+            await tx.insert(timelineEvents).values(
+              records.map((r) => ({
+                id: r.id,
+                seq: r.seq,
+                notificationRecordId: r.notificationRecordId,
+                deliveryId: r.deliveryId ?? null,
+                recipientId: r.recipientId,
+                tenantId: r.tenantId ?? null,
+                workspaceId: r.workspaceId ?? null,
+                notificationId: r.notificationId,
+                channel: r.channel ?? null,
+                provider: r.provider ?? null,
+                event: r.event,
+                message: r.message,
+                metadata: r.metadata ?? null,
+                timestamp: r.timestamp,
+              })),
+            );
+          });
+        }
+        return records;
+      },
+      async listByNotificationRecordId(notificationRecordId: string, limit?: number): Promise<TimelineEvent[]> {
+        let query = db
+          .select()
+          .from(timelineEvents)
+          .where(eq(timelineEvents.notificationRecordId, notificationRecordId))
+          .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
+        if (limit != null) query = query.limit(limit) as typeof query;
+        const rows = await query;
+        return rows.map(rowToTimelineEvent);
+      },
+      async listByDeliveryId(deliveryId: string, notificationRecordId?: string, limit?: number): Promise<TimelineEvent[]> {
+        const conditions = [eq(timelineEvents.deliveryId, deliveryId)];
+        if (notificationRecordId) conditions.push(eq(timelineEvents.notificationRecordId, notificationRecordId));
+        let query = db
+          .select()
+          .from(timelineEvents)
+          .where(and(...conditions))
+          .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
+        if (limit != null) query = query.limit(limit) as typeof query;
+        const rows = await query;
+        return rows.map(rowToTimelineEvent);
+      },
+      async prune(olderThan: Date): Promise<number> {
+        const rows = await db
+          .select({ n: drizzleCount() })
+          .from(timelineEvents)
+          .where(lt(timelineEvents.timestamp, olderThan));
+        const n = rows[0]?.n ?? 0;
+        if (n === 0) return 0;
+        await db.delete(timelineEvents).where(lt(timelineEvents.timestamp, olderThan));
+        return n;
       },
     },
   };

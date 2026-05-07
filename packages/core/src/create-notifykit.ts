@@ -33,6 +33,8 @@ import type {
   SkipReason,
   SkippedDelivery,
   SmsProvider,
+  TimelineEvent,
+  TimelineEventType,
   UpdatePreferenceInput,
   UpsertRecipientInput,
   WebhookProvider,
@@ -117,6 +119,16 @@ export type CreateNotifyKitInput<
    * after this window, it is treated as a new send. Default: 24 hours.
    */
   idempotencyKeyTtlMs?: number;
+  /**
+   * Called when a timeline append fails. Defaults to `console.error`.
+   * Use this to route persistent timeline failures to your monitoring system.
+   */
+  onTimelineError?: (error: unknown) => void;
+  /**
+   * How long to retain timeline events. Events older than this are pruned
+   * opportunistically during flush. Default: 7 days. Set to `0` to disable.
+   */
+  timelineRetentionMs?: number;
 };
 
 export type SendResult = {
@@ -330,6 +342,21 @@ export type NotifyKit<
     payload: Record<string, unknown>,
   ): Record<string, unknown>;
   /**
+   * Retrieve the debug timeline for a notification. Returns lifecycle events
+   * in chronological order showing every decision, side effect, and provider
+   * interaction. Optionally filter to a specific delivery. Default limit: 1000.
+   */
+  timeline(
+    notificationRecordId: string,
+    options?: { deliveryId?: string; limit?: number },
+  ): Promise<TimelineEvent[]>;
+  /**
+   * Manually prune timeline events older than the configured retention period
+   * (or a custom cutoff). Returns the number of deleted events. Useful when
+   * `timelineRetentionMs` is set to `0` (automatic pruning disabled).
+   */
+  pruneTimeline(olderThan?: Date): Promise<number>;
+  /**
    * The realtime adapter passed to `createNotifyKit`, or `undefined` if none
    * was provided. Exposed so handlers and transports can subscribe clients;
    * core inbox mutations publish their own realtime events.
@@ -341,6 +368,16 @@ export function createNotifyKit<
   const T extends readonly NotificationDefinition<string, PayloadSchema>[],
 >(config: CreateNotifyKitInput<T>): NotifyKit<T> {
   const { notifications, database, providers, on } = config;
+  const onTimelineError = config.onTimelineError ?? ((err: unknown) => {
+    console.error("[notifykit] timeline append error:", err);
+  });
+  const timelineRetentionMs = config.timelineRetentionMs ?? 7 * 24 * 60 * 60 * 1000;
+  const timelineAdapter = database.timeline ?? {
+    async append() { return []; },
+    async listByNotificationRecordId() { return []; },
+    async listByDeliveryId() { return []; },
+    async prune() { return 0; },
+  };
   const queue = config.queue ?? inlineQueue();
   const retry: RetryPolicy = {
     maxAttempts: config.retry?.maxAttempts ?? defaultRetryPolicy.maxAttempts,
@@ -417,6 +454,83 @@ export function createNotifyKit<
       throw err instanceof Error
         ? err
         : new Error(`Hook "${String(name)}" threw a non-error value.`);
+    }
+  }
+
+  type TimelineBuffer = Omit<TimelineEvent, "id" | "seq" | "timestamp">[];
+
+  function recordTimeline(
+    buffer: TimelineBuffer,
+    ctx: {
+      notificationRecordId: string;
+      recipientId: string;
+      tenantId?: string;
+      workspaceId?: string;
+      notificationId: string;
+    },
+    event: TimelineEventType,
+    message: string,
+    opts?: { deliveryId?: string; channel?: ChannelType; provider?: string; metadata?: Record<string, unknown> },
+  ): void {
+    buffer.push({
+      notificationRecordId: ctx.notificationRecordId,
+      deliveryId: opts?.deliveryId,
+      recipientId: ctx.recipientId,
+      tenantId: ctx.tenantId,
+      workspaceId: ctx.workspaceId,
+      notificationId: ctx.notificationId,
+      channel: opts?.channel,
+      provider: opts?.provider,
+      event,
+      message,
+      metadata: opts?.metadata,
+    });
+  }
+
+  const pendingTimelineWrites = new Set<Promise<void>>();
+  let pruneFailures = 0;
+  let lastPruneAttemptMs = 0;
+
+  async function reportTimelineError(error: unknown): Promise<void> {
+    try {
+      await onTimelineError(error);
+    } catch (handlerError) {
+      console.error("[notifykit] onTimelineError handler error:", handlerError);
+    }
+  }
+
+  async function flushTimeline(buffer: TimelineBuffer): Promise<void> {
+    const batch = buffer.splice(0);
+    if (batch.length === 0) return;
+    const p = timelineAdapter.append(batch).then(() => {}).catch(reportTimelineError);
+    pendingTimelineWrites.add(p);
+    try { await p; } finally { pendingTimelineWrites.delete(p); }
+    if (timelineRetentionMs > 0) {
+      const now = Date.now();
+      const backoffMs = pruneFailures >= 10 ? 60_000 : 0;
+      if (now - lastPruneAttemptMs >= backoffMs) {
+        const pruneProbability = pruneFailures >= 10 ? 1 : 0.01;
+        if (Math.random() < pruneProbability) {
+          lastPruneAttemptMs = now;
+          const pruneP = timelineAdapter.prune(new Date(now - timelineRetentionMs))
+            .then(() => { pruneFailures = 0; })
+            .catch((err: unknown) => {
+              pruneFailures++;
+              return reportTimelineError(err);
+            });
+          pendingTimelineWrites.add(pruneP);
+          pruneP.finally(() => pendingTimelineWrites.delete(pruneP));
+        }
+      }
+    }
+  }
+
+  async function drainPendingTimelineWrites(): Promise<void> {
+    // Cap iterations: a completing write can spawn a prune, which may itself
+    // resolve and remove itself, so we re-check. 10 rounds is generous; if
+    // writes still remain, they are in-flight prunes we can safely orphan.
+    for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
+      await Promise.all(Array.from(pendingTimelineWrites));
     }
   }
 
@@ -724,42 +838,60 @@ export function createNotifyKit<
 
   async function send(rawInput: SendInput<T>): Promise<SendResult> {
     const input = rawInput as { notificationId: string; recipientId: string; idempotencyKey?: string };
-    if (input.idempotencyKey) {
-      if (input.idempotencyKey.length > 256) {
-        throw new NotifyKitError(
-          "idempotencyKey must be 256 characters or fewer.",
-          {
-            code: "INVALID_INPUT",
-            field: "idempotencyKey",
-            fix: "Shorten the idempotencyKey to 256 characters or fewer.",
-          },
-        );
-      }
-      const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
-      const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
-      try {
-        return await withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
-      } catch (err) {
-        if (isIdempotencyKeyConstraintError(err) || isUniqueConstraintError(err)) {
-          const existing = await database.notifications.findByIdempotencyKey(compositeKey);
-          if (existing) {
-            const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
-            const age = Date.now() - existing.createdAt.getTime();
-            if (age < ttl) {
-              const replay = await buildIdempotentReplay(existing);
-              if (replay) return replay;
+    const pending: TimelineBuffer = [];
+    try {
+      let result: SendResult;
+      if (input.idempotencyKey) {
+        if (input.idempotencyKey.length > 256) {
+          throw new NotifyKitError(
+            "idempotencyKey must be 256 characters or fewer.",
+            {
+              code: "INVALID_INPUT",
+              field: "idempotencyKey",
+              fix: "Shorten the idempotencyKey to 256 characters or fewer.",
+            },
+          );
+        }
+        const lockKey = `${input.notificationId}:${input.recipientId}:${input.idempotencyKey}`;
+        const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
+        try {
+          result = await withIdempotencyLock(lockKey, () => sendInner(pending, rawInput, compositeKey));
+        } catch (err) {
+          if (isIdempotencyKeyConstraintError(err) || isUniqueConstraintError(err)) {
+            const existing = await database.notifications.findByIdempotencyKey(compositeKey);
+            if (existing) {
+              const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
+              const age = Date.now() - existing.createdAt.getTime();
+              if (age < ttl) {
+                const replay = await buildIdempotentReplay(existing);
+                if (replay) {
+                  recordTimeline(pending, {
+                    notificationRecordId: existing.id,
+                    recipientId: input.recipientId,
+                    notificationId: input.notificationId,
+                  }, "idempotent.replay", `Idempotent replay of notification ${existing.id}`);
+                  return replay;
+                }
+              }
+              await database.notifications.clearIdempotencyKey(existing.id);
+              result = await withIdempotencyLock(lockKey, () => sendInner(pending, rawInput, compositeKey));
+            } else {
+              throw err;
             }
-            await database.notifications.clearIdempotencyKey(existing.id);
-            return withIdempotencyLock(lockKey, () => sendInner(rawInput, compositeKey));
+          } else {
+            throw err;
           }
         }
-        throw err;
+      } else {
+        result = await sendInner(pending, rawInput);
       }
+      return result;
+    } finally {
+      await flushTimeline(pending);
     }
-    return sendInner(rawInput);
   }
 
-  async function sendInner(rawInput: SendInput<T>, preComputedCompositeKey?: string): Promise<SendResult> {
+  async function sendInner(pending: TimelineBuffer, rawInput: SendInput<T>, preComputedCompositeKey?: string): Promise<SendResult> {
     const input = rawInput as {
       recipientId: string;
       tenantId?: string;
@@ -819,6 +951,13 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
+    const tlCtx = {
+      recipientId: recipient.id,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      notificationId: def.id,
+    };
+
     const compositeIdempotencyKey = preComputedCompositeKey ?? (input.idempotencyKey
       ? idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId)
       : undefined);
@@ -831,7 +970,10 @@ export function createNotifyKit<
         const age = Date.now() - existing.createdAt.getTime();
         if (age < ttl) {
           const replay = await buildIdempotentReplay(existing);
-          if (replay) return replay;
+          if (replay) {
+            recordTimeline(pending, { ...tlCtx, notificationRecordId: existing.id }, "idempotent.replay", `Idempotent replay of notification ${existing.id}`);
+            return replay;
+          }
         }
         await database.notifications.clearIdempotencyKey(existing.id);
       }
@@ -892,6 +1034,9 @@ export function createNotifyKit<
         const { notificationRecord, skippedRecords } = await createSkippedNotification({
           recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
         });
+        recordTimeline(pending, { ...tlCtx, notificationRecordId: notificationRecord.id }, "deduplicated", `Duplicate send blocked: key "${input.dedupeKey}" within ${input.dedupeWindowMs}ms window`, {
+          metadata: { dedupeKey: input.dedupeKey, windowMs: input.dedupeWindowMs },
+        });
         await runHook("notification.deduplicated", {
           notificationId: def.id,
           recipientId: recipient.id,
@@ -939,6 +1084,11 @@ export function createNotifyKit<
       const { notificationRecord, skippedRecords } = await createSkippedNotification({
         recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
       });
+      const suppressCtx = { ...tlCtx, notificationRecordId: notificationRecord.id };
+      recordTimeline(pending, suppressCtx, "preferences.resolved", `All channels disabled by preferences`);
+      recordTimeline(pending, suppressCtx, "notification.suppressed", `Notification suppressed: no deliverable channels`, {
+        metadata: { skippedChannels },
+      });
       await runHook("notification.suppressed", {
         notificationId: def.id,
         recipientId: recipient.id,
@@ -983,6 +1133,9 @@ export function createNotifyKit<
         }));
         const { notificationRecord, skippedRecords } = await createSkippedNotification({
           recipient, scope, def, payload, skipped, idempotencyKey: compositeIdempotencyKey,
+        });
+        recordTimeline(pending, { ...tlCtx, notificationRecordId: notificationRecord.id }, "rate_limited", `Rate limit exceeded: ${limit.max} per ${limit.windowMs}ms`, {
+          metadata: { max: limit.max, windowMs: limit.windowMs, scope: rateLimitScope },
         });
         await runHook("notification.rate_limited", {
           notificationId: def.id,
@@ -1075,7 +1228,7 @@ export function createNotifyKit<
     }
 
     if (deferChannels.length > 0) {
-      const result = await deliver(recipient, def, payload, { deferChannels, scope, prefResult, idempotencyKey: compositeIdempotencyKey });
+      const result = await deliver(pending, recipient, def, payload, { deferChannels, scope, prefResult, idempotencyKey: compositeIdempotencyKey });
       const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
       const record = await database.scheduledSends.create({
         recipientId: recipient.id,
@@ -1091,7 +1244,7 @@ export function createNotifyKit<
       return result;
     }
 
-    return deliver(recipient, def, payload, { scope, prefResult, idempotencyKey: compositeIdempotencyKey });
+    return deliver(pending, recipient, def, payload, { scope, prefResult, idempotencyKey: compositeIdempotencyKey });
   }
 
   async function explain(rawInput: SendInput<T>): Promise<DeliveryExplanation> {
@@ -1241,54 +1394,46 @@ export function createNotifyKit<
     // around until we confirm delivery succeeded.
     const record = await database.scheduledSends.claim(id);
     if (!record) return;
+    const def = byId.get(record.notificationId);
+    if (!def) {
+      await database.scheduledSends.complete(id);
+      return;
+    }
+    const recipient = await database.recipients.findById(record.recipientId);
+    if (!recipient) {
+      await database.scheduledSends.complete(id);
+      return;
+    }
+    const scope = resolveScope(record, recipient);
+    const payload = def.validate
+      ? record.payload
+      : validatePayload(def.payload, record.payload, def.id);
+    const existingNotification = record.notificationRecordId
+      ? {
+          id: record.notificationRecordId,
+          recipientId: record.recipientId,
+          tenantId: record.tenantId,
+          workspaceId: record.workspaceId,
+          notificationId: record.notificationId,
+          payload,
+          createdAt: record.createdAt,
+        }
+      : undefined;
+    const scheduledPending: TimelineBuffer = [];
     try {
-      const def = byId.get(record.notificationId);
-      if (!def) {
-        // Definition was removed since the row was created. There's nothing
-        // we can deliver, so complete the row to stop it from blocking
-        // future sweeps.
-        await database.scheduledSends.complete(id);
-        return;
-      }
-      const recipient = await database.recipients.findById(record.recipientId);
-      if (!recipient) {
-        // Recipient no longer exists. Same reasoning — complete to drop.
-        await database.scheduledSends.complete(id);
-        return;
-      }
-      const scope = resolveScope(record, recipient);
-      // The payload was already validated (and potentially transformed) by
-      // send() before being stored. Re-running a custom validator could apply
-      // a non-idempotent transform a second time, and custom validators may
-      // deliberately accept a different input shape than the primitive schema.
-      const payload = def.validate
-        ? record.payload
-        : validatePayload(def.payload, record.payload, def.id);
-      const existingNotification = record.notificationRecordId
-        ? {
-            id: record.notificationRecordId,
-            recipientId: record.recipientId,
-            tenantId: record.tenantId,
-            workspaceId: record.workspaceId,
-            notificationId: record.notificationId,
-            payload,
-            createdAt: record.createdAt,
-          }
-        : undefined;
-      await deliver(recipient, def, payload, {
+      await deliver(scheduledPending, recipient, def, payload, {
         onlyChannels: ["email", "webhook", "sms"],
         scope,
         existingNotification,
       });
-      // Only delete after delivery has been enqueued/completed successfully.
       await database.scheduledSends.complete(id);
     } catch (err) {
-      // Something blew up after the claim. Release so a retry sweep can pick
-      // the row up again — we do NOT want silent data loss.
       await database.scheduledSends.release(id).catch((releaseErr) => {
         console.error("[notifykit] scheduled send release failed:", releaseErr);
       });
       throw err;
+    } finally {
+      await flushTimeline(scheduledPending);
     }
   }
 
@@ -1358,24 +1503,29 @@ export function createNotifyKit<
         }
       }
 
-      if (deferChannels.length > 0) {
-        const result = await deliver(recipient, def, validated, { deferChannels, scope, prefResult });
-        const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
-        const record = await database.scheduledSends.create({
-          recipientId: recipient.id,
-          tenantId: scope.tenantId,
-          workspaceId: scope.workspaceId,
-          notificationId: def.id,
-          notificationRecordId: result.notification?.id,
-          payload: validated,
-          scheduledFor,
-          reason: "quiet_hours",
-        });
-        scheduleDeferredFlush(record.id, scheduledFor);
-        return;
-      }
+      const digestPending: TimelineBuffer = [];
+      try {
+        if (deferChannels.length > 0) {
+          const result = await deliver(digestPending, recipient, def, validated, { deferChannels, scope, prefResult });
+          const scheduledFor = nextQuietHoursEnd(recipient.quietHours!);
+          const record = await database.scheduledSends.create({
+            recipientId: recipient.id,
+            tenantId: scope.tenantId,
+            workspaceId: scope.workspaceId,
+            notificationId: def.id,
+            notificationRecordId: result.notification?.id,
+            payload: validated,
+            scheduledFor,
+            reason: "quiet_hours",
+          });
+          scheduleDeferredFlush(record.id, scheduledFor);
+          return;
+        }
 
-      await deliver(recipient, def, validated, { scope, prefResult });
+        await deliver(digestPending, recipient, def, validated, { scope, prefResult });
+      } finally {
+        await flushTimeline(digestPending);
+      }
     } catch (err) {
       const permanent =
         err instanceof NotifyKitError &&
@@ -1432,10 +1582,11 @@ export function createNotifyKit<
     return null;
   }
 
-  async function enqueueOrRun(job: DeliveryJob, insideQueue: boolean): Promise<void> {
+  async function enqueueOrRun(job: DeliveryJob, insideQueue: boolean, parentBuffer?: TimelineBuffer): Promise<void> {
     if (insideQueue) {
-      await processDeliveryJob(job);
+      await processDeliveryJob(job, parentBuffer);
     } else {
+      if (parentBuffer) await flushTimeline(parentBuffer);
       await queue.enqueue(job, (j) => processDeliveryJob(j));
     }
   }
@@ -1450,6 +1601,7 @@ export function createNotifyKit<
       notificationId: string;
       payload: Record<string, unknown>;
       insideQueue?: boolean;
+      timelineBuffer?: TimelineBuffer;
     },
   ): Promise<{ inboxItem?: InboxItem; delivery?: DeliveryRecord }> {
     const scope: SecurityScope = { tenantId: ctx.tenantId, workspaceId: ctx.workspaceId };
@@ -1530,7 +1682,7 @@ export function createNotifyKit<
         body,
         payload: ctx.payload,
       };
-      await enqueueOrRun(job, !!ctx.insideQueue);
+      await enqueueOrRun(job, !!ctx.insideQueue, ctx.timelineBuffer);
       const latest = await database.deliveries.findById(delivery.id);
       return { delivery: latest ?? delivery };
     }
@@ -1573,7 +1725,7 @@ export function createNotifyKit<
         headers,
         payload: ctx.payload,
       };
-      await enqueueOrRun(job, !!ctx.insideQueue);
+      await enqueueOrRun(job, !!ctx.insideQueue, ctx.timelineBuffer);
       const latest = await database.deliveries.findById(delivery.id);
       return { delivery: latest ?? delivery };
     }
@@ -1609,7 +1761,7 @@ export function createNotifyKit<
         body,
         payload: ctx.payload,
       };
-      await enqueueOrRun(job, !!ctx.insideQueue);
+      await enqueueOrRun(job, !!ctx.insideQueue, ctx.timelineBuffer);
       const latest = await database.deliveries.findById(delivery.id);
       return { delivery: latest ?? delivery };
     }
@@ -1640,6 +1792,7 @@ export function createNotifyKit<
   };
 
   async function deliver(
+    pending: TimelineBuffer,
     recipient: Recipient,
     def: NotificationDefinition<string, PayloadSchema>,
     payload: Record<string, unknown>,
@@ -1678,6 +1831,21 @@ export function createNotifyKit<
       });
     }
 
+    const deliverTlCtx = {
+      notificationRecordId: notificationRecord.id,
+      recipientId: recipient.id,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      notificationId: def.id,
+    };
+    if (!options.existingNotification) {
+      recordTimeline(pending, deliverTlCtx, "payload.validated", "Payload validated successfully");
+      recordTimeline(pending, deliverTlCtx, "recipient.resolved", `Recipient "${recipient.id}" resolved`, {
+        metadata: { email: recipient.email ? "present" : "absent", phone: recipient.phone ? "present" : "absent" },
+      });
+      recordTimeline(pending, deliverTlCtx, "preferences.resolved", `Preference resolution complete: ${explanation.channels.filter((c) => c.allowed).map((c) => c.channel).join(", ") || "none"} enabled`);
+    }
+
     const inboxItems: InboxItem[] = [];
     const deliveries: DeliveryRecord[] = [];
     const skippedChannels: ChannelType[] = [];
@@ -1695,8 +1863,8 @@ export function createNotifyKit<
       if (onlySet && !onlySet.has(ch.type)) continue;
       if (deferSet.has(ch.type)) {
         deferredChannels.push(ch.type);
-        // Deferred channels are tracked in deliveries, but not result.skipped[].
         pendingSkips.push({ channel: ch.type, reason: "quiet_hours_deferred", details: "Deferred until quiet hours end" });
+        recordTimeline(pending, deliverTlCtx, "quiet_hours.deferred", `Channel "${ch.type}" deferred until quiet hours end`, { channel: ch.type });
         continue;
       }
       if (!isChannelAllowed(ch.type)) {
@@ -1705,6 +1873,10 @@ export function createNotifyKit<
         const skipReason = resolvedByToSkipReason(entry?.resolvedBy);
         const skipDetails = entry?.reason;
         queueSkip(ch.type, skipReason, skipDetails);
+        recordTimeline(pending, deliverTlCtx, "channel.skipped", `Channel "${ch.type}" skipped: ${skipDetails ?? skipReason}`, {
+          channel: ch.type,
+          metadata: { reason: skipReason, details: skipDetails },
+        });
         if (def.fallback && !isLegacyFallback(def.fallback)) {
           const trigger: FallbackTrigger =
             entry?.resolvedBy === "destination_unavailable"
@@ -1728,6 +1900,7 @@ export function createNotifyKit<
             : undefined,
         });
         inboxItems.push(item);
+        recordTimeline(pending, deliverTlCtx, "inbox.created", `Inbox item created: "${item.title}"`, { channel: "inbox" });
         await runHook("inbox.created", { inboxItem: item });
         await publishRealtime(recipient.id, scope, {
           type: "inbox.created",
@@ -1740,6 +1913,7 @@ export function createNotifyKit<
         if (!recipient.email) {
           skippedChannels.push("email");
           queueSkip("email", "missing_address", "Recipient has no email address");
+          recordTimeline(pending, deliverTlCtx, "channel.skipped", `Channel "email" skipped: recipient has no email address`, { channel: "email", metadata: { reason: "missing_address" } });
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "email" });
           }
@@ -1772,6 +1946,7 @@ export function createNotifyKit<
           body,
           attempts: 0,
         });
+        recordTimeline(pending, deliverTlCtx, "delivery.created", `Email delivery created via ${provider.id}`, { deliveryId: delivery.id, channel: "email", provider: provider.id });
 
         const job: DeliveryJob = {
           deliveryId: delivery.id,
@@ -1788,6 +1963,7 @@ export function createNotifyKit<
           payload,
         };
 
+        await flushTimeline(pending);
         await queue.enqueue(job, (j) => processDeliveryJob(j));
 
         // Re-read after enqueue so inline queues return final state; async
@@ -1821,6 +1997,7 @@ export function createNotifyKit<
           body: JSON.stringify(payload),
           attempts: 0,
         });
+        recordTimeline(pending, deliverTlCtx, "delivery.created", `Webhook delivery created via ${provider.id}`, { deliveryId: delivery.id, channel: "webhook", provider: provider.id });
 
         const job: DeliveryJob = {
           deliveryId: delivery.id,
@@ -1836,6 +2013,7 @@ export function createNotifyKit<
           payload,
         };
 
+        await flushTimeline(pending);
         await queue.enqueue(job, (j) => processDeliveryJob(j));
 
         const latest = await database.deliveries.findById(delivery.id);
@@ -1845,6 +2023,7 @@ export function createNotifyKit<
         if (!recipient.phone) {
           skippedChannels.push("sms");
           queueSkip("sms", "missing_address", "Recipient has no phone number");
+          recordTimeline(pending, deliverTlCtx, "channel.skipped", `Channel "sms" skipped: recipient has no phone number`, { channel: "sms", metadata: { reason: "missing_address" } });
           if (def.fallback && !isLegacyFallback(def.fallback)) {
             pendingFallbacks.push({ trigger: "missing_address", fromChannel: "sms" });
           }
@@ -1866,6 +2045,7 @@ export function createNotifyKit<
           body,
           attempts: 0,
         });
+        recordTimeline(pending, deliverTlCtx, "delivery.created", `SMS delivery created via ${provider.id}`, { deliveryId: delivery.id, channel: "sms", provider: provider.id });
 
         const job: DeliveryJob = {
           deliveryId: delivery.id,
@@ -1881,6 +2061,7 @@ export function createNotifyKit<
           payload,
         };
 
+        await flushTimeline(pending);
         await queue.enqueue(job, (j) => processDeliveryJob(j));
 
         const latest = await database.deliveries.findById(delivery.id);
@@ -1913,11 +2094,16 @@ export function createNotifyKit<
         workspaceId: scope.workspaceId,
         notificationId: def.id,
         payload,
+        timelineBuffer: pending,
       };
       for (const pf of pendingFallbacks) {
         const rule = matchFallbackRules(def.fallback, pf.trigger, pf.fromChannel, attempted);
         if (!rule) continue;
         attempted.add(rule.then.type);
+        recordTimeline(pending, deliverTlCtx, "fallback.triggered", `Fallback to "${rule.then.type}" triggered by "${pf.trigger}" on "${pf.fromChannel}"`, {
+          channel: rule.then.type,
+          metadata: { trigger: pf.trigger, fromChannel: pf.fromChannel },
+        });
         try {
           const result = await executeFallbackChannel(rule.then, fallbackCtx);
           if (result.inboxItem) inboxItems.push(result.inboxItem);
@@ -1941,161 +2127,214 @@ export function createNotifyKit<
     };
   }
 
-  async function processDeliveryJob(job: DeliveryJob): Promise<void> {
-    let lastError: Error | null = null;
-    for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
-      if (attempt > 1) {
-        const wait = retry.delayMs(attempt);
-        if (wait > 0) {
-          await new Promise<void>((r) => setTimeout(r, wait));
+  function isPermanentError(err: Error): boolean {
+    return "permanent" in err && (err as Error & { permanent: unknown }).permanent === true;
+  }
+
+  async function processDeliveryJob(job: DeliveryJob, parentBuffer?: TimelineBuffer): Promise<void> {
+    const ownsBuffer = !parentBuffer;
+    const jobPending: TimelineBuffer = parentBuffer ?? [];
+    const jobTlCtx = {
+      notificationRecordId: job.notificationRecordId,
+      recipientId: job.recipientId,
+      tenantId: job.tenantId,
+      workspaceId: job.workspaceId,
+      notificationId: job.notificationId,
+    };
+    try {
+      let lastError: Error | null = null;
+      for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
+        if (attempt > 1) {
+          const wait = retry.delayMs(attempt);
+          recordTimeline(jobPending, jobTlCtx, "delivery.attempt", `Retry attempt ${attempt}/${retry.maxAttempts} (delay: ${wait}ms)`, {
+            deliveryId: job.deliveryId,
+            channel: job.channel,
+            provider: job.provider,
+            metadata: { attempt, maxAttempts: retry.maxAttempts, delayMs: wait },
+          });
+          if (wait > 0) {
+            await new Promise<void>((r) => setTimeout(r, wait));
+          }
+        }
+        try {
+          let result: { providerMessageId?: string };
+          if (job.channel === "email") {
+            const provider = providers!.email!;
+            result = await provider.send({
+              to: job.to,
+              subject: job.subject,
+              body: job.body,
+            });
+          } else if (job.channel === "webhook") {
+            const provider = providers!.webhook!;
+            result = await provider.send({
+              url: job.url,
+              headers: job.headers,
+              payload: {
+                notificationId: job.notificationId,
+                recipientId: job.recipientId,
+                tenantId: job.tenantId,
+                workspaceId: job.workspaceId,
+                payload: job.payload,
+                sentAt: new Date().toISOString(),
+              },
+            });
+          } else {
+            const provider = providers!.sms!;
+            result = await provider.send({
+              to: job.to,
+              body: job.body,
+            });
+          }
+
+          const updated = await database.deliveries.update(job.deliveryId, {
+            status: "sent",
+            providerMessageId: result.providerMessageId,
+            attempts: attempt,
+            sentAt: new Date(),
+            error: undefined,
+          });
+          recordTimeline(jobPending, jobTlCtx, "delivery.sent", `Delivery sent on attempt ${attempt}`, {
+            deliveryId: job.deliveryId,
+            channel: job.channel,
+            provider: job.provider,
+          });
+          if (result.providerMessageId) {
+            recordTimeline(jobPending, jobTlCtx, "provider.message_id_stored", `Provider message ID: ${result.providerMessageId}`, {
+              deliveryId: job.deliveryId,
+              channel: job.channel,
+              provider: job.provider,
+              metadata: { providerMessageId: result.providerMessageId },
+            });
+          }
+          try {
+            if (updated) {
+              const jobDef = byId.get(job.notificationId);
+              await runHook("delivery.sent", {
+                delivery: updated,
+                redactedPayload: jobDef
+                  ? redactForDef(jobDef, job.payload)
+                  : job.payload,
+              });
+            }
+          } finally {
+            fallbackDeliveryIds.delete(job.deliveryId);
+          }
+          return;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          recordTimeline(jobPending, jobTlCtx, "provider.error", `Provider error on attempt ${attempt}: ${lastError.message}`, {
+            deliveryId: job.deliveryId,
+            channel: job.channel,
+            provider: job.provider,
+            metadata: { attempt, error: lastError.message, permanent: isPermanentError(lastError) },
+          });
+          try {
+            await database.deliveries.update(job.deliveryId, {
+              attempts: attempt,
+              error: lastError.message,
+            });
+          } catch (updateErr) {
+            console.error("[notifykit] delivery attempt update error:", updateErr);
+          }
+          if (isPermanentError(lastError)) break;
         }
       }
-      try {
-        let result: { providerMessageId?: string };
-        if (job.channel === "email") {
-          const provider = providers!.email!;
-          result = await provider.send({
-            to: job.to,
-            subject: job.subject,
-            body: job.body,
-          });
-        } else if (job.channel === "webhook") {
-          const provider = providers!.webhook!;
-          result = await provider.send({
-            url: job.url,
-            headers: job.headers,
-            payload: {
-              notificationId: job.notificationId,
-              recipientId: job.recipientId,
-              tenantId: job.tenantId,
-              workspaceId: job.workspaceId,
-              payload: job.payload,
-              sentAt: new Date().toISOString(),
-            },
-          });
-        } else {
-          const provider = providers!.sms!;
-          result = await provider.send({
-            to: job.to,
-            body: job.body,
-          });
-        }
+      const failed = await database.deliveries.update(job.deliveryId, {
+        status: "failed",
+        failedAt: new Date(),
+      });
+      recordTimeline(jobPending, jobTlCtx, "delivery.failed", `Delivery failed after ${retry.maxAttempts} attempt(s): ${lastError?.message ?? "unknown error"}`, {
+        deliveryId: job.deliveryId,
+        channel: job.channel,
+        provider: job.provider,
+        metadata: { attempts: retry.maxAttempts, error: lastError?.message },
+      });
+      const isFallbackDelivery = fallbackDeliveryIds.has(job.deliveryId);
+      fallbackDeliveryIds.delete(job.deliveryId);
+      if (failed) {
+        const failedDef = byId.get(job.notificationId);
+        await runHook("delivery.failed", {
+          delivery: failed,
+          error: lastError ?? new Error("Delivery failed"),
+          redactedPayload: failedDef
+            ? redactForDef(failedDef, job.payload)
+            : job.payload,
+        });
+      }
 
-        const updated = await database.deliveries.update(job.deliveryId, {
-          status: "sent",
-          providerMessageId: result.providerMessageId,
-          attempts: attempt,
-          sentAt: new Date(),
-          error: undefined,
+      if (isFallbackDelivery) return;
+
+      const def = byId.get(job.notificationId);
+      if (def?.fallback) {
+        recordTimeline(jobPending, jobTlCtx, "fallback.triggered", `Fallback triggered after "${job.channel}" delivery failed`, {
+          deliveryId: job.deliveryId,
+          channel: job.channel,
+          provider: job.provider,
+          metadata: { trigger: "channel.failed" },
         });
         try {
-          if (updated) {
-            const jobDef = byId.get(job.notificationId);
-            await runHook("delivery.sent", {
-              delivery: updated,
-              redactedPayload: jobDef
-                ? redactForDef(jobDef, job.payload)
-                : job.payload,
-            });
-          }
-        } finally {
-          fallbackDeliveryIds.delete(job.deliveryId);
-        }
-        return;
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        try {
-          await database.deliveries.update(job.deliveryId, {
-            attempts: attempt,
-            error: lastError.message,
-          });
-        } catch (updateErr) {
-          console.error("[notifykit] delivery attempt update error:", updateErr);
-        }
-        if ((lastError as any).permanent) break;
-      }
-    }
-    const failed = await database.deliveries.update(job.deliveryId, {
-      status: "failed",
-      failedAt: new Date(),
-    });
-    const isFallbackDelivery = fallbackDeliveryIds.has(job.deliveryId);
-    fallbackDeliveryIds.delete(job.deliveryId);
-    if (failed) {
-      const failedDef = byId.get(job.notificationId);
-      await runHook("delivery.failed", {
-        delivery: failed,
-        error: lastError ?? new Error("Delivery failed"),
-        redactedPayload: failedDef
-          ? redactForDef(failedDef, job.payload)
-          : job.payload,
-      });
-    }
-
-    if (isFallbackDelivery) {
-      return;
-    }
-
-    const def = byId.get(job.notificationId);
-    if (def?.fallback) {
-      try {
-        if (isLegacyFallback(def.fallback)) {
-          const fallbackScope: SecurityScope = {
-            tenantId: job.tenantId,
-            workspaceId: job.workspaceId,
-          };
-          const fallbackRecipient = await database.recipients.findById(job.recipientId);
-          const resCtx = await buildResolutionCtx(
-            fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
-            def,
-            fallbackScope,
-          );
-          const inboxResolution = resolveChannel("inbox", resCtx);
-          if (inboxResolution.allowed) {
-            const fallback = def.fallback;
-            const item = await database.inbox.create({
-              notificationRecordId: job.notificationRecordId,
-              recipientId: job.recipientId,
+          if (isLegacyFallback(def.fallback)) {
+            const fallbackScope: SecurityScope = {
               tenantId: job.tenantId,
               workspaceId: job.workspaceId,
-              notificationId: job.notificationId,
-              title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
-              body:
-                fallback.body !== undefined
-                  ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
+            };
+            const fallbackRecipient = await database.recipients.findById(job.recipientId);
+            const resCtx = await buildResolutionCtx(
+              fallbackRecipient ?? { id: job.recipientId, createdAt: new Date(), updatedAt: new Date() },
+              def,
+              fallbackScope,
+            );
+            const inboxResolution = resolveChannel("inbox", resCtx);
+            if (inboxResolution.allowed) {
+              const fallback = def.fallback;
+              const item = await database.inbox.create({
+                notificationRecordId: job.notificationRecordId,
+                recipientId: job.recipientId,
+                tenantId: job.tenantId,
+                workspaceId: job.workspaceId,
+                notificationId: job.notificationId,
+                title: renderTemplate(fallback.title, job.payload, { escapeHtml: true }),
+                body:
+                  fallback.body !== undefined
+                    ? renderTemplate(fallback.body, job.payload, { escapeHtml: true })
+                    : undefined,
+                actionUrl: fallback.actionUrl !== undefined
+                  ? sanitizeActionUrl(renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false }))
                   : undefined,
-              actionUrl: fallback.actionUrl !== undefined
-                ? sanitizeActionUrl(renderTemplate(fallback.actionUrl, job.payload, { escapeHtml: false }))
-                : undefined,
-            });
-            await runHook("inbox.created", { inboxItem: item });
-            await publishRealtime(job.recipientId, fallbackScope, {
-              type: "inbox.created",
-              item,
-            });
+              });
+              await runHook("inbox.created", { inboxItem: item });
+              await publishRealtime(job.recipientId, fallbackScope, {
+                type: "inbox.created",
+                item,
+              });
+            }
+          } else {
+            const attempted = new Set<ChannelType>(
+              def.channels.map((c) => c.type),
+            );
+            attempted.add(job.channel);
+            const rule = matchFallbackRules(def.fallback, "channel.failed", job.channel, attempted);
+            if (rule) {
+              attempted.add(rule.then.type);
+              await executeFallbackChannel(rule.then, {
+                notificationRecordId: job.notificationRecordId,
+                recipientId: job.recipientId,
+                tenantId: job.tenantId,
+                workspaceId: job.workspaceId,
+                notificationId: job.notificationId,
+                payload: job.payload,
+                insideQueue: true,
+                timelineBuffer: jobPending,
+              });
+            }
           }
-        } else {
-          const attempted = new Set<ChannelType>(
-            def.channels.map((c) => c.type),
-          );
-          attempted.add(job.channel);
-          const rule = matchFallbackRules(def.fallback, "channel.failed", job.channel, attempted);
-          if (rule) {
-            attempted.add(rule.then.type);
-            await executeFallbackChannel(rule.then, {
-              notificationRecordId: job.notificationRecordId,
-              recipientId: job.recipientId,
-              tenantId: job.tenantId,
-              workspaceId: job.workspaceId,
-              notificationId: job.notificationId,
-              payload: job.payload,
-              insideQueue: true,
-            });
-          }
+        } catch (fallbackErr) {
+          console.error("[notifykit] fallback after channel.failed error:", fallbackErr);
         }
-      } catch (fallbackErr) {
-        console.error("[notifykit] fallback after channel.failed error:", fallbackErr);
       }
+    } finally {
+      if (ownsBuffer) await flushTimeline(jobPending);
     }
   }
 
@@ -2443,6 +2682,7 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
+      await drainPendingTimelineWrites();
     },
     async flushDigests() {
       const errors: unknown[] = [];
@@ -2476,6 +2716,7 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
+      await drainPendingTimelineWrites();
       if (errors.length > 0) {
         throw errors[0];
       }
@@ -2500,6 +2741,18 @@ export function createNotifyKit<
       }
       if (!def.redact || def.redact.length === 0) return payload;
       return redactPayload(payload, def.redact);
+    },
+    async timeline(notificationRecordId, options) {
+      const cap = options?.limit ?? 1000;
+      if (options?.deliveryId) {
+        return timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId, cap);
+      }
+      return timelineAdapter.listByNotificationRecordId(notificationRecordId, cap);
+    },
+    async pruneTimeline(olderThan) {
+      if (!olderThan && timelineRetentionMs === 0) return 0;
+      const cutoff = olderThan ?? new Date(Date.now() - timelineRetentionMs);
+      return timelineAdapter.prune(cutoff);
     },
   };
 }
