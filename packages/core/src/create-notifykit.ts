@@ -519,6 +519,12 @@ export function createNotifyKit<
     }
   }
 
+  async function drainPendingTimelineWrites(): Promise<void> {
+    for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
+      await Promise.all(Array.from(pendingTimelineWrites));
+    }
+  }
+
   // Per-key serialization for idempotency checks. Prevents concurrent sends
   // with the same key from racing past the findByIdempotencyKey check.
   const idempotencyLocks = new Map<string, { chain: Promise<unknown>; pending: number }>();
@@ -2663,12 +2669,7 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
-      // Bounded: a flush can spawn a pruneP (1 extra promise at most), so 10
-      // iterations is more than sufficient. Unbounded would risk infinite loops
-      // if a buggy adapter continuously adds promises.
-      for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
-        await Promise.all(Array.from(pendingTimelineWrites));
-      }
+      await drainPendingTimelineWrites();
     },
     async flushDigests() {
       const errors: unknown[] = [];
@@ -2702,12 +2703,7 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
-      // Bounded: a flush can spawn a pruneP (1 extra promise at most), so 10
-      // iterations is more than sufficient. Unbounded would risk infinite loops
-      // if a buggy adapter continuously adds promises.
-      for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
-        await Promise.all(Array.from(pendingTimelineWrites));
-      }
+      await drainPendingTimelineWrites();
       if (errors.length > 0) {
         throw errors[0];
       }
