@@ -913,10 +913,7 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
-    // Timeline context used for early events (before notificationRecord exists).
-    // The real notificationRecordId is patched in once the record is created.
     const tlCtx = {
-      notificationRecordId: "",
       recipientId: recipient.id,
       tenantId: scope.tenantId,
       workspaceId: scope.workspaceId,
