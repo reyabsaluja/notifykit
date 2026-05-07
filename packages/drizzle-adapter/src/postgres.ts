@@ -1030,8 +1030,10 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           timestamp: now,
         }));
         if (records.length > 0) {
+          // Lock key derived from fnv1a("notifykit_timeline_seq") to avoid collisions.
+          const TIMELINE_SEQ_LOCK = 3_217_891_453;
           await db.transaction(async (tx) => {
-            await tx.execute(sql`SELECT pg_advisory_xact_lock(4832719)`);
+            await tx.execute(sql`SELECT pg_advisory_xact_lock(${TIMELINE_SEQ_LOCK})`);
             const maxRow = await tx
               .select({ maxSeq: timelineEvents.seq })
               .from(timelineEvents)
