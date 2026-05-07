@@ -500,4 +500,29 @@ describe("timeline", () => {
     // so we just verify the flush doesn't cause a secondary crash
     expect(db._state.timelineEvents.length).toBe(0);
   });
+
+  test("events are in correct chronological order with inline queue", async () => {
+    const { notify } = setup();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { author: "Alice", body: "Hello" },
+    });
+
+    const timeline = await notify.timeline(result.notification!.id);
+    const events = timeline.map((e) => e.event);
+
+    const payloadIdx = events.indexOf("payload.validated");
+    const recipientIdx = events.indexOf("recipient.resolved");
+    const prefsIdx = events.indexOf("preferences.resolved");
+    const deliveryCreatedIdx = events.indexOf("delivery.created");
+    const deliverySentIdx = events.indexOf("delivery.sent");
+
+    expect(payloadIdx).toBeLessThan(recipientIdx);
+    expect(recipientIdx).toBeLessThan(prefsIdx);
+    expect(prefsIdx).toBeLessThan(deliveryCreatedIdx);
+    expect(deliveryCreatedIdx).toBeLessThan(deliverySentIdx);
+  });
 });

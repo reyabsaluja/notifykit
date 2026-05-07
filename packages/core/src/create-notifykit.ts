@@ -1544,11 +1544,11 @@ export function createNotifyKit<
     return null;
   }
 
-  async function enqueueOrRun(job: DeliveryJob, insideQueue: boolean): Promise<void> {
+  async function enqueueOrRun(job: DeliveryJob, insideQueue: boolean, parentBuffer?: TimelineBuffer): Promise<void> {
     if (insideQueue) {
-      await processDeliveryJob(job);
+      await processDeliveryJob(job, parentBuffer);
     } else {
-      await queue.enqueue(job, (j) => processDeliveryJob(j));
+      await queue.enqueue(job, (j) => processDeliveryJob(j, parentBuffer));
     }
   }
 
@@ -1562,6 +1562,7 @@ export function createNotifyKit<
       notificationId: string;
       payload: Record<string, unknown>;
       insideQueue?: boolean;
+      timelineBuffer?: TimelineBuffer;
     },
   ): Promise<{ inboxItem?: InboxItem; delivery?: DeliveryRecord }> {
     const scope: SecurityScope = { tenantId: ctx.tenantId, workspaceId: ctx.workspaceId };
@@ -1642,7 +1643,7 @@ export function createNotifyKit<
         body,
         payload: ctx.payload,
       };
-      await enqueueOrRun(job, !!ctx.insideQueue);
+      await enqueueOrRun(job, !!ctx.insideQueue, ctx.timelineBuffer);
       const latest = await database.deliveries.findById(delivery.id);
       return { delivery: latest ?? delivery };
     }
@@ -1685,7 +1686,7 @@ export function createNotifyKit<
         headers,
         payload: ctx.payload,
       };
-      await enqueueOrRun(job, !!ctx.insideQueue);
+      await enqueueOrRun(job, !!ctx.insideQueue, ctx.timelineBuffer);
       const latest = await database.deliveries.findById(delivery.id);
       return { delivery: latest ?? delivery };
     }
@@ -1721,7 +1722,7 @@ export function createNotifyKit<
         body,
         payload: ctx.payload,
       };
-      await enqueueOrRun(job, !!ctx.insideQueue);
+      await enqueueOrRun(job, !!ctx.insideQueue, ctx.timelineBuffer);
       const latest = await database.deliveries.findById(delivery.id);
       return { delivery: latest ?? delivery };
     }
@@ -1923,7 +1924,7 @@ export function createNotifyKit<
           payload,
         };
 
-        await queue.enqueue(job, (j) => processDeliveryJob(j));
+        await queue.enqueue(job, (j) => processDeliveryJob(j, pending));
 
         // Re-read after enqueue so inline queues return final state; async
         // queues return "pending" here (callers use drain() + deliveries.list).
@@ -1972,7 +1973,7 @@ export function createNotifyKit<
           payload,
         };
 
-        await queue.enqueue(job, (j) => processDeliveryJob(j));
+        await queue.enqueue(job, (j) => processDeliveryJob(j, pending));
 
         const latest = await database.deliveries.findById(delivery.id);
         deliveries.push(latest ?? delivery);
@@ -2019,7 +2020,7 @@ export function createNotifyKit<
           payload,
         };
 
-        await queue.enqueue(job, (j) => processDeliveryJob(j));
+        await queue.enqueue(job, (j) => processDeliveryJob(j, pending));
 
         const latest = await database.deliveries.findById(delivery.id);
         deliveries.push(latest ?? delivery);
@@ -2051,6 +2052,7 @@ export function createNotifyKit<
         workspaceId: scope.workspaceId,
         notificationId: def.id,
         payload,
+        timelineBuffer: pending,
       };
       for (const pf of pendingFallbacks) {
         const rule = matchFallbackRules(def.fallback, pf.trigger, pf.fromChannel, attempted);
@@ -2083,8 +2085,9 @@ export function createNotifyKit<
     };
   }
 
-  async function processDeliveryJob(job: DeliveryJob): Promise<void> {
-    const jobPending: TimelineBuffer = [];
+  async function processDeliveryJob(job: DeliveryJob, parentBuffer?: TimelineBuffer): Promise<void> {
+    const ownsBuffer = !parentBuffer;
+    const jobPending: TimelineBuffer = parentBuffer ?? [];
     const jobTlCtx = {
       notificationRecordId: job.notificationRecordId,
       recipientId: job.recipientId,
@@ -2276,6 +2279,7 @@ export function createNotifyKit<
                 notificationId: job.notificationId,
                 payload: job.payload,
                 insideQueue: true,
+                timelineBuffer: jobPending,
               });
             }
           }
@@ -2284,7 +2288,7 @@ export function createNotifyKit<
         }
       }
     } finally {
-      await flushTimeline(jobPending);
+      if (ownsBuffer) await flushTimeline(jobPending);
     }
   }
 
