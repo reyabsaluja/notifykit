@@ -2636,6 +2636,9 @@ export function createNotifyKit<
         await Promise.all(Array.from(pendingFlushes));
       }
       await queue.drain();
+      for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
+        await Promise.all(Array.from(pendingTimelineWrites));
+      }
     },
     async flushDigests() {
       const errors: unknown[] = [];
