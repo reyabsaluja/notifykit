@@ -344,7 +344,7 @@ export type NotifyKit<
   /**
    * Retrieve the debug timeline for a notification. Returns lifecycle events
    * in chronological order showing every decision, side effect, and provider
-   * interaction. Optionally filter to a specific delivery.
+   * interaction. Optionally filter to a specific delivery. Default limit: 1000.
    */
   timeline(
     notificationRecordId: string,
@@ -2730,10 +2730,11 @@ export function createNotifyKit<
       return redactPayload(payload, def.redact);
     },
     async timeline(notificationRecordId, options) {
+      const cap = options?.limit ?? 1000;
       if (options?.deliveryId) {
-        return timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId, options?.limit);
+        return timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId, cap);
       }
-      return timelineAdapter.listByNotificationRecordId(notificationRecordId, options?.limit);
+      return timelineAdapter.listByNotificationRecordId(notificationRecordId, cap);
     },
     async pruneTimeline(olderThan) {
       if (!olderThan && timelineRetentionMs === 0) return 0;
