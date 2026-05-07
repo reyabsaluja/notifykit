@@ -64,6 +64,8 @@ function preferenceScopeConditions(scope?: SecurityScope) {
   ];
 }
 
+// 32-bit hash for pg_advisory_xact_lock; collisions serialize unrelated
+// appends but don't affect correctness — acceptable below ~65K concurrent IDs.
 function fnv1aHashToInt(str: string): number {
   let hash = 2166136261;
   for (let i = 0; i < str.length; i++) {
