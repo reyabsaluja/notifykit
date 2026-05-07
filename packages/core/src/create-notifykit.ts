@@ -351,6 +351,12 @@ export type NotifyKit<
     options?: { deliveryId?: string; limit?: number },
   ): Promise<TimelineEvent[]>;
   /**
+   * Manually prune timeline events older than the configured retention period
+   * (or a custom cutoff). Returns the number of deleted events. Useful when
+   * `timelineRetentionMs` is set to `0` (automatic pruning disabled).
+   */
+  pruneTimeline(olderThan?: Date): Promise<number>;
+  /**
    * The realtime adapter passed to `createNotifyKit`, or `undefined` if none
    * was provided. Exposed so handlers and transports can subscribe clients;
    * core inbox mutations publish their own realtime events.
@@ -2711,6 +2717,10 @@ export function createNotifyKit<
         return events.slice(0, options.limit);
       }
       return events;
+    },
+    async pruneTimeline(olderThan) {
+      const cutoff = olderThan ?? new Date(Date.now() - timelineRetentionMs);
+      return timelineAdapter.prune(cutoff);
     },
   };
 }
