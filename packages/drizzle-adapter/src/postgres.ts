@@ -1082,10 +1082,11 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         return rows.map(rowToTimelineEvent);
       },
       async prune(olderThan: Date): Promise<number> {
-        const result: { rowCount?: number } = await db.execute(
-          sql`DELETE FROM notifykit_timeline_events WHERE timestamp < ${olderThan}`,
-        ) as any;
-        return Number(result.rowCount ?? 0);
+        const deleted = await db
+          .delete(timelineEvents)
+          .where(lt(timelineEvents.timestamp, olderThan))
+          .returning({ id: timelineEvents.id });
+        return deleted.length;
       },
     },
   };
