@@ -526,6 +526,9 @@ export function createNotifyKit<
   }
 
   async function drainPendingTimelineWrites(): Promise<void> {
+    // Cap iterations: a completing write can spawn a prune, which may itself
+    // resolve and remove itself, so we re-check. 10 rounds is generous; if
+    // writes still remain, they are in-flight prunes we can safely orphan.
     for (let i = 0; i < 10 && pendingTimelineWrites.size > 0; i++) {
       await Promise.all(Array.from(pendingTimelineWrites));
     }
