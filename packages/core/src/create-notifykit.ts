@@ -489,6 +489,7 @@ export function createNotifyKit<
 
   const pendingTimelineWrites = new Set<Promise<void>>();
   let pruneFailures = 0;
+  let lastPruneAttemptMs = 0;
 
   async function reportTimelineError(error: unknown): Promise<void> {
     try {
@@ -505,16 +506,21 @@ export function createNotifyKit<
     pendingTimelineWrites.add(p);
     try { await p; } finally { pendingTimelineWrites.delete(p); }
     if (timelineRetentionMs > 0) {
-      const pruneProbability = pruneFailures >= 10 ? 1 : 0.01;
-      if (Math.random() < pruneProbability) {
-        const pruneP = timelineAdapter.prune(new Date(Date.now() - timelineRetentionMs))
-          .then(() => { pruneFailures = 0; })
-          .catch((err: unknown) => {
-            pruneFailures++;
-            return reportTimelineError(err);
-          });
-        pendingTimelineWrites.add(pruneP);
-        pruneP.finally(() => pendingTimelineWrites.delete(pruneP));
+      const now = Date.now();
+      const backoffMs = pruneFailures >= 10 ? 60_000 : 0;
+      if (now - lastPruneAttemptMs >= backoffMs) {
+        const pruneProbability = pruneFailures >= 10 ? 1 : 0.01;
+        if (Math.random() < pruneProbability) {
+          lastPruneAttemptMs = now;
+          const pruneP = timelineAdapter.prune(new Date(now - timelineRetentionMs))
+            .then(() => { pruneFailures = 0; })
+            .catch((err: unknown) => {
+              pruneFailures++;
+              return reportTimelineError(err);
+            });
+          pendingTimelineWrites.add(pruneP);
+          pruneP.finally(() => pendingTimelineWrites.delete(pruneP));
+        }
       }
     }
   }
