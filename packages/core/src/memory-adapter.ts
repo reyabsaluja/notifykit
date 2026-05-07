@@ -46,6 +46,7 @@ export function memoryAdapter(): MemoryAdapter {
     dedupeRecords: [] as DedupeRecord[],
     timelineEvents: [] as TimelineEvent[],
   };
+  let timelineSeqCounter = 0;
 
   function matchesScope(record: SecurityScope, scope?: SecurityScope): boolean {
     if (!scope) return true;
@@ -510,7 +511,8 @@ export function memoryAdapter(): MemoryAdapter {
     timeline: {
       async append(events): Promise<TimelineEvent[]> {
         const now = new Date();
-        const baseSeq = state.timelineEvents.length;
+        const baseSeq = timelineSeqCounter;
+        timelineSeqCounter += events.length;
         const records: TimelineEvent[] = events.map((e, i) => ({
           id: createId("tl"),
           seq: baseSeq + i,
