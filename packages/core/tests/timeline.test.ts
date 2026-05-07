@@ -525,4 +525,38 @@ describe("timeline", () => {
     expect(prefsIdx).toBeLessThan(deliveryCreatedIdx);
     expect(deliveryCreatedIdx).toBeLessThan(deliverySentIdx);
   });
+
+  test("limit option truncates results", async () => {
+    const { notify } = setup();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { author: "Alice", body: "Hello" },
+    });
+
+    const all = await notify.timeline(result.notification!.id);
+    expect(all.length).toBeGreaterThan(3);
+
+    const limited = await notify.timeline(result.notification!.id, { limit: 3 });
+    expect(limited.length).toBe(3);
+    expect(limited[0]!.event).toBe(all[0]!.event);
+    expect(limited[2]!.event).toBe(all[2]!.event);
+  });
+
+  test("limit larger than total returns all events", async () => {
+    const { notify } = setup();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { author: "Alice", body: "Hello" },
+    });
+
+    const all = await notify.timeline(result.notification!.id);
+    const limited = await notify.timeline(result.notification!.id, { limit: 999 });
+    expect(limited.length).toBe(all.length);
+  });
 });
