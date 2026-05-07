@@ -425,7 +425,6 @@ export const TIMELINE_EVENT_TYPES = [
   "idempotent.replay",
   "deduplicated",
   "rate_limited",
-  "digest.buffered",
   "quiet_hours.deferred",
   "inbox.created",
   "delivery.created",
