@@ -348,7 +348,7 @@ export type NotifyKit<
    */
   timeline(
     notificationRecordId: string,
-    options?: { deliveryId?: string },
+    options?: { deliveryId?: string; limit?: number },
   ): Promise<TimelineEvent[]>;
   /**
    * The realtime adapter passed to `createNotifyKit`, or `undefined` if none
@@ -2694,10 +2694,16 @@ export function createNotifyKit<
       return redactPayload(payload, def.redact);
     },
     async timeline(notificationRecordId, options) {
+      let events: TimelineEvent[];
       if (options?.deliveryId) {
-        return timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId);
+        events = await timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId);
+      } else {
+        events = await timelineAdapter.listByNotificationRecordId(notificationRecordId);
       }
-      return timelineAdapter.listByNotificationRecordId(notificationRecordId);
+      if (options?.limit != null && options.limit < events.length) {
+        return events.slice(0, options.limit);
+      }
+      return events;
     },
   };
 }

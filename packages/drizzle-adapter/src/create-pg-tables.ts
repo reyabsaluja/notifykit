@@ -166,7 +166,8 @@ export async function createPgTables(
     `CREATE INDEX IF NOT EXISTS idx_notifykit_timeline_notification_record
       ON notifykit_timeline_events (notification_record_id, timestamp, seq)`,
     `CREATE INDEX IF NOT EXISTS idx_notifykit_timeline_delivery
-      ON notifykit_timeline_events (delivery_id, timestamp, seq)`,
+      ON notifykit_timeline_events (delivery_id, timestamp, seq)
+      WHERE delivery_id IS NOT NULL`,
   ];
 
   for (const stmt of statements) {

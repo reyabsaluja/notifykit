@@ -268,11 +268,9 @@ export const timelineEvents = pgTable(
       table.timestamp,
       table.seq,
     ),
-    deliveryIdx: index("idx_notifykit_timeline_delivery").on(
-      table.deliveryId,
-      table.timestamp,
-      table.seq,
-    ),
+    deliveryIdx: index("idx_notifykit_timeline_delivery")
+      .on(table.deliveryId, table.timestamp, table.seq)
+      .where(sql`delivery_id IS NOT NULL`),
   }),
 );
 

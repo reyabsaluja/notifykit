@@ -18,7 +18,7 @@ import type {
   UpsertRecipientInput,
 } from "notifykit";
 import { SKIP_REASONS, createId } from "notifykit";
-import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte } from "drizzle-orm";
+import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import {
@@ -1159,7 +1159,6 @@ export function drizzleSqliteAdapter(db: SqliteDb): DrizzleSqliteAdapter {
     },
   };
 }
-
 
 function rowToInboxItem(row: typeof inboxItems.$inferSelect): InboxItem {
   return {

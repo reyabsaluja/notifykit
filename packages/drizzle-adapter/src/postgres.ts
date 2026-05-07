@@ -1031,6 +1031,7 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         }));
         if (records.length > 0) {
           await db.transaction(async (tx) => {
+            await tx.execute(sql`SELECT pg_advisory_xact_lock(4832719)`);
             const maxRow = await tx
               .select({ maxSeq: timelineEvents.seq })
               .from(timelineEvents)
@@ -1079,19 +1080,14 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         return rows.map(rowToTimelineEvent);
       },
       async prune(olderThan: Date): Promise<number> {
-        const rows = await db
-          .select({ n: drizzleCount() })
-          .from(timelineEvents)
-          .where(lt(timelineEvents.timestamp, olderThan));
-        const n = rows[0]?.n ?? 0;
-        if (n === 0) return 0;
-        await db.delete(timelineEvents).where(lt(timelineEvents.timestamp, olderThan));
-        return n;
+        const result: { rowCount?: number } = await db.execute(
+          sql`DELETE FROM notifykit_timeline_events WHERE timestamp < ${olderThan}`,
+        ) as any;
+        return Number(result.rowCount ?? 0);
       },
     },
   };
 }
-
 
 function rowToInboxItem(row: typeof inboxItems.$inferSelect): InboxItem {
   return {
