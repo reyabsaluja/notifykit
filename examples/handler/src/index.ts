@@ -5,7 +5,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 const inbox = channel.inbox();
 const email = channel.email();

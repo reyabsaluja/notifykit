@@ -4,7 +4,7 @@ import {
   createNotifyKit,
   memoryAdapter,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 import { resendProvider } from "../src/index.js";
 
 type Call = { url: string; init: RequestInit };

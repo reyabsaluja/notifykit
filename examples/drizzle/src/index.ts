@@ -5,11 +5,11 @@ import {
   createNotifyKit,
   fakeEmailProvider,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 import {
   createSqliteTables,
   drizzleSqliteAdapter,
-} from "notifykit-drizzle";
+} from "@notifykitjs/drizzle";
 
 const inbox = channel.inbox();
 const email = channel.email();

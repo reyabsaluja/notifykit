@@ -7,7 +7,7 @@ import {
   createNotifyKit,
   fakeEmailProvider,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 import { createPgTables, drizzlePostgresAdapter } from "../src/index.js";
 

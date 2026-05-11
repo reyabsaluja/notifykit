@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "next": "^15.0.0",
-    "notifykit": "workspace:*",
-    "notifykit-react": "workspace:*",
+    "@notifykitjs/core": "workspace:*",
+    "@notifykitjs/react": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

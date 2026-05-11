@@ -103,8 +103,8 @@ function getStringProperty(value: Record<string, unknown> | undefined, key: stri
  *
  * ```ts
  * import { z } from "zod";
- * import { zodPayload } from "notifykit/zod";
- * import { notification } from "notifykit";
+ * import { zodPayload } from "@notifykitjs/core/zod";
+ * import { notification } from "@notifykitjs/core";
  *
  * const { payload, validate } = zodPayload(
  *   z.object({ name: z.string(), count: z.number() }),

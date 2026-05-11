@@ -1,6 +1,6 @@
 "use client";
 
-import type { InboxItem } from "notifykit";
+import type { InboxItem } from "@notifykitjs/core";
 import type { ReactNode } from "react";
 import { useInbox } from "./hooks.js";
 

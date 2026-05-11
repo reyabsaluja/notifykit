@@ -55,8 +55,8 @@ function inferPrimitive(field: ValibotLikeField): PrimitiveSchema | undefined {
  *
  * ```ts
  * import * as v from "valibot";
- * import { valibotPayload } from "notifykit/valibot";
- * import { notification } from "notifykit";
+ * import { valibotPayload } from "@notifykitjs/core/valibot";
+ * import { notification } from "@notifykitjs/core";
  *
  * const { payload, validate } = valibotPayload(
  *   v.object({ name: v.string(), count: v.number() }),

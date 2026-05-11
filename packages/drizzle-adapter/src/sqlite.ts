@@ -16,8 +16,8 @@ import type {
   SkipReason,
   TimelineEvent,
   UpsertRecipientInput,
-} from "notifykit";
-import { SKIP_REASONS, createId } from "notifykit";
+} from "@notifykitjs/core";
+import { SKIP_REASONS, createId } from "@notifykitjs/core";
 import { and, asc, count as drizzleCount, desc, eq, gte, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 

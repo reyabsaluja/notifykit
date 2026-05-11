@@ -6,7 +6,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 import { createServerActions } from "../src/server-actions.js";
 
 function buildKit() {

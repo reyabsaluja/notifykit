@@ -5,7 +5,7 @@ Core engine for NotifyKit — define notifications in code, send across channels
 ## Install
 
 ```bash
-npm install notifykit
+npm install @notifykitjs/core
 ```
 
 ## Usage
@@ -17,7 +17,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 const inbox = channel.inbox();
 const email = channel.email();
@@ -52,7 +52,7 @@ await notify.send({
 });
 ```
 
-The memory adapter is great for dev and testing. For production, use [`notifykit-drizzle`](https://www.npmjs.com/package/notifykit-drizzle) for SQLite or Postgres persistence.
+The memory adapter is great for dev and testing. For production, use [`@notifykitjs/drizzle`](https://www.npmjs.com/package/@notifykitjs/drizzle) for SQLite or Postgres persistence.
 
 ## Schema validation
 
@@ -63,7 +63,7 @@ npm install zod        # or valibot, or arktype
 ```
 
 ```ts
-import { zodPayload } from "notifykit/zod";
+import { zodPayload } from "@notifykitjs/core/zod";
 ```
 
 ## Docs

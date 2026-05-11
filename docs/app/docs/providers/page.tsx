@@ -15,12 +15,12 @@ export default function ProvidersPage() {
 
       <h2>Database: Drizzle SQLite</h2>
       <pre>
-        <code>{`npm install notifykit-drizzle drizzle-orm better-sqlite3`}</code>
+        <code>{`npm install @notifykitjs/drizzle drizzle-orm better-sqlite3`}</code>
       </pre>
       <pre>
         <code>{`import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
-import { createSqliteTables, drizzleSqliteAdapter } from "notifykit-drizzle"
+import { createSqliteTables, drizzleSqliteAdapter } from "@notifykitjs/drizzle"
 
 const db = drizzle(new Database("app.db"))
 await createSqliteTables(db)  // one-off; use drizzle-kit in production
@@ -44,10 +44,10 @@ export const notify = createNotifyKit({
 
       <h2>Email: Resend</h2>
       <pre>
-        <code>{`npm install notifykit-resend`}</code>
+        <code>{`npm install @notifykitjs/resend`}</code>
       </pre>
       <pre>
-        <code>{`import { resendProvider } from "notifykit-resend"
+        <code>{`import { resendProvider } from "@notifykitjs/resend"
 
 export const notify = createNotifyKit({
   // ...
@@ -72,7 +72,7 @@ export const notify = createNotifyKit({
         service in ~20 lines:
       </p>
       <pre>
-        <code>{`import type { EmailProvider } from "notifykit"
+        <code>{`import type { EmailProvider } from "@notifykitjs/core"
 
 export function postmarkProvider(opts: { token: string; from: string }): EmailProvider {
   return {
@@ -108,7 +108,7 @@ export function postmarkProvider(opts: { token: string; from: string }): EmailPr
         notification uses it:
       </p>
       <pre>
-        <code>{`import { webhookProvider } from "notifykit"
+        <code>{`import { webhookProvider } from "@notifykitjs/core"
 
 createNotifyKit({
   // ...
@@ -133,7 +133,7 @@ createNotifyKit({
         against BullMQ, SQS, Cloudflare Queues, whatever you already run:
       </p>
       <pre>
-        <code>{`import type { Queue } from "notifykit"
+        <code>{`import type { Queue } from "@notifykitjs/core"
 
 const myQueue: Queue = {
   async enqueue(job, run) {

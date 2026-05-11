@@ -16,7 +16,7 @@ export default function DefiningPage() {
 
       <h2>Basic definition</h2>
       <pre>
-        <code>{`import { channel, notification } from "notifykit"
+        <code>{`import { channel, notification } from "@notifykitjs/core"
 
 const inbox = channel.inbox()
 const email = channel.email()

@@ -1,5 +1,5 @@
 {
-  "name": "notifykit-cli",
+  "name": "@notifykitjs/cli",
   "version": "0.0.1",
   "description": "Command-line tools for validating and running NotifyKit definitions.",
   "license": "MIT",
@@ -38,7 +38,7 @@
     "typescript": "^5.6.3"
   },
   "dependencies": {
-    "notifykit": "^0.0.1",
+    "@notifykitjs/core": "^0.0.1",
     "tsx": "^4.21.0"
   }
 }

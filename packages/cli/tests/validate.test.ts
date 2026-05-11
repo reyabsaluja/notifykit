@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { channel, notification, fakeEmailProvider } from "notifykit";
+import { channel, notification, fakeEmailProvider } from "@notifykitjs/core";
 import { validateNotifications } from "../src/validate.js";
 
 const inbox = channel.inbox();

@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
-    "notifykit": "workspace:*",
-    "notifykit-drizzle": "workspace:*"
+    "@notifykitjs/core": "workspace:*",
+    "@notifykitjs/drizzle": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

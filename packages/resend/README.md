@@ -1,19 +1,19 @@
-# notifykit-resend
+# @notifykitjs/resend
 
-[Resend](https://resend.com) email provider for [NotifyKit](https://www.npmjs.com/package/notifykit).
+[Resend](https://resend.com) email provider for [NotifyKit](https://www.npmjs.com/package/@notifykitjs/core).
 
 ## Install
 
 ```bash
-npm install notifykit-resend
+npm install @notifykitjs/resend
 ```
 
-Requires `notifykit` as a peer dependency.
+Requires `@notifykitjs/core` as a peer dependency.
 
 ## Usage
 
 ```ts
-import { resendProvider } from "notifykit-resend";
+import { resendProvider } from "@notifykitjs/resend";
 
 const notify = createNotifyKit({
   // ...

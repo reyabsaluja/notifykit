@@ -4,7 +4,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 // ---------------------------------------------------------------------------
 // Define your notifications in code.
@@ -48,14 +48,14 @@ Don't want these? {{_unsubscribeUrl}}
 // Defaults below are zero-config: memory adapter + fake email provider. Flip
 // to real providers when you're ready:
 //
-//   import { drizzleSqliteAdapter, createSqliteTables } from "notifykit-drizzle"
+//   import { drizzleSqliteAdapter, createSqliteTables } from "@notifykitjs/drizzle"
 //   import Database from "better-sqlite3"
 //   import { drizzle } from "drizzle-orm/better-sqlite3"
 //   const db = drizzle(new Database("app.db"))
 //   await createSqliteTables(db)
 //   database: drizzleSqliteAdapter(db),
 //
-//   import { resendProvider } from "notifykit-resend"
+//   import { resendProvider } from "@notifykitjs/resend"
 //   providers: { email: resendProvider({ apiKey: process.env.RESEND_API_KEY!, from: process.env.RESEND_FROM! }) }
 // ---------------------------------------------------------------------------
 

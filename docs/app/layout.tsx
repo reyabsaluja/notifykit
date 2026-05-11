@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { NotifyKitProvider } from "notifykit-react";
+import { NotifyKitProvider } from "@notifykitjs/react";
 import { SideNav } from "./_components/side-nav";
 import "./globals.css";
 

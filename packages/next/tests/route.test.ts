@@ -5,7 +5,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 import { createRouteHandler } from "../src/route.js";
 
 function buildKit() {

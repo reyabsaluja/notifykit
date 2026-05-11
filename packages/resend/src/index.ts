@@ -1,4 +1,4 @@
-import type { EmailProvider } from "notifykit";
+import type { EmailProvider } from "@notifykitjs/core";
 
 export type ResendProviderOptions = {
   /** Resend API key. Required. */

@@ -33,7 +33,7 @@ npm run dev`}</code>
 
       <h2>Or install into an existing Next.js app</h2>
       <pre>
-        <code>{`npm install notifykit @notifykit/next notifykit-react`}</code>
+        <code>{`npm install @notifykitjs/core @notifykitjs/next @notifykitjs/react`}</code>
       </pre>
       <p>A minimal setup:</p>
       <pre>
@@ -44,7 +44,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
-} from "notifykit"
+} from "@notifykitjs/core"
 
 const inbox = channel.inbox()
 const email = channel.email()
@@ -73,7 +73,7 @@ export const notify = createNotifyKit({
       </pre>
       <pre>
         <code>{`// app/api/notifykit/[...route]/route.ts
-import { createRouteHandler } from "@notifykit/next"
+import { createRouteHandler } from "@notifykitjs/next"
 import { notify } from "@/lib/notifykit"
 import { getCurrentUserId } from "@/lib/session"
 
@@ -85,7 +85,7 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
       </pre>
       <pre>
         <code>{`// middleware.ts (optional — adds CORS for cross-origin clients)
-import { createNotifyKitMiddleware } from "@notifykit/next/middleware"
+import { createNotifyKitMiddleware } from "@notifykitjs/next/middleware"
 import type { NextRequest } from "next/server"
 
 const withNotifyKit = createNotifyKitMiddleware({
@@ -100,7 +100,7 @@ export const config = { matcher: "/api/notifykit/:path*" }`}</code>
       </pre>
       <pre>
         <code>{`// app/layout.tsx
-import { NotifyKitProvider } from "notifykit-react"
+import { NotifyKitProvider } from "@notifykitjs/react"
 
 export default function RootLayout({ children }) {
   return (

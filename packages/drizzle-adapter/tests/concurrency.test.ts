@@ -6,7 +6,7 @@ import {
   createNotifyKit,
   fakeEmailProvider,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 import { createSqliteTables, drizzleSqliteAdapter } from "../src/index.js";
 

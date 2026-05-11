@@ -1,6 +1,6 @@
 "use client";
 
-import { Inbox, NotificationBell, useInbox } from "notifykit-react";
+import { Inbox, NotificationBell, useInbox } from "@notifykitjs/react";
 
 export function DemoInbox() {
   const { status, refresh } = useInbox();

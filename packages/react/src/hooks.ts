@@ -6,7 +6,7 @@ import type {
   ChannelPreferenceMap,
   InboxItem,
   RecipientPreference,
-} from "notifykit";
+} from "@notifykitjs/core";
 import type { ClientState, ClientStatus, RealtimeStatus } from "./client.js";
 import { useNotifyKitClient } from "./provider.js";
 

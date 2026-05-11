@@ -7,7 +7,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 import {
   Inbox,
   NotificationBell,

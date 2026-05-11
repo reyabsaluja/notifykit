@@ -26,7 +26,7 @@ await notify.preferences.update({
 const prefs = await notify.preferences.list(user.id)
 
 // Client-side (React):
-import { usePreferences } from "notifykit-react"
+import { usePreferences } from "@notifykitjs/react"
 
 function Settings() {
   const { items, update, isEnabled } = usePreferences()

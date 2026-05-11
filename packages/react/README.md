@@ -1,19 +1,19 @@
-# notifykit-react
+# @notifykitjs/react
 
-React hooks and components for [NotifyKit](https://www.npmjs.com/package/notifykit).
+React hooks and components for [NotifyKit](https://www.npmjs.com/package/@notifykitjs/core).
 
 ## Install
 
 ```bash
-npm install notifykit-react
+npm install @notifykitjs/react
 ```
 
-Requires `notifykit` and `react` (>=18) as peer dependencies.
+Requires `@notifykitjs/core` and `react` (>=18) as peer dependencies.
 
 ## Usage
 
 ```tsx
-import { NotifyKitProvider, useInbox, usePreferences, NotificationBell } from "notifykit-react";
+import { NotifyKitProvider, useInbox, usePreferences, NotificationBell } from "@notifykitjs/react";
 
 function App() {
   return (

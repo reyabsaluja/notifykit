@@ -3,9 +3,9 @@ import type {
   Handler,
   NotificationDefinition,
   PayloadSchema,
-} from "notifykit";
-import { createHandler } from "notifykit";
-import type { NotifyKit } from "notifykit";
+} from "@notifykitjs/core";
+import { createHandler } from "@notifykitjs/core";
+import type { NotifyKit } from "@notifykitjs/core";
 
 export type RouteHandlerOptions<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],

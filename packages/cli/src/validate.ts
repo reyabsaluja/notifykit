@@ -1,10 +1,10 @@
-import type { PayloadSchema, NotificationDefinition } from "notifykit";
+import type { PayloadSchema, NotificationDefinition } from "@notifykitjs/core";
 import {
   validateConfig,
   type ValidateConfigInput,
   type ValidationIssue,
   type ValidationSeverity,
-} from "notifykit/validate";
+} from "@notifykitjs/core/validate";
 
 export type { ValidationIssue, ValidationSeverity };
 

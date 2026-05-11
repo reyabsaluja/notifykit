@@ -25,8 +25,8 @@ const expressionToPrimitive: Record<string, PrimitiveSchema> = {
  *
  * ```ts
  * import { type } from "arktype";
- * import { arktypePayload } from "notifykit/arktype";
- * import { notification } from "notifykit";
+ * import { arktypePayload } from "@notifykitjs/core/arktype";
+ * import { notification } from "@notifykitjs/core";
  *
  * const { payload, validate } = arktypePayload(
  *   type({ name: "string", count: "number" }),

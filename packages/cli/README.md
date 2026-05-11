@@ -1,14 +1,14 @@
-# notifykit-cli
+# @notifykitjs/cli
 
-CLI for [NotifyKit](https://www.npmjs.com/package/notifykit) — validate notification definitions at build time.
+CLI for [NotifyKit](https://www.npmjs.com/package/@notifykitjs/core) — validate notification definitions at build time.
 
 ## Install
 
 ```bash
-npm install notifykit-cli
+npm install @notifykitjs/cli
 ```
 
-Requires `notifykit` as a peer dependency.
+Installs `@notifykitjs/core` as a dependency.
 
 ## Usage
 
@@ -22,8 +22,8 @@ Loads your `notifykit.config.ts` and validates all notification definitions — 
 
 ```ts
 // notifykit.config.ts
-import { defineConfig } from "notifykit-cli";
-import { channel, notification } from "notifykit";
+import { defineConfig } from "@notifykitjs/cli";
+import { channel, notification } from "@notifykitjs/core";
 
 const inbox = channel.inbox();
 

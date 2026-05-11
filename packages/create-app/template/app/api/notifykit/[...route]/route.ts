@@ -1,4 +1,4 @@
-import { createHandler } from "notifykit";
+import { createHandler } from "@notifykitjs/core";
 import { ensureDemoUser, notify } from "../../../../lib/notifykit";
 import { getCurrentUserId } from "../../../../lib/session";
 

@@ -1,21 +1,21 @@
-# notifykit-drizzle
+# @notifykitjs/drizzle
 
-Drizzle ORM database adapter for [NotifyKit](https://www.npmjs.com/package/notifykit). Supports SQLite and Postgres.
+Drizzle ORM database adapter for [NotifyKit](https://www.npmjs.com/package/@notifykitjs/core). Supports SQLite and Postgres.
 
 ## Install
 
 ```bash
-npm install notifykit-drizzle drizzle-orm
+npm install @notifykitjs/drizzle drizzle-orm
 ```
 
-Requires [`notifykit`](https://www.npmjs.com/package/notifykit) as a peer dependency.
+Requires [`@notifykitjs/core`](https://www.npmjs.com/package/@notifykitjs/core) as a peer dependency.
 
 ## Usage (SQLite)
 
 ```ts
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { createSqliteTables, drizzleSqliteAdapter } from "notifykit-drizzle";
+import { createSqliteTables, drizzleSqliteAdapter } from "@notifykitjs/drizzle";
 
 const db = drizzle(new Database("app.db"));
 await createSqliteTables(db);
@@ -30,7 +30,7 @@ const notify = createNotifyKit({
 
 ```ts
 import { drizzle } from "drizzle-orm/node-postgres";
-import { createPgTables, drizzlePostgresAdapter } from "notifykit-drizzle";
+import { createPgTables, drizzlePostgresAdapter } from "@notifykitjs/drizzle";
 
 const db = drizzle(pool);
 await createPgTables(db);
@@ -46,8 +46,8 @@ const notify = createNotifyKit({
 The exported schemas let you join NotifyKit tables against your own:
 
 ```ts
-import { notifyKitSchema } from "notifykit-drizzle/schema/sqlite";
-import { notifyKitPgSchema } from "notifykit-drizzle/schema/postgres";
+import { notifyKitSchema } from "@notifykitjs/drizzle/schema/sqlite";
+import { notifyKitPgSchema } from "@notifykitjs/drizzle/schema/postgres";
 ```
 
 ## Docs

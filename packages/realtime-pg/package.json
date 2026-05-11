@@ -1,5 +1,5 @@
 {
-  "name": "@notifykit/realtime-pg",
+  "name": "@notifykitjs/realtime-pg",
   "version": "0.0.1",
   "description": "Postgres LISTEN/NOTIFY realtime adapter for NotifyKit.",
   "license": "MIT",
@@ -35,10 +35,10 @@
     "test": "bun test"
   },
   "peerDependencies": {
-    "notifykit": "^0.0.1"
+    "@notifykitjs/core": "^0.0.1"
   },
   "devDependencies": {
-    "notifykit": "^0.0.1",
+    "@notifykitjs/core": "^0.0.1",
     "typescript": "^5.6.3"
   },
   "sideEffects": false

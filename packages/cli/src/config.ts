@@ -7,7 +7,7 @@ import type {
   PayloadSchema,
   SmsProvider,
   WebhookProvider,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 export type NotifyKitConfig = {
   notifications: readonly NotificationDefinition<string, PayloadSchema>[];

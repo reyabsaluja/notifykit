@@ -1,14 +1,14 @@
-# @notifykit/next
+# @notifykitjs/next
 
-Next.js integration for [NotifyKit](https://www.npmjs.com/package/notifykit) — route handler, server actions, and middleware.
+Next.js integration for [NotifyKit](https://www.npmjs.com/package/@notifykitjs/core) — route handler, server actions, and middleware.
 
 ## Install
 
 ```bash
-npm install @notifykit/next
+npm install @notifykitjs/next
 ```
 
-Requires `notifykit` and `next` (>=14) as peer dependencies.
+Requires `@notifykitjs/core` and `next` (>=14) as peer dependencies.
 
 ## Usage
 
@@ -16,7 +16,7 @@ Requires `notifykit` and `next` (>=14) as peer dependencies.
 
 ```ts
 // app/api/notifykit/[...route]/route.ts
-import { createRouteHandler } from "@notifykit/next";
+import { createRouteHandler } from "@notifykitjs/next";
 import { notify } from "@/lib/notifykit";
 
 export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
@@ -31,7 +31,7 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
 // app/actions/notifykit.ts
 "use server";
 
-import { createServerActions } from "@notifykit/next";
+import { createServerActions } from "@notifykitjs/next";
 import { notify } from "@/lib/notifykit";
 
 const actions = createServerActions({
@@ -52,7 +52,7 @@ export async function markNotificationRead(id: string) {
 
 ```ts
 // middleware.ts
-import { createNotifyKitMiddleware } from "@notifykit/next/middleware";
+import { createNotifyKitMiddleware } from "@notifykitjs/next/middleware";
 
 export default createNotifyKitMiddleware({
   cors: { origin: "https://app.example.com" },

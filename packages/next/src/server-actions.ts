@@ -11,7 +11,7 @@ import type {
   RecipientPreference,
   SecurityScope,
   UpdatePreferenceInput,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 export type ServerActionsIdentity = SecurityScope & {
   recipientId: string;

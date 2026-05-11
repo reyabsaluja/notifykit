@@ -86,7 +86,7 @@ await notify.send({
         <code>send()</code> instantly and have deliveries run later.
       </p>
       <pre>
-        <code>{`import { setTimeoutQueue } from "notifykit"
+        <code>{`import { setTimeoutQueue } from "@notifykitjs/core"
 
 const notify = createNotifyKit({
   // ...

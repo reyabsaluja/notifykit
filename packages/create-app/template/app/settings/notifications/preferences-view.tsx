@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useNotifyKitClient, usePreferences } from "notifykit-react";
-import type { NotificationMetadata } from "notifykit-react";
+import { useNotifyKitClient, usePreferences } from "@notifykitjs/react";
+import type { NotificationMetadata } from "@notifykitjs/react";
 
 export function PreferencesView() {
   const client = useNotifyKitClient();

@@ -3,7 +3,7 @@ import {
   fakeEmailProvider,
   fakeWebhookProvider,
   memoryAdapter,
-} from "notifykit";
+} from "@notifykitjs/core";
 import { loadConfig } from "../config.js";
 
 export type SendOptions = {

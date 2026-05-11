@@ -3,8 +3,8 @@ import type {
   RealtimeEvent,
   RealtimeListener,
   SecurityScope,
-} from "notifykit";
-import { normalizeScope } from "notifykit";
+} from "@notifykitjs/core";
+import { normalizeScope } from "@notifykitjs/core";
 
 const DEFAULT_CHANNEL = "notifykit_realtime";
 

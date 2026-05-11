@@ -53,8 +53,8 @@ describe("scaffold()", () => {
     );
     expect(pkg.name).toBe("acme-web");
     expect(pkg.scripts.dev).toBe("next dev");
-    expect(pkg.dependencies.notifykit).toBeDefined();
-    expect(pkg.dependencies["notifykit-react"]).toBeDefined();
+    expect(pkg.dependencies["@notifykitjs/core"]).toBeDefined();
+    expect(pkg.dependencies["@notifykitjs/react"]).toBeDefined();
   });
 
   test("uses directory basename as default project name", async () => {

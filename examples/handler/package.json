@@ -7,7 +7,7 @@
     "start": "bun src/index.ts"
   },
   "dependencies": {
-    "notifykit": "workspace:*"
+    "@notifykitjs/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

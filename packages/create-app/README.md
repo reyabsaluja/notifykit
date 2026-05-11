@@ -1,6 +1,6 @@
 # create-notifykit-app
 
-Scaffold a new [NotifyKit](https://www.npmjs.com/package/notifykit) project — Next.js app with inbox, email, preferences, and signed unsubscribe links pre-wired.
+Scaffold a new [NotifyKit](https://www.npmjs.com/package/@notifykitjs/core) project — Next.js app with inbox, email, preferences, and signed unsubscribe links pre-wired.
 
 ## Usage
 
@@ -20,7 +20,7 @@ The generated app includes:
 - `app/api/notifykit/[...route]/route.ts` — REST API handler
 - `app/page.tsx` — inbox UI with send form
 - `app/settings/notifications/page.tsx` — preferences table
-- React hooks via `notifykit-react`
+- React hooks via `@notifykitjs/react`
 
 ## Docs
 

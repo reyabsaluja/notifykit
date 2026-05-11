@@ -1,19 +1,19 @@
-# @notifykit/realtime-pg
+# @notifykitjs/realtime-pg
 
-Postgres LISTEN/NOTIFY real-time adapter for [NotifyKit](https://www.npmjs.com/package/notifykit). Broadcasts events across multiple server instances using Postgres pub/sub.
+Postgres LISTEN/NOTIFY real-time adapter for [NotifyKit](https://www.npmjs.com/package/@notifykitjs/core). Broadcasts events across multiple server instances using Postgres pub/sub.
 
 ## Install
 
 ```bash
-npm install @notifykit/realtime-pg
+npm install @notifykitjs/realtime-pg
 ```
 
-Requires `notifykit` as a peer dependency.
+Requires `@notifykitjs/core` as a peer dependency.
 
 ## Usage
 
 ```ts
-import { pgRealtimeAdapter } from "@notifykit/realtime-pg";
+import { pgRealtimeAdapter } from "@notifykitjs/realtime-pg";
 
 const realtime = pgRealtimeAdapter({
   connection: pgClient, // must support listen/unlisten/notify

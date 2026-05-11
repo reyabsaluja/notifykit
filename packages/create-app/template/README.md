@@ -34,7 +34,7 @@ test notification, and manage preferences at `/settings/notifications`.
 ### Real database (SQLite + Drizzle)
 
 ```bash
-npm install notifykit-drizzle drizzle-orm better-sqlite3
+npm install @notifykitjs/drizzle drizzle-orm better-sqlite3
 ```
 
 Replace the adapter in `lib/notifykit.ts`:
@@ -42,7 +42,7 @@ Replace the adapter in `lib/notifykit.ts`:
 ```ts
 import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
-import { createSqliteTables, drizzleSqliteAdapter } from "notifykit-drizzle"
+import { createSqliteTables, drizzleSqliteAdapter } from "@notifykitjs/drizzle"
 
 const db = drizzle(new Database("app.db"))
 await createSqliteTables(db)  // one-off; use drizzle-kit in production
@@ -56,13 +56,13 @@ export const notify = createNotifyKit({
 ### Real email (Resend)
 
 ```bash
-npm install notifykit-resend
+npm install @notifykitjs/resend
 ```
 
 Set `RESEND_API_KEY` and `RESEND_FROM` in `.env.local`, then:
 
 ```ts
-import { resendProvider } from "notifykit-resend"
+import { resendProvider } from "@notifykitjs/resend"
 
 providers: {
   email: resendProvider({

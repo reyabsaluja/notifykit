@@ -3,7 +3,7 @@ import type {
   InboxItem,
   NotificationClassification,
   RecipientPreference,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 export type ClientStatus = "idle" | "loading" | "ready" | "error";
 

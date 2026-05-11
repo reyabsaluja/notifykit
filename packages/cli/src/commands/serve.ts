@@ -4,7 +4,7 @@ import {
   fakeEmailProvider,
   fakeWebhookProvider,
   memoryAdapter,
-} from "notifykit";
+} from "@notifykitjs/core";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { loadConfig } from "../config.js";
 

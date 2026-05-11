@@ -20,7 +20,7 @@ npm run dev
 ## Install
 
 ```bash
-npm install notifykit
+npm install @notifykitjs/core
 ```
 
 ## Minimal example
@@ -32,7 +32,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
-} from "notifykit";
+} from "@notifykitjs/core";
 
 const inbox = channel.inbox();
 const email = channel.email();
@@ -86,15 +86,15 @@ await notify.send({
 
 | Package | Description |
 |---------|-------------|
-| [`notifykit`](packages/core) | Core engine — notifications, channels, delivery, preferences |
-| [`notifykit-drizzle`](packages/drizzle-adapter) | Drizzle ORM adapter (SQLite + Postgres) |
-| [`notifykit-react`](packages/react) | React hooks and components |
-| [`@notifykit/next`](packages/next) | Next.js route handler, server actions, middleware |
-| [`notifykit-resend`](packages/resend) | Resend email provider |
-| [`notifykit-cli`](packages/cli) | CLI for validating notification definitions |
+| [`@notifykitjs/core`](packages/core) | Core engine — notifications, channels, delivery, preferences |
+| [`@notifykitjs/drizzle`](packages/drizzle-adapter) | Drizzle ORM adapter (SQLite + Postgres) |
+| [`@notifykitjs/react`](packages/react) | React hooks and components |
+| [`@notifykitjs/next`](packages/next) | Next.js route handler, server actions, middleware |
+| [`@notifykitjs/resend`](packages/resend) | Resend email provider |
+| [`@notifykitjs/cli`](packages/cli) | CLI for validating notification definitions |
 | [`create-notifykit-app`](packages/create-app) | Project scaffolding |
-| [`@notifykit/realtime-ws`](packages/realtime-ws) | WebSocket real-time adapter |
-| [`@notifykit/realtime-pg`](packages/realtime-pg) | Postgres LISTEN/NOTIFY real-time adapter |
+| [`@notifykitjs/realtime-ws`](packages/realtime-ws) | WebSocket real-time adapter |
+| [`@notifykitjs/realtime-pg`](packages/realtime-pg) | Postgres LISTEN/NOTIFY real-time adapter |
 
 ## Examples
 
@@ -118,13 +118,13 @@ See the [`examples/`](examples) directory for full source code.
 Replace the memory adapter with a Drizzle adapter:
 
 ```bash
-npm install notifykit-drizzle drizzle-orm better-sqlite3
+npm install @notifykitjs/drizzle drizzle-orm better-sqlite3
 ```
 
 ```ts
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { createSqliteTables, drizzleSqliteAdapter } from "notifykit-drizzle";
+import { createSqliteTables, drizzleSqliteAdapter } from "@notifykitjs/drizzle";
 
 const db = drizzle(new Database("app.db"));
 await createSqliteTables(db);
@@ -138,11 +138,11 @@ const notify = createNotifyKit({
 ### Email
 
 ```bash
-npm install notifykit-resend
+npm install @notifykitjs/resend
 ```
 
 ```ts
-import { resendProvider } from "notifykit-resend";
+import { resendProvider } from "@notifykitjs/resend";
 
 const notify = createNotifyKit({
   // ...

@@ -1,19 +1,19 @@
-# @notifykit/realtime-ws
+# @notifykitjs/realtime-ws
 
-WebSocket real-time adapter for [NotifyKit](https://www.npmjs.com/package/notifykit). Pushes inbox updates to connected clients over WebSocket.
+WebSocket real-time adapter for [NotifyKit](https://www.npmjs.com/package/@notifykitjs/core). Pushes inbox updates to connected clients over WebSocket.
 
 ## Install
 
 ```bash
-npm install @notifykit/realtime-ws
+npm install @notifykitjs/realtime-ws
 ```
 
-Requires `notifykit` as a peer dependency.
+Requires `@notifykitjs/core` as a peer dependency.
 
 ## Usage
 
 ```ts
-import { webSocketRealtimeAdapter } from "@notifykit/realtime-ws";
+import { webSocketRealtimeAdapter } from "@notifykitjs/realtime-ws";
 
 const realtime = webSocketRealtimeAdapter({
   authenticate: (req) => {
