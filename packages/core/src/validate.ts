@@ -51,6 +51,7 @@ export type ValidateConfigInput = {
 };
 
 const ID_RE = /^[a-z][a-z0-9._-]*$/;
+const VALID_CHANNEL_TYPES: ReadonlySet<string> = new Set(["inbox", "email", "webhook", "sms"]);
 const VALID_SCHEMA_TYPES: ReadonlySet<string> = new Set<PrimitiveSchema>(["string", "number", "boolean"]);
 
 function isLegacyFallback(
@@ -674,16 +675,15 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
         });
       }
     }
-    const validChannelTypes = new Set<string>(["inbox", "email", "webhook", "sms"]);
     for (const [cat, prefs] of Object.entries(defaults.categories)) {
       for (const ch of Object.keys(prefs)) {
-        if (!validChannelTypes.has(ch)) {
+        if (!VALID_CHANNEL_TYPES.has(ch)) {
           issues.push({
             severity: "error",
             code: "INVALID_CATEGORY_CHANNEL",
             field: `defaults.categories.${cat}`,
             message: `Category default "${cat}" references unknown channel type "${ch}".`,
-            fix: `Valid channel types: ${[...validChannelTypes].join(", ")}.`,
+            fix: `Valid channel types: ${[...VALID_CHANNEL_TYPES].join(", ")}.`,
           });
         }
       }
@@ -692,15 +692,14 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
 
   // --- defaults.channels coherence ---
   if (defaults?.channels) {
-    const validChannelTypes = new Set<string>(["inbox", "email", "webhook", "sms"]);
     for (const ch of Object.keys(defaults.channels)) {
-      if (!validChannelTypes.has(ch)) {
+      if (!VALID_CHANNEL_TYPES.has(ch)) {
         issues.push({
           severity: "error",
           code: "INVALID_DEFAULT_CHANNEL_TYPE",
           field: "defaults.channels",
           message: `defaults.channels references unknown channel type "${ch}".`,
-          fix: `Valid channel types: ${[...validChannelTypes].join(", ")}.`,
+          fix: `Valid channel types: ${[...VALID_CHANNEL_TYPES].join(", ")}.`,
         });
       }
     }
