@@ -21,7 +21,9 @@ import type {
   MarkReadForRecipientResult,
   NotificationDefinition,
   NotificationRecord,
+  PayloadFieldError,
   PayloadSchema,
+  PayloadValidationResult,
   PreferenceExplanation,
   PreferenceResolutionLayer,
   Queue,
@@ -50,7 +52,7 @@ import {
 } from "./preference-keys.js";
 import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, assertSafeWebhookUrl, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, assertSafeWebhookUrl, checkPayload, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 import { validateConfig, formatValidationIssues } from "./validate.js";
 
 export const SKIP_PROVIDER = "skip" as const;
@@ -1289,6 +1291,41 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
+    let payloadValidation: PayloadValidationResult;
+    if (def.validate) {
+      try {
+        const result = def.validate(input.payload);
+        if (!result || typeof result !== "object" || Array.isArray(result)) {
+          payloadValidation = {
+            valid: false,
+            fields: [{
+              key: "(root)",
+              expected: "object",
+              actual: result === null ? "null" : Array.isArray(result) ? "array" : typeof result,
+              message: "Custom validator must return a plain object.",
+            }],
+          };
+        } else {
+          payloadValidation = { valid: true, fields: [] };
+        }
+      } catch (err: unknown) {
+        const errFields = err instanceof Error && "fields" in err
+          ? (err as Record<string, unknown>).fields
+          : undefined;
+        const fields: PayloadFieldError[] = Array.isArray(errFields)
+          ? errFields as PayloadFieldError[]
+          : [{
+              key: "(root)",
+              expected: "valid",
+              actual: "invalid",
+              message: err instanceof Error ? err.message : String(err),
+            }];
+        payloadValidation = { valid: false, fields };
+      }
+    } else {
+      payloadValidation = checkPayload(def.payload, input.payload);
+    }
+
     const prefExplanation = resolvePreferences(
       await buildResolutionCtx(recipient, def, scope),
     );
@@ -1340,6 +1377,8 @@ export function createNotifyKit<
         outcome = ch.resolvedBy === "destination_unavailable"
           ? "unavailable"
           : "disabled";
+      } else if (!payloadValidation.valid) {
+        outcome = "invalid_payload";
       } else if (wouldDeduplicate) {
         outcome = "deduplicated";
       } else if (wouldRateLimit) {
@@ -1365,6 +1404,7 @@ export function createNotifyKit<
       required: def.required ?? false,
       classification: def.classification,
       category: def.category,
+      payloadValidation,
       wouldDeduplicate,
       wouldRateLimit,
       wouldDigest,
