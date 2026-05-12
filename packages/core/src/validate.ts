@@ -40,9 +40,9 @@ export type ValidateConfigInput = {
     categories?: CategoryDefaults;
   };
   database?: {
-    timeline?: Record<string, unknown>;
-    digests?: Record<string, unknown>;
-    rateLimits?: Record<string, unknown>;
+    timeline?: object;
+    digests?: object;
+    rateLimits?: object;
   };
   idempotencyKeyTtlMs?: number;
   timelineRetentionMs?: number;
@@ -657,6 +657,21 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
     }
   }
 
+  // --- defaults.channels coherence ---
+  if (defaults?.channels) {
+    for (const ch of Object.keys(defaults.channels)) {
+      if (!VALID_CHANNEL_TYPES.has(ch)) {
+        issues.push({
+          severity: "error",
+          code: "INVALID_DEFAULT_CHANNEL_TYPE",
+          field: "defaults.channels",
+          message: `defaults.channels references unknown channel type "${ch}".`,
+          fix: `Valid channel types: ${[...VALID_CHANNEL_TYPES].join(", ")}.`,
+        });
+      }
+    }
+  }
+
   // --- category defaults coherence ---
   if (defaults?.categories) {
     const allCategories = new Set(
@@ -684,21 +699,6 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
             fix: `Valid channel types: ${[...VALID_CHANNEL_TYPES].join(", ")}.`,
           });
         }
-      }
-    }
-  }
-
-  // --- defaults.channels coherence ---
-  if (defaults?.channels) {
-    for (const ch of Object.keys(defaults.channels)) {
-      if (!VALID_CHANNEL_TYPES.has(ch)) {
-        issues.push({
-          severity: "error",
-          code: "INVALID_DEFAULT_CHANNEL_TYPE",
-          field: "defaults.channels",
-          message: `defaults.channels references unknown channel type "${ch}".`,
-          fix: `Valid channel types: ${[...VALID_CHANNEL_TYPES].join(", ")}.`,
-        });
       }
     }
   }

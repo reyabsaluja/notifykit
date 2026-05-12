@@ -247,6 +247,42 @@ describe("validateNotifications", () => {
     expect(issues.some((i) => i.code === "INVALID_TIMELINE_RETENTION")).toBe(true);
   });
 
+  test("flags NaN idempotencyKeyTtlMs", () => {
+    const def = notification({
+      id: "ttl_nan",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      idempotencyKeyTtlMs: NaN,
+    });
+    expect(issues.some((i) => i.code === "INVALID_IDEMPOTENCY_TTL")).toBe(true);
+  });
+
+  test("flags Infinity idempotencyKeyTtlMs", () => {
+    const def = notification({
+      id: "ttl_inf",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      idempotencyKeyTtlMs: Infinity,
+    });
+    expect(issues.some((i) => i.code === "INVALID_IDEMPOTENCY_TTL")).toBe(true);
+  });
+
+  test("flags NaN timelineRetentionMs", () => {
+    const def = notification({
+      id: "ret_nan",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      timelineRetentionMs: NaN,
+    });
+    expect(issues.some((i) => i.code === "INVALID_TIMELINE_RETENTION")).toBe(true);
+  });
+
   test("passes zero timelineRetentionMs (disable)", () => {
     const def = notification({
       id: "ret_zero",
