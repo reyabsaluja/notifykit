@@ -24,7 +24,6 @@ export async function runCheck(options: CheckOptions): Promise<number> {
     providers: config.providers,
     unsubscribe: config.unsubscribe,
     defaults: config.defaults,
-    webhookSigned: config.providers?.webhook?.signed,
   });
   const errors = issues.filter((i) => i.severity === "error");
   const warnings = issues.filter((i) => i.severity === "warning");

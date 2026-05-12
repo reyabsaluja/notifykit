@@ -47,7 +47,6 @@ export type ValidateConfigInput = {
   };
   idempotencyKeyTtlMs?: number;
   timelineRetentionMs?: number;
-  webhookSigned?: boolean;
 };
 
 const ID_RE = /^[a-z][a-z0-9._-]*$/;
@@ -780,7 +779,7 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
 
   // --- webhook secret warning ---
   if (notifications.some((n) => n.channels.some((ch) => ch.type === "webhook"))) {
-    if (input.providers?.webhook && input.webhookSigned === false) {
+    if (input.providers?.webhook && !input.providers.webhook.signed) {
       issues.push({
         severity: "warning",
         code: "WEBHOOK_NO_SECRET",

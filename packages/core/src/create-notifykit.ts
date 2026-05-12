@@ -408,7 +408,6 @@ export function createNotifyKit<
     },
     idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
     timelineRetentionMs: config.timelineRetentionMs,
-    webhookSigned: providers?.webhook?.signed,
   });
   const errors = startupIssues.filter((i) => i.severity === "error");
   const warnings = startupIssues.filter((i) => i.severity === "warning");

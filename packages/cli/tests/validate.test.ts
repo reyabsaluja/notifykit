@@ -312,7 +312,6 @@ describe("validateNotifications", () => {
     });
     const issues = validateNotifications([def], {
       providers: { webhook: { id: "webhook", signed: false, send: async () => ({}) } },
-      webhookSigned: false,
     });
     expect(issues.some((i) => i.code === "WEBHOOK_NO_SECRET")).toBe(true);
   });
@@ -325,7 +324,6 @@ describe("validateNotifications", () => {
     });
     const issues = validateNotifications([def], {
       providers: { webhook: { id: "webhook", signed: true, send: async () => ({}) } },
-      webhookSigned: true,
     });
     expect(issues.filter((i) => i.code === "WEBHOOK_NO_SECRET")).toEqual([]);
   });
