@@ -52,7 +52,7 @@ import {
 } from "./preference-keys.js";
 import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, assertSafeWebhookUrl, checkPayload, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, PAYLOAD_VALID, assertSafeWebhookUrl, checkPayload, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 import { validateConfig, formatValidationIssues } from "./validate.js";
 
 export const SKIP_PROVIDER = "skip" as const;
@@ -1306,7 +1306,7 @@ export function createNotifyKit<
             }],
           };
         } else {
-          payloadValidation = { valid: true, fields: [] };
+          payloadValidation = PAYLOAD_VALID;
         }
       } catch (err: unknown) {
         const errFields = err instanceof Error && "fields" in err

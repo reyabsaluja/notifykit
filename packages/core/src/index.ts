@@ -30,6 +30,7 @@ export {
 } from "./unsubscribe.js";
 export {
   NotifyKitError,
+  PAYLOAD_VALID,
   PayloadValidationError,
   createId,
   extractTemplateVars,
@@ -97,7 +98,6 @@ export type { ResolutionContext } from "./resolve-preferences.js";
 
 export type {
   NotifyKitErrorContext,
-  PayloadFieldError,
   SafeWebhookResult,
 } from "./utils.js";
 export type {
@@ -139,7 +139,9 @@ export type {
   NotificationDefinition,
   NotificationIds,
   NotificationRecord,
+  PayloadFieldError,
   PayloadSchema,
+  PayloadValidationResult,
   PreferenceExplanation,
   PreferenceResolutionLayer,
   PrimitiveSchema,

@@ -122,6 +122,8 @@ export function validatePayload(
   return validated;
 }
 
+export const PAYLOAD_VALID: PayloadValidationResult = Object.freeze({ valid: true, fields: [] });
+
 export function checkPayload(
   schema: PayloadSchema,
   payload: unknown,
@@ -172,7 +174,7 @@ export function checkPayload(
     }
   }
 
-  return { valid: fieldErrors.length === 0, fields: fieldErrors };
+  return fieldErrors.length === 0 ? PAYLOAD_VALID : { valid: false, fields: fieldErrors };
 }
 
 const BLOCKED_HOSTNAME_PATTERNS = [
