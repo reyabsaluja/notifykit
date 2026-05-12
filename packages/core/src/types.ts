@@ -38,14 +38,28 @@ export type PreferenceExplanation = {
   category?: string;
 };
 
+// Ordered by explain() evaluation priority (first match wins)
 export type ChannelOutcome =
-  | "deliver"
-  | "disabled"
-  | "delayed"
   | "unavailable"
+  | "disabled"
+  | "invalid_payload"
   | "deduplicated"
   | "rate_limited"
-  | "digested";
+  | "digested"
+  | "delayed"
+  | "deliver";
+
+export type PayloadFieldError = {
+  key: string;
+  expected: string;
+  actual: string;
+  message: string;
+};
+
+export type PayloadValidationResult = {
+  valid: boolean;
+  fields: PayloadFieldError[];
+};
 
 export type DeliveryExplanation = {
   recipientId: string;
@@ -55,6 +69,7 @@ export type DeliveryExplanation = {
   required: boolean;
   classification?: NotificationClassification;
   category?: string;
+  payloadValidation: PayloadValidationResult;
   wouldDeduplicate: boolean;
   wouldRateLimit: boolean;
   wouldDigest: boolean;
