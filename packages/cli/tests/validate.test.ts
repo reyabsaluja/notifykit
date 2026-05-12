@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { channel, notification, fakeEmailProvider } from "@notifykitjs/core";
+import type { ChannelConfig, ChannelPreferenceMap, CategoryDefaults } from "@notifykitjs/core";
 import { validateNotifications } from "../src/validate.js";
 
 const inbox = channel.inbox();
@@ -143,7 +144,7 @@ describe("validateNotifications", () => {
       channels: [inbox({ title: "{{x}}" })],
     });
     const issues = validateNotifications([def], {
-      defaults: { channels: { push: true } as never },
+      defaults: { channels: { push: true } as unknown as ChannelPreferenceMap },
     });
     expect(issues.some((i) => i.code === "INVALID_DEFAULT_CHANNEL_TYPE")).toBe(true);
   });
@@ -156,7 +157,7 @@ describe("validateNotifications", () => {
       category: "billing",
     });
     const issues = validateNotifications([def], {
-      defaults: { categories: { billing: { push: true } as never } },
+      defaults: { categories: { billing: { push: true } } as unknown as CategoryDefaults },
     });
     expect(issues.some((i) => i.code === "INVALID_CATEGORY_CHANNEL")).toBe(true);
   });
@@ -308,7 +309,7 @@ describe("validateNotifications", () => {
     const def = notification({
       id: "webhook_nosign",
       payload: { x: "string" },
-      channels: [{ type: "webhook", url: "https://example.com/hook" } as never],
+      channels: [{ type: "webhook", url: "https://example.com/hook" } as unknown as ChannelConfig],
     });
     const issues = validateNotifications([def], {
       providers: { webhook: { id: "webhook", signed: false, send: async () => ({}) } },
@@ -320,7 +321,7 @@ describe("validateNotifications", () => {
     const def = notification({
       id: "webhook_signed",
       payload: { x: "string" },
-      channels: [{ type: "webhook", url: "https://example.com/hook" } as never],
+      channels: [{ type: "webhook", url: "https://example.com/hook" } as unknown as ChannelConfig],
     });
     const issues = validateNotifications([def], {
       providers: { webhook: { id: "webhook", signed: true, send: async () => ({}) } },
