@@ -8,9 +8,11 @@ import {
 
 export type { ValidationIssue, ValidationSeverity };
 
+export type ValidateOptions = Omit<ValidateConfigInput, "notifications">;
+
 export function validateNotifications(
   notifications: readonly NotificationDefinition<string, PayloadSchema>[],
-  options?: Omit<ValidateConfigInput, "notifications">,
+  options?: ValidateOptions,
 ): ValidationIssue[] {
   return validateConfig({ notifications, ...options });
 }

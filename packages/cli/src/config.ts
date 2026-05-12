@@ -2,6 +2,8 @@ import { existsSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import type {
+  CategoryDefaults,
+  ChannelPreferenceMap,
   EmailProvider,
   NotificationDefinition,
   PayloadSchema,
@@ -17,6 +19,10 @@ export type NotifyKitConfig = {
     sms?: SmsProvider;
   };
   unsubscribe?: { secret: string; baseUrl: string };
+  defaults?: {
+    channels?: ChannelPreferenceMap;
+    categories?: CategoryDefaults;
+  };
 };
 
 export function defineConfig(config: NotifyKitConfig): NotifyKitConfig {

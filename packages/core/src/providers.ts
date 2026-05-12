@@ -83,6 +83,7 @@ export function webhookProvider(
 
   return {
     id: "webhook",
+    signed: !!options.secret,
     async send(input) {
       const body = JSON.stringify(input.payload);
       const headers: Record<string, string> = {

@@ -135,4 +135,198 @@ describe("validateNotifications", () => {
     const issues = validateNotifications([def]);
     expect(issues.some((i) => i.code === "INVALID_FALLBACK_FROM")).toBe(true);
   });
+
+  test("flags unknown channel type in defaults.channels", () => {
+    const def = notification({
+      id: "ok",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      defaults: { channels: { push: true } as never },
+    });
+    expect(issues.some((i) => i.code === "INVALID_DEFAULT_CHANNEL_TYPE")).toBe(true);
+  });
+
+  test("flags unknown channel type in category defaults", () => {
+    const def = notification({
+      id: "cat_test",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+      category: "billing",
+    });
+    const issues = validateNotifications([def], {
+      defaults: { categories: { billing: { push: true } as never } },
+    });
+    expect(issues.some((i) => i.code === "INVALID_CATEGORY_CHANNEL")).toBe(true);
+  });
+
+  test("flags empty unsubscribe.baseUrl", () => {
+    const def = notification({
+      id: "unsub_empty",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      unsubscribe: { secret: "a".repeat(32), baseUrl: "" },
+    });
+    expect(issues.some((i) => i.code === "INVALID_UNSUBSCRIBE_URL")).toBe(true);
+  });
+
+  test("flags unsubscribe.baseUrl without scheme", () => {
+    const def = notification({
+      id: "unsub_noscheme",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      unsubscribe: { secret: "a".repeat(32), baseUrl: "app.com/api/notifykit" },
+    });
+    expect(issues.some((i) => i.code === "INVALID_UNSUBSCRIBE_URL")).toBe(true);
+    expect(issues[0]!.message).toMatch(/http/);
+  });
+
+  test("passes valid unsubscribe config", () => {
+    const def = notification({
+      id: "unsub_ok",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      unsubscribe: { secret: "a".repeat(32), baseUrl: "https://app.com/api/notifykit" },
+    });
+    expect(issues.filter((i) => i.code === "INVALID_UNSUBSCRIBE_URL")).toEqual([]);
+  });
+
+  test("flags negative idempotencyKeyTtlMs", () => {
+    const def = notification({
+      id: "ttl_bad",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      idempotencyKeyTtlMs: -1,
+    });
+    expect(issues.some((i) => i.code === "INVALID_IDEMPOTENCY_TTL")).toBe(true);
+  });
+
+  test("flags zero idempotencyKeyTtlMs", () => {
+    const def = notification({
+      id: "ttl_zero",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      idempotencyKeyTtlMs: 0,
+    });
+    expect(issues.some((i) => i.code === "INVALID_IDEMPOTENCY_TTL")).toBe(true);
+  });
+
+  test("passes valid idempotencyKeyTtlMs", () => {
+    const def = notification({
+      id: "ttl_ok",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      idempotencyKeyTtlMs: 86400000,
+    });
+    expect(issues.filter((i) => i.code === "INVALID_IDEMPOTENCY_TTL")).toEqual([]);
+  });
+
+  test("flags negative timelineRetentionMs", () => {
+    const def = notification({
+      id: "ret_bad",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      timelineRetentionMs: -100,
+    });
+    expect(issues.some((i) => i.code === "INVALID_TIMELINE_RETENTION")).toBe(true);
+  });
+
+  test("passes zero timelineRetentionMs (disable)", () => {
+    const def = notification({
+      id: "ret_zero",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const issues = validateNotifications([def], {
+      timelineRetentionMs: 0,
+    });
+    expect(issues.filter((i) => i.code === "INVALID_TIMELINE_RETENTION")).toEqual([]);
+  });
+
+  test("flags missing digests adapter when notification uses digest", () => {
+    const def = notification({
+      id: "needs_digest",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+      digest: {
+        windowMs: 60000,
+        render: ({ payloads }) => payloads[0]!,
+      },
+    });
+    const issues = validateNotifications([def], {
+      database: { digests: undefined, rateLimits: {} },
+    });
+    expect(issues.some((i) => i.code === "MISSING_ADAPTER_CAPABILITY" && i.field === "database.digests")).toBe(true);
+  });
+
+  test("flags missing rateLimits adapter when notification uses rateLimit", () => {
+    const def = notification({
+      id: "needs_rl",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+      rateLimit: { max: 5, windowMs: 60000 },
+    });
+    const issues = validateNotifications([def], {
+      database: { digests: {}, rateLimits: undefined },
+    });
+    expect(issues.some((i) => i.code === "MISSING_ADAPTER_CAPABILITY" && i.field === "database.rateLimits")).toBe(true);
+  });
+
+  test("passes when adapter capabilities match notification features", () => {
+    const def = notification({
+      id: "has_both",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+      digest: {
+        windowMs: 60000,
+        render: ({ payloads }) => payloads[0]!,
+      },
+      rateLimit: { max: 5, windowMs: 60000 },
+    });
+    const issues = validateNotifications([def], {
+      database: { digests: {}, rateLimits: {} },
+    });
+    expect(issues.filter((i) => i.code === "MISSING_ADAPTER_CAPABILITY")).toEqual([]);
+  });
+
+  test("warns when webhook provider has no signing secret", () => {
+    const def = notification({
+      id: "webhook_nosign",
+      payload: { x: "string" },
+      channels: [{ type: "webhook", url: "https://example.com/hook" } as never],
+    });
+    const issues = validateNotifications([def], {
+      providers: { webhook: { id: "webhook", signed: false, send: async () => ({}) } },
+      webhookSigned: false,
+    });
+    expect(issues.some((i) => i.code === "WEBHOOK_NO_SECRET")).toBe(true);
+  });
+
+  test("no webhook warning when signed", () => {
+    const def = notification({
+      id: "webhook_signed",
+      payload: { x: "string" },
+      channels: [{ type: "webhook", url: "https://example.com/hook" } as never],
+    });
+    const issues = validateNotifications([def], {
+      providers: { webhook: { id: "webhook", signed: true, send: async () => ({}) } },
+      webhookSigned: true,
+    });
+    expect(issues.filter((i) => i.code === "WEBHOOK_NO_SECRET")).toEqual([]);
+  });
 });

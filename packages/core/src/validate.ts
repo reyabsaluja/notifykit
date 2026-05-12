@@ -39,6 +39,15 @@ export type ValidateConfigInput = {
     channels?: ChannelPreferenceMap;
     categories?: CategoryDefaults;
   };
+  database?: {
+    timeline?: unknown;
+    digests?: unknown;
+    rateLimits?: unknown;
+    scheduledSends?: unknown;
+  };
+  idempotencyKeyTtlMs?: number;
+  timelineRetentionMs?: number;
+  webhookSigned?: boolean;
 };
 
 const ID_RE = /^[a-z][a-z0-9._-]*$/;
@@ -664,6 +673,123 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
           fix: `Known categories: ${[...allCategories].join(", ") || "(none)"}. Remove "${cat}" or add it to a notification definition.`,
         });
       }
+    }
+    const validChannelTypes = new Set<string>(["inbox", "email", "webhook", "sms"]);
+    for (const [cat, prefs] of Object.entries(defaults.categories)) {
+      for (const ch of Object.keys(prefs)) {
+        if (!validChannelTypes.has(ch)) {
+          issues.push({
+            severity: "error",
+            code: "INVALID_CATEGORY_CHANNEL",
+            field: `defaults.categories.${cat}`,
+            message: `Category default "${cat}" references unknown channel type "${ch}".`,
+            fix: `Valid channel types: ${[...validChannelTypes].join(", ")}.`,
+          });
+        }
+      }
+    }
+  }
+
+  // --- defaults.channels coherence ---
+  if (defaults?.channels) {
+    const validChannelTypes = new Set<string>(["inbox", "email", "webhook", "sms"]);
+    for (const ch of Object.keys(defaults.channels)) {
+      if (!validChannelTypes.has(ch)) {
+        issues.push({
+          severity: "error",
+          code: "INVALID_DEFAULT_CHANNEL_TYPE",
+          field: "defaults.channels",
+          message: `defaults.channels references unknown channel type "${ch}".`,
+          fix: `Valid channel types: ${[...validChannelTypes].join(", ")}.`,
+        });
+      }
+    }
+  }
+
+  // --- unsubscribe.baseUrl format ---
+  if (input.unsubscribe) {
+    const { baseUrl } = input.unsubscribe;
+    if (!baseUrl || baseUrl.trim().length === 0) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_UNSUBSCRIBE_URL",
+        field: "unsubscribe.baseUrl",
+        message: "unsubscribe.baseUrl must not be empty.",
+        fix: "Provide the absolute URL where the handler is mounted, e.g. \"https://app.com/api/notifykit\".",
+      });
+    } else if (!/^https?:\/\//i.test(baseUrl)) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_UNSUBSCRIBE_URL",
+        field: "unsubscribe.baseUrl",
+        message: `unsubscribe.baseUrl must start with "http://" or "https://", got "${baseUrl}".`,
+        fix: "Provide the absolute URL including scheme, e.g. \"https://app.com/api/notifykit\".",
+      });
+    }
+  }
+
+  // --- idempotencyKeyTtlMs validation ---
+  if (input.idempotencyKeyTtlMs !== undefined) {
+    if (!Number.isFinite(input.idempotencyKeyTtlMs) || input.idempotencyKeyTtlMs <= 0) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_IDEMPOTENCY_TTL",
+        field: "idempotencyKeyTtlMs",
+        message: `idempotencyKeyTtlMs must be a positive number, got ${input.idempotencyKeyTtlMs}.`,
+        fix: "Set to a positive millisecond value (e.g. 86400000 for 24 hours).",
+      });
+    }
+  }
+
+  // --- timelineRetentionMs validation ---
+  if (input.timelineRetentionMs !== undefined) {
+    if (!Number.isFinite(input.timelineRetentionMs) || input.timelineRetentionMs < 0) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_TIMELINE_RETENTION",
+        field: "timelineRetentionMs",
+        message: `timelineRetentionMs must be a non-negative number, got ${input.timelineRetentionMs}.`,
+        fix: "Set to a positive millisecond value (e.g. 604800000 for 7 days) or 0 to disable.",
+      });
+    }
+  }
+
+  // --- adapter capability checks ---
+  if (input.database) {
+    const usesDigest = notifications.some((n) => n.digest);
+    if (usesDigest && !input.database.digests) {
+      issues.push({
+        severity: "error",
+        code: "MISSING_ADAPTER_CAPABILITY",
+        field: "database.digests",
+        message: "One or more notifications use digest but the database adapter does not provide a digests store.",
+        fix: "Use a database adapter that supports digests, or remove digest config from notifications.",
+      });
+    }
+
+    const usesRateLimit = notifications.some((n) => n.rateLimit);
+    if (usesRateLimit && !input.database.rateLimits) {
+      issues.push({
+        severity: "error",
+        code: "MISSING_ADAPTER_CAPABILITY",
+        field: "database.rateLimits",
+        message: "One or more notifications use rateLimit but the database adapter does not provide a rateLimits store.",
+        fix: "Use a database adapter that supports rate limits, or remove rateLimit config from notifications.",
+      });
+    }
+  }
+
+  // --- webhook secret warning ---
+  if (notifications.some((n) => n.channels.some((ch) => ch.type === "webhook"))) {
+    if (input.providers?.webhook && input.webhookSigned === false) {
+      issues.push({
+        severity: "warning",
+        code: "WEBHOOK_NO_SECRET",
+        channel: "webhook",
+        field: "providers.webhook",
+        message: "Webhook provider has no signing secret configured. Recipients cannot verify payload authenticity.",
+        fix: "Pass a secret to webhookProvider({ secret: \"...\" }) for HMAC-SHA256 request signing.",
+      });
     }
   }
 

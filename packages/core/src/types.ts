@@ -528,6 +528,7 @@ export type EmailProvider = {
 
 export type WebhookProvider = {
   id: string;
+  signed?: boolean;
   send(input: {
     url: string;
     headers: Record<string, string>;
