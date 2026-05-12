@@ -43,7 +43,6 @@ export type ValidateConfigInput = {
     timeline?: Record<string, unknown>;
     digests?: Record<string, unknown>;
     rateLimits?: Record<string, unknown>;
-    scheduledSends?: Record<string, unknown>;
   };
   idempotencyKeyTtlMs?: number;
   timelineRetentionMs?: number;

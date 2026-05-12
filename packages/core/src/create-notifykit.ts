@@ -404,7 +404,6 @@ export function createNotifyKit<
       timeline: database.timeline,
       digests: database.digests,
       rateLimits: database.rateLimits,
-      scheduledSends: database.scheduledSends,
     },
     idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
     timelineRetentionMs: config.timelineRetentionMs,
