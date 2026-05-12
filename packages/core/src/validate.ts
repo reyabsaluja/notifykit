@@ -707,20 +707,18 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
   // --- unsubscribe.baseUrl format ---
   if (input.unsubscribe) {
     const { baseUrl } = input.unsubscribe;
-    if (!baseUrl || baseUrl.trim().length === 0) {
+    let parsedUrl: URL | null = null;
+    try {
+      parsedUrl = baseUrl ? new URL(baseUrl) : null;
+    } catch {}
+    if (!parsedUrl || !["http:", "https:"].includes(parsedUrl.protocol)) {
       issues.push({
         severity: "error",
         code: "INVALID_UNSUBSCRIBE_URL",
         field: "unsubscribe.baseUrl",
-        message: "unsubscribe.baseUrl must not be empty.",
-        fix: "Provide the absolute URL where the handler is mounted, e.g. \"https://app.com/api/notifykit\".",
-      });
-    } else if (!/^https?:\/\//i.test(baseUrl)) {
-      issues.push({
-        severity: "error",
-        code: "INVALID_UNSUBSCRIBE_URL",
-        field: "unsubscribe.baseUrl",
-        message: `unsubscribe.baseUrl must start with "http://" or "https://", got "${baseUrl}".`,
+        message: baseUrl
+          ? `unsubscribe.baseUrl must be a valid http/https URL, got "${baseUrl}".`
+          : "unsubscribe.baseUrl must not be empty.",
         fix: "Provide the absolute URL including scheme, e.g. \"https://app.com/api/notifykit\".",
       });
     }
