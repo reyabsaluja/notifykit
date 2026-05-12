@@ -272,7 +272,9 @@ describe("validateNotifications", () => {
     const issues = validateNotifications([def], {
       database: { digests: undefined, rateLimits: {} },
     });
-    expect(issues.some((i) => i.code === "MISSING_ADAPTER_CAPABILITY" && i.field === "database.digests")).toBe(true);
+    expect(
+      issues.some((i) => i.code === "MISSING_ADAPTER_CAPABILITY" && i.field === "database.digests"),
+    ).toBe(true);
   });
 
   test("flags missing rateLimits adapter when notification uses rateLimit", () => {
@@ -285,7 +287,9 @@ describe("validateNotifications", () => {
     const issues = validateNotifications([def], {
       database: { digests: {}, rateLimits: undefined },
     });
-    expect(issues.some((i) => i.code === "MISSING_ADAPTER_CAPABILITY" && i.field === "database.rateLimits")).toBe(true);
+    expect(
+      issues.some((i) => i.code === "MISSING_ADAPTER_CAPABILITY" && i.field === "database.rateLimits"),
+    ).toBe(true);
   });
 
   test("passes when adapter capabilities match notification features", () => {
