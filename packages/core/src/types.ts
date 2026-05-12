@@ -528,6 +528,8 @@ export type EmailProvider = {
 
 export type WebhookProvider = {
   id: string;
+  /** Whether the provider signs outgoing payloads. Defaults to false if omitted, triggering a startup warning. */
+  signed?: boolean;
   send(input: {
     url: string;
     headers: Record<string, string>;

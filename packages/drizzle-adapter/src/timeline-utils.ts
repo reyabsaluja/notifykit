@@ -1,4 +1,4 @@
-import type { TimelineEvent } from "notifykit";
+import type { TimelineEvent } from "@notifykitjs/core";
 
 export function rowToTimelineEvent(row: {
   id: string;

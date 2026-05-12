@@ -400,6 +400,13 @@ export function createNotifyKit<
     providers,
     unsubscribe: config.unsubscribe,
     defaults: config.defaults,
+    database: {
+      timeline: database.timeline,
+      digests: database.digests,
+      rateLimits: database.rateLimits,
+    },
+    idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
+    timelineRetentionMs: config.timelineRetentionMs,
   });
   const errors = startupIssues.filter((i) => i.severity === "error");
   const warnings = startupIssues.filter((i) => i.severity === "warning");
