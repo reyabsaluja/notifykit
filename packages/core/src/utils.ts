@@ -74,8 +74,6 @@ export class NotifyKitError extends Error {
   }
 }
 
-export type { PayloadFieldError } from "./types.js";
-
 export class PayloadValidationError extends NotifyKitError {
   readonly fields: PayloadFieldError[];
 
