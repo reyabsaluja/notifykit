@@ -1302,6 +1302,34 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
+    if (input.idempotencyKey && input.idempotencyKey.length > 256) {
+      throw new NotifyKitError(
+        "idempotencyKey must be 256 characters or fewer.",
+        { code: "INVALID_INPUT", field: "idempotencyKey", fix: "Shorten the idempotencyKey to 256 characters or fewer." },
+      );
+    }
+    if (input.dedupeKey) {
+      if (!input.dedupeWindowMs || input.dedupeWindowMs <= 0) {
+        throw new NotifyKitError(
+          "dedupeWindowMs is required and must be positive when dedupeKey is set.",
+          { code: "INVALID_INPUT", field: "dedupeWindowMs", fix: "Pass a positive dedupeWindowMs (e.g. 3600000 for 1 hour)." },
+        );
+      }
+      const MAX_DEDUPE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+      if (input.dedupeWindowMs > MAX_DEDUPE_WINDOW_MS) {
+        throw new NotifyKitError(
+          "dedupeWindowMs must be 30 days or fewer.",
+          { code: "INVALID_INPUT", field: "dedupeWindowMs", fix: "Pass a dedupeWindowMs of 2592000000 (30 days) or less." },
+        );
+      }
+      if (input.dedupeKey.length > 256) {
+        throw new NotifyKitError(
+          "dedupeKey must be 256 characters or fewer.",
+          { code: "INVALID_INPUT", field: "dedupeKey", fix: "Shorten the dedupeKey to 256 characters or fewer." },
+        );
+      }
+    }
+
     let wouldReplayIdempotent = false;
     let idempotencyInfo: DeliveryExplanation["idempotency"] = null;
     if (input.idempotencyKey) {
