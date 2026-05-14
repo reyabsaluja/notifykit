@@ -1277,6 +1277,12 @@ export function createNotifyKit<
       dedupeKey?: string;
       dedupeWindowMs?: number;
     };
+    if (!input.recipientId) {
+      throw new NotifyKitError(
+        "Missing recipientId.",
+        { code: "INVALID_INPUT", field: "recipientId", fix: "Pass a non-empty recipientId to send()." },
+      );
+    }
     const def = byId.get(input.notificationId);
     if (!def) {
       throw new NotifyKitError(
