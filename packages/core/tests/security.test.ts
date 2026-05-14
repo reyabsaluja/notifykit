@@ -2091,3 +2091,388 @@ describe("recipient tenant immutability", () => {
     expect(updated.tenantId).toBe("orgA");
   });
 });
+
+describe("tenant-scoped explain()", () => {
+  test("explain uses the recipient's tenant scope for preference resolution", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+
+    await notify.preferences.update({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+
+    const result = await notify.explain({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    expect(result.scope?.tenantId).toBe("tenant_a");
+    const emailCh = result.channels.find((c) => c.channel === "email")!;
+    expect(emailCh.outcome).toBe("disabled");
+  });
+
+  test("cross-tenant preferences do not influence explain results", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+    await notify.upsertRecipient({ id: "bob", tenantId: "tenant_b", email: "b@x.com" });
+
+    await notify.preferences.update({
+      recipientId: "bob",
+      tenantId: "tenant_b",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+
+    const result = await notify.explain({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    const emailCh = result.channels.find((c) => c.channel === "email")!;
+    expect(emailCh.outcome).toBe("deliver");
+    expect(emailCh.allowed).toBe(true);
+  });
+
+  test("cross-tenant rate limits do not affect explain results", async () => {
+    const rateLimited = notification({
+      id: "rate_test",
+      payload: { actorName: "string", postTitle: "string", postUrl: "string" },
+      channels: [
+        inbox({ title: "{{actorName}} mentioned you", body: "In {{postTitle}}", actionUrl: "{{postUrl}}" }),
+        email({ subject: "{{actorName}} mentioned you", body: "Open {{postUrl}}" }),
+      ],
+      rateLimit: { max: 1, windowMs: 60_000 },
+    });
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [rateLimited] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+    await notify.upsertRecipient({ id: "bob", tenantId: "tenant_b", email: "b@x.com" });
+
+    await notify.send({
+      recipientId: "bob",
+      tenantId: "tenant_b",
+      notificationId: "rate_test",
+      payload: makePayload(),
+    });
+
+    const result = await notify.explain({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "rate_test",
+      payload: makePayload(),
+    });
+    expect(result.wouldRateLimit).toBe(false);
+    expect(result.rateLimit!.current).toBe(0);
+  });
+
+  test("same recipient's rate limit within same tenant does affect explain", async () => {
+    const rateLimited = notification({
+      id: "rate_test",
+      payload: { actorName: "string", postTitle: "string", postUrl: "string" },
+      channels: [
+        inbox({ title: "{{actorName}} mentioned you", body: "In {{postTitle}}", actionUrl: "{{postUrl}}" }),
+      ],
+      rateLimit: { max: 1, windowMs: 60_000 },
+    });
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [rateLimited] as const,
+      database,
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a" });
+
+    await notify.send({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "rate_test",
+      payload: makePayload(),
+    });
+
+    const result = await notify.explain({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "rate_test",
+      payload: makePayload(),
+    });
+    expect(result.wouldRateLimit).toBe(true);
+    expect(result.rateLimit!.current).toBe(1);
+  });
+
+  test("cross-tenant dedupe state does not affect explain results", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+    await notify.upsertRecipient({ id: "bob", tenantId: "tenant_b", email: "b@x.com" });
+
+    await notify.send({
+      recipientId: "bob",
+      tenantId: "tenant_b",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+      dedupeKey: "shared-dedup",
+      dedupeWindowMs: 60_000,
+    });
+
+    const result = await notify.explain({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+      dedupeKey: "shared-dedup",
+      dedupeWindowMs: 60_000,
+    });
+    expect(result.wouldDeduplicate).toBe(false);
+  });
+
+  test("explain with workspace scope resolves correctly", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "tenant_a",
+      workspaceId: "ws_1",
+      email: "a@x.com",
+    });
+
+    const result = await notify.explain({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      workspaceId: "ws_1",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    expect(result.scope?.tenantId).toBe("tenant_a");
+    expect(result.scope?.workspaceId).toBe("ws_1");
+    expect(result.channels.some((c) => c.outcome === "deliver")).toBe(true);
+  });
+
+  test("explain throws on tenant mismatch with recipient", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+
+    expect(
+      notify.explain({
+        recipientId: "alice",
+        tenantId: "tenant_b",
+        notificationId: "comment_mentioned",
+        payload: makePayload(),
+      }),
+    ).rejects.toThrow("does not belong to the specified tenant");
+  });
+
+  test("explain throws on workspace mismatch with recipient", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({
+      id: "alice",
+      tenantId: "tenant_a",
+      workspaceId: "ws_1",
+      email: "a@x.com",
+    });
+
+    expect(
+      notify.explain({
+        recipientId: "alice",
+        tenantId: "tenant_a",
+        workspaceId: "ws_wrong",
+        notificationId: "comment_mentioned",
+        payload: makePayload(),
+      }),
+    ).rejects.toThrow("does not belong to the specified workspace");
+  });
+
+  test("tenantDefaults influence explain outcome per-tenant", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+      tenantDefaults: (tenantId) => {
+        if (tenantId === "tenant_strict") return { email: false };
+        return null;
+      },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_strict", email: "a@x.com" });
+    await notify.upsertRecipient({ id: "bob", tenantId: "tenant_open", email: "b@x.com" });
+
+    const strictResult = await notify.explain({
+      recipientId: "alice",
+      tenantId: "tenant_strict",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    const strictEmail = strictResult.channels.find((c) => c.channel === "email")!;
+    expect(strictEmail.outcome).toBe("disabled");
+    expect(strictEmail.resolvedBy).toBe("tenant_setting");
+
+    const openResult = await notify.explain({
+      recipientId: "bob",
+      tenantId: "tenant_open",
+      notificationId: "comment_mentioned",
+      payload: makePayload(),
+    });
+    const openEmail = openResult.channels.find((c) => c.channel === "email")!;
+    expect(openEmail.outcome).toBe("deliver");
+  });
+
+  test("preferences.explain() is scoped to the caller's tenant", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+
+    await notify.preferences.update({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+
+    const explanation = await notify.preferences.explain({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+    });
+    expect(explanation.scope?.tenantId).toBe("tenant_a");
+    const emailCh = explanation.channels.find((c) => c.channel === "email")!;
+    expect(emailCh.allowed).toBe(false);
+    expect(emailCh.resolvedBy).toBe("user_notification");
+  });
+});
+
+describe("tenant-scoped explain() via handler", () => {
+  test("GET /explain uses identified tenant scope", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+
+    await notify.preferences.update({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", tenantId: "tenant_a" }),
+    });
+
+    const res = await handler(
+      new Request(
+        `${BASE}/explain?notificationId=comment_mentioned&actorName=Rey&postTitle=Plan&postUrl=/x`,
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { scope: { tenantId: string }; channels: Array<{ channel: string; outcome: string }> } };
+    expect(body.data.scope.tenantId).toBe("tenant_a");
+    const emailCh = body.data.channels.find((c) => c.channel === "email")!;
+    expect(emailCh.outcome).toBe("disabled");
+  });
+
+  test("GET /preferences/explain uses identified tenant scope", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+
+    await notify.preferences.update({
+      recipientId: "alice",
+      tenantId: "tenant_a",
+      notificationId: "comment_mentioned",
+      channels: { inbox: false },
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", tenantId: "tenant_a" }),
+    });
+
+    const res = await handler(
+      new Request(
+        `${BASE}/preferences/explain?notificationId=comment_mentioned`,
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { scope: { tenantId: string }; channels: Array<{ channel: string; allowed: boolean }> } };
+    expect(body.data.scope.tenantId).toBe("tenant_a");
+    const inboxCh = body.data.channels.find((c) => c.channel === "inbox")!;
+    expect(inboxCh.allowed).toBe(false);
+  });
+
+  test("handler explain cannot cross-tenant via query param manipulation", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
+    await notify.upsertRecipient({ id: "bob", tenantId: "tenant_b", email: "b@x.com" });
+
+    await notify.preferences.update({
+      recipientId: "bob",
+      tenantId: "tenant_b",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    });
+
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", tenantId: "tenant_a" }),
+    });
+
+    const res = await handler(
+      new Request(
+        `${BASE}/explain?notificationId=comment_mentioned&actorName=Rey&postTitle=Plan&postUrl=/x`,
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { channels: Array<{ channel: string; outcome: string }> } };
+    const emailCh = body.data.channels.find((c) => c.channel === "email")!;
+    expect(emailCh.outcome).toBe("deliver");
+  });
+});
