@@ -21,7 +21,9 @@ import type {
   MarkReadForRecipientResult,
   NotificationDefinition,
   NotificationRecord,
+  PayloadFieldError,
   PayloadSchema,
+  PayloadValidationResult,
   PreferenceExplanation,
   PreferenceResolutionLayer,
   Queue,
@@ -50,7 +52,7 @@ import {
 } from "./preference-keys.js";
 import { resolveChannel, resolvePreferences, type ResolutionContext } from "./resolve-preferences.js";
 import { signUnsubscribeToken } from "./unsubscribe.js";
-import { NotifyKitError, assertSafeWebhookUrl, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
+import { NotifyKitError, PAYLOAD_VALID, assertSafeWebhookUrl, checkPayload, sanitizeActionUrl, redactPayload, renderTemplate, validatePayload } from "./utils.js";
 import { validateConfig, formatValidationIssues } from "./validate.js";
 
 export const SKIP_PROVIDER = "skip" as const;
@@ -181,14 +183,24 @@ export type NotifyKit<
    * `recipientId` is used as provided, with no additional auth check.
    * Client-facing code should go through `createHandler()` which resolves
    * the recipient via `identify()`.
+   *
+   * When `dryRun: true` is passed, returns a `DeliveryExplanation` without
+   * writing any records — equivalent to calling `explain()`.
    */
-  send(input: SendInput<T>): Promise<SendResult>;
+  send(input: SendInput<T> & { dryRun: true }): Promise<DeliveryExplanation>;
+  send(input: SendInput<T> & { dryRun?: false }): Promise<SendResult>;
+  send(input: SendInput<T> & { dryRun?: boolean }): Promise<SendResult | DeliveryExplanation>;
   /**
    * Dry-run explanation of what `send()` would do for a given notification +
    * recipient. Covers preference resolution, rate limits, digests, and quiet
    * hours. Does not write any records or trigger delivery.
    */
   explain(input: SendInput<T>): Promise<DeliveryExplanation>;
+  /**
+   * Shorthand for `explain()`. Validates the send input and returns what
+   * would happen without writing any records or triggering delivery.
+   */
+  check(input: SendInput<T>): Promise<DeliveryExplanation>;
   inbox: {
     /**
      * List inbox items. **Server-only** — the caller supplies the
@@ -1261,9 +1273,16 @@ export function createNotifyKit<
       workspaceId?: string;
       notificationId: string;
       payload: unknown;
+      idempotencyKey?: string;
       dedupeKey?: string;
       dedupeWindowMs?: number;
     };
+    if (!input.recipientId) {
+      throw new NotifyKitError(
+        "Missing recipientId.",
+        { code: "INVALID_INPUT", field: "recipientId", fix: "Pass a non-empty recipientId to send()." },
+      );
+    }
     const def = byId.get(input.notificationId);
     if (!def) {
       throw new NotifyKitError(
@@ -1289,34 +1308,115 @@ export function createNotifyKit<
     }
     const scope = resolveScope(input, recipient);
 
+    if (input.idempotencyKey && input.idempotencyKey.length > 256) {
+      throw new NotifyKitError(
+        "idempotencyKey must be 256 characters or fewer.",
+        { code: "INVALID_INPUT", field: "idempotencyKey", fix: "Shorten the idempotencyKey to 256 characters or fewer." },
+      );
+    }
+    if (input.dedupeKey) {
+      if (!input.dedupeWindowMs || input.dedupeWindowMs <= 0) {
+        throw new NotifyKitError(
+          "dedupeWindowMs is required and must be positive when dedupeKey is set.",
+          { code: "INVALID_INPUT", field: "dedupeWindowMs", fix: "Pass a positive dedupeWindowMs (e.g. 3600000 for 1 hour)." },
+        );
+      }
+      const MAX_DEDUPE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+      if (input.dedupeWindowMs > MAX_DEDUPE_WINDOW_MS) {
+        throw new NotifyKitError(
+          "dedupeWindowMs must be 30 days or fewer.",
+          { code: "INVALID_INPUT", field: "dedupeWindowMs", fix: "Pass a dedupeWindowMs of 2592000000 (30 days) or less." },
+        );
+      }
+      if (input.dedupeKey.length > 256) {
+        throw new NotifyKitError(
+          "dedupeKey must be 256 characters or fewer.",
+          { code: "INVALID_INPUT", field: "dedupeKey", fix: "Shorten the dedupeKey to 256 characters or fewer." },
+        );
+      }
+    }
+
+    let payloadValidation: PayloadValidationResult;
+    if (def.validate) {
+      try {
+        const result = def.validate(input.payload);
+        if (!result || typeof result !== "object" || Array.isArray(result)) {
+          payloadValidation = {
+            valid: false,
+            fields: [{
+              key: "(root)",
+              expected: "object",
+              actual: result === null ? "null" : Array.isArray(result) ? "array" : typeof result,
+              message: "Custom validator must return a plain object.",
+            }],
+          };
+        } else {
+          payloadValidation = PAYLOAD_VALID;
+        }
+      } catch (err: unknown) {
+        const errFields = err instanceof Error && "fields" in err
+          ? (err as Record<string, unknown>).fields
+          : undefined;
+        const fields: PayloadFieldError[] = Array.isArray(errFields)
+          ? errFields as PayloadFieldError[]
+          : [{
+              key: "(root)",
+              expected: "valid",
+              actual: "invalid",
+              message: err instanceof Error ? err.message : String(err),
+            }];
+        payloadValidation = { valid: false, fields };
+      }
+    } else {
+      payloadValidation = checkPayload(def.payload, input.payload);
+    }
+
+    let wouldReplayIdempotent = false;
+    let idempotencyInfo: DeliveryExplanation["idempotency"] = null;
+    let wouldRateLimit = false;
+    let rateLimitInfo: DeliveryExplanation["rateLimit"] = null;
+    let wouldDeduplicate = false;
+    let dedupeInfo: DeliveryExplanation["dedupe"] = null;
+
+    if (payloadValidation.valid) {
+      if (input.idempotencyKey) {
+        const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
+        const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
+        const existing = await database.notifications.findByIdempotencyKey(compositeKey);
+        if (existing) {
+          const age = Date.now() - existing.createdAt.getTime();
+          if (age < ttl) {
+            wouldReplayIdempotent = true;
+            idempotencyInfo = { key: input.idempotencyKey, existingNotificationId: existing.id, ttlMs: ttl };
+          }
+        }
+      }
+
+      if (def.rateLimit) {
+        const limit = def.rateLimit;
+        const rateLimitScope = limit.scope ?? "recipient";
+        const key =
+          rateLimitScope === "global"
+            ? scopedStorageKey(scope, def.id)
+            : scopedStorageKey(scope, recipient.id, def.id);
+        const current = await database.rateLimits.count({
+          key,
+          windowMs: limit.windowMs,
+        });
+        wouldRateLimit = current >= limit.max;
+        rateLimitInfo = { current, max: limit.max, windowMs: limit.windowMs };
+      }
+
+      if (input.dedupeKey && input.dedupeWindowMs && input.dedupeWindowMs > 0) {
+        dedupeInfo = { key: input.dedupeKey, windowMs: input.dedupeWindowMs };
+        const dedupeCompositeKey = buildDedupeCompositeKey(def.id, recipient.id, input.dedupeKey);
+        wouldDeduplicate = await database.dedupe.exists(dedupeCompositeKey);
+      }
+    }
+
     const prefExplanation = resolvePreferences(
       await buildResolutionCtx(recipient, def, scope),
     );
-
-    let wouldRateLimit = false;
-    let rateLimitInfo: DeliveryExplanation["rateLimit"] = null;
-    if (def.rateLimit) {
-      const limit = def.rateLimit;
-      const rateLimitScope = limit.scope ?? "recipient";
-      const key =
-        rateLimitScope === "global"
-          ? scopedStorageKey(scope, def.id)
-          : scopedStorageKey(scope, recipient.id, def.id);
-      const current = await database.rateLimits.count({
-        key,
-        windowMs: limit.windowMs,
-      });
-      wouldRateLimit = current >= limit.max;
-      rateLimitInfo = { current, max: limit.max, windowMs: limit.windowMs };
-    }
-
-    let wouldDeduplicate = false;
-    let dedupeInfo: DeliveryExplanation["dedupe"] = null;
-    if (input.dedupeKey && input.dedupeWindowMs && input.dedupeWindowMs > 0) {
-      dedupeInfo = { key: input.dedupeKey, windowMs: input.dedupeWindowMs };
-      const dedupeCompositeKey = buildDedupeCompositeKey(def.id, recipient.id, input.dedupeKey);
-      wouldDeduplicate = await database.dedupe.exists(dedupeCompositeKey);
-    }
 
     const wouldDigest = !!def.digest;
     const digestInfo: DeliveryExplanation["digest"] = def.digest
@@ -1340,6 +1440,10 @@ export function createNotifyKit<
         outcome = ch.resolvedBy === "destination_unavailable"
           ? "unavailable"
           : "disabled";
+      } else if (!payloadValidation.valid) {
+        outcome = "invalid_payload";
+      } else if (wouldReplayIdempotent) {
+        outcome = "idempotent";
       } else if (wouldDeduplicate) {
         outcome = "deduplicated";
       } else if (wouldRateLimit) {
@@ -1365,9 +1469,12 @@ export function createNotifyKit<
       required: def.required ?? false,
       classification: def.classification,
       category: def.category,
+      payloadValidation,
+      wouldReplayIdempotent,
       wouldDeduplicate,
       wouldRateLimit,
       wouldDigest,
+      idempotency: idempotencyInfo,
       dedupe: dedupeInfo,
       rateLimit: rateLimitInfo,
       digest: digestInfo,
@@ -2452,8 +2559,14 @@ export function createNotifyKit<
         organizationId: undefined,
       });
     },
-    send,
+    send(input: SendInput<T> & { dryRun?: boolean }): any {
+      if (input.dryRun) {
+        return explain(input) satisfies Promise<DeliveryExplanation>;
+      }
+      return send(input) satisfies Promise<SendResult>;
+    },
     explain,
+    check: explain,
     inbox: {
       list(recipientId, scope, filter, limit?) {
         const s = scope ? normalizeOrgId(scope) : scope;

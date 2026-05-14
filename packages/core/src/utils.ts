@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { PayloadSchema } from "./types.js";
+import type { PayloadFieldError, PayloadSchema, PayloadValidationResult } from "./types.js";
 
 export function createId(prefix: string): string {
   const rand = randomBytes(12).toString("base64url");
@@ -74,13 +74,6 @@ export class NotifyKitError extends Error {
   }
 }
 
-export type PayloadFieldError = {
-  key: string;
-  expected: string;
-  actual: string;
-  message: string;
-};
-
 export class PayloadValidationError extends NotifyKitError {
   readonly fields: PayloadFieldError[];
 
@@ -99,18 +92,55 @@ export function validatePayload(
   payload: unknown,
   notificationId: string,
 ): Record<string, unknown> {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+  const result = checkPayload(schema, payload);
+  if (!result.valid) {
+    const schemaHint = Object.entries(schema).map(([k, v]) => `${k}: ${v}`).join(", ");
+    if (result.fields.length === 1 && result.fields[0]!.key === "(root)") {
+      throw new PayloadValidationError(
+        `Invalid payload for notification "${notificationId}": expected an object.`,
+        {
+          notificationId,
+          fix: `Pass a plain object matching the schema: { ${schemaHint} }.`,
+        },
+      );
+    }
+    const details = result.fields.map((e) => `  - ${e.message}`).join("\n");
     throw new PayloadValidationError(
-      `Invalid payload for notification "${notificationId}": expected an object.`,
+      `Invalid payload for notification "${notificationId}":\n${details}`,
       {
         notificationId,
-        fix: `Pass a plain object matching the schema: { ${Object.entries(schema).map(([k, v]) => `${k}: ${v}`).join(", ")} }.`,
+        fields: result.fields,
+        fix: `Check the payload matches schema: { ${schemaHint} }.`,
       },
     );
   }
+  const data = payload as Record<string, unknown>;
+  const validated: Record<string, unknown> = {};
+  for (const key of Object.keys(schema)) {
+    validated[key] = data[key];
+  }
+  return validated;
+}
+
+export const PAYLOAD_VALID: Readonly<PayloadValidationResult> = Object.freeze({ valid: true, fields: [] });
+
+export function checkPayload(
+  schema: PayloadSchema,
+  payload: unknown,
+): PayloadValidationResult {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    return {
+      valid: false,
+      fields: [{
+        key: "(root)",
+        expected: "object",
+        actual: payload === null ? "null" : Array.isArray(payload) ? "array" : typeof payload,
+        message: "Expected payload to be a plain object.",
+      }],
+    };
+  }
 
   const data = payload as Record<string, unknown>;
-  const result: Record<string, unknown> = {};
   const fieldErrors: PayloadFieldError[] = [];
 
   for (const key of Object.keys(schema)) {
@@ -141,25 +171,10 @@ export function validatePayload(
         actual: displayActual,
         message: `Expected "${key}" to be ${expected}, got ${displayActual}.`,
       });
-      continue;
     }
-
-    result[key] = value;
   }
 
-  if (fieldErrors.length > 0) {
-    const details = fieldErrors.map((e) => `  - ${e.message}`).join("\n");
-    throw new PayloadValidationError(
-      `Invalid payload for notification "${notificationId}":\n${details}`,
-      {
-        notificationId,
-        fields: fieldErrors,
-        fix: `Check the payload matches schema: { ${Object.entries(schema).map(([k, v]) => `${k}: ${v}`).join(", ")} }.`,
-      },
-    );
-  }
-
-  return result;
+  return fieldErrors.length === 0 ? PAYLOAD_VALID : { valid: false, fields: fieldErrors };
 }
 
 const BLOCKED_HOSTNAME_PATTERNS = [

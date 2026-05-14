@@ -1729,6 +1729,299 @@ describe("notify.explain() — delivery-level explanation", () => {
   });
 });
 
+describe("notify.explain() — idempotency reporting", () => {
+  test("no idempotencyKey returns wouldReplayIdempotent: false and null info", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+    expect(result.wouldReplayIdempotent).toBe(false);
+    expect(result.idempotency).toBeNull();
+  });
+
+  test("idempotencyKey with no prior send returns wouldReplayIdempotent: false", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-new",
+    });
+    expect(result.wouldReplayIdempotent).toBe(false);
+    expect(result.idempotency).toBeNull();
+    expect(result.channels.every((c) => c.outcome === "deliver")).toBe(true);
+  });
+
+  test("idempotencyKey matching existing send within TTL reports idempotent", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const sendResult = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-1",
+    });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-1",
+    });
+    expect(result.wouldReplayIdempotent).toBe(true);
+    expect(result.idempotency).not.toBeNull();
+    expect(result.idempotency!.key).toBe("key-1");
+    expect(result.idempotency!.existingNotificationId).toBe(sendResult.notification!.id);
+    expect(result.idempotency!.ttlMs).toBe(24 * 60 * 60 * 1000);
+    expect(
+      result.channels
+        .filter((c) => c.allowed)
+        .every((c) => c.outcome === ("idempotent" as ChannelOutcome)),
+    ).toBe(true);
+  });
+
+  test("idempotencyKey expired beyond TTL returns wouldReplayIdempotent: false", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      idempotencyKeyTtlMs: 1,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-expire",
+    });
+
+    await new Promise((r) => setTimeout(r, 5));
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-expire",
+    });
+    expect(result.wouldReplayIdempotent).toBe(false);
+    expect(result.idempotency).toBeNull();
+  });
+
+  test("idempotencyKey scoped per recipient — different recipients are independent", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    await notify.upsertRecipient({ id: "u2" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+
+    const r1 = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+    expect(r1.wouldReplayIdempotent).toBe(true);
+
+    const r2 = await notify.explain({
+      recipientId: "u2",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+    expect(r2.wouldReplayIdempotent).toBe(false);
+  });
+
+  test("idempotencyKey scoped per notification — different notifications are independent", async () => {
+    const def1 = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const def2 = notification({
+      id: "reminder",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def1, def2] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+
+    const r1 = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+    expect(r1.wouldReplayIdempotent).toBe(true);
+
+    const r2 = await notify.explain({
+      recipientId: "u1",
+      notificationId: "reminder",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+    expect(r2.wouldReplayIdempotent).toBe(false);
+  });
+
+  test("explain with idempotencyKey does not write any records", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-no-write",
+    });
+
+    expect(db._state.notifications).toHaveLength(0);
+    expect(db._state.deliveries).toHaveLength(0);
+    expect(db._state.inboxItems).toHaveLength(0);
+  });
+
+  test("disabled channels keep disabled outcome even when idempotent", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "alert",
+      channels: { email: false },
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-disabled",
+    });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-disabled",
+    });
+    expect(result.wouldReplayIdempotent).toBe(true);
+    const emailCh = result.channels.find((c) => c.channel === "email")!;
+    expect(emailCh.outcome).toBe("disabled" as ChannelOutcome);
+    const inboxCh = result.channels.find((c) => c.channel === "inbox")!;
+    expect(inboxCh.outcome).toBe("idempotent" as ChannelOutcome);
+  });
+
+  test("custom TTL is reported in idempotency info", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      idempotencyKeyTtlMs: 5000,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-ttl",
+    });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-ttl",
+    });
+    expect(result.idempotency!.ttlMs).toBe(5000);
+  });
+});
+
 describe("handler GET /explain", () => {
   function buildHandler() {
     const def = notification({
@@ -1789,5 +2082,599 @@ describe("handler GET /explain", () => {
       }),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe("notify.explain() — payload validation", () => {
+  test("valid payload returns valid: true with no field errors", async () => {
+    const def = notification({
+      id: "welcome",
+      payload: { name: "string", count: "number" },
+      channels: [inbox({ title: "{{name}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "welcome",
+      payload: { name: "Alice", count: 5 },
+    });
+    expect(result.payloadValidation.valid).toBe(true);
+    expect(result.payloadValidation.fields).toEqual([]);
+    expect(result.channels.every((c) => c.outcome === "deliver")).toBe(true);
+  });
+
+  test("missing fields returns valid: false with structured field errors", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { title: "string", priority: "number", urgent: "boolean" },
+      channels: [inbox({ title: "{{title}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { title: "fire" },
+    });
+    expect(result.payloadValidation.valid).toBe(false);
+    expect(result.payloadValidation.fields).toHaveLength(2);
+    const keys = result.payloadValidation.fields.map((f) => f.key);
+    expect(keys).toContain("priority");
+    expect(keys).toContain("urgent");
+    const priorityField = result.payloadValidation.fields.find((f) => f.key === "priority")!;
+    expect(priorityField.expected).toBe("number");
+    expect(priorityField.actual).toBe("undefined");
+  });
+
+  test("wrong types returns valid: false with type mismatch details", async () => {
+    const def = notification({
+      id: "metric",
+      payload: { value: "number", label: "string" },
+      channels: [inbox({ title: "{{label}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "metric",
+      payload: { value: "not-a-number", label: 42 },
+    });
+    expect(result.payloadValidation.valid).toBe(false);
+    expect(result.payloadValidation.fields).toHaveLength(2);
+    const valueField = result.payloadValidation.fields.find((f) => f.key === "value")!;
+    expect(valueField.expected).toBe("number");
+    expect(valueField.actual).toBe("string");
+    const labelField = result.payloadValidation.fields.find((f) => f.key === "label")!;
+    expect(labelField.expected).toBe("string");
+    expect(labelField.actual).toBe("number");
+  });
+
+  test("invalid payload produces invalid_payload channel outcome", async () => {
+    const def = notification({
+      id: "invite",
+      payload: { email: "string" },
+      channels: [
+        inbox({ title: "invite" }),
+        email({ subject: "invite", body: "{{email}}" }),
+      ],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "invite",
+      payload: { email: 123 },
+    });
+    expect(result.payloadValidation.valid).toBe(false);
+    expect(
+      result.channels
+        .filter((c) => c.allowed)
+        .every((c) => c.outcome === ("invalid_payload" as ChannelOutcome)),
+    ).toBe(true);
+  });
+
+  test("non-object payload returns root-level field error", async () => {
+    const def = notification({
+      id: "ping",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "ping",
+      payload: "not-an-object" as unknown as { msg: string },
+    });
+    expect(result.payloadValidation.valid).toBe(false);
+    expect(result.payloadValidation.fields).toHaveLength(1);
+    expect(result.payloadValidation.fields[0]!.key).toBe("(root)");
+    expect(result.payloadValidation.fields[0]!.expected).toBe("object");
+    expect(result.payloadValidation.fields[0]!.actual).toBe("string");
+  });
+
+  test("custom validate function — valid payload", async () => {
+    const def = notification({
+      id: "custom-ok",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+      validate: (p: unknown) => {
+        const data = p as { x: string };
+        if (typeof data.x !== "string") throw new Error("x must be string");
+        return data;
+      },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "custom-ok",
+      payload: { x: "hello" },
+    });
+    expect(result.payloadValidation.valid).toBe(true);
+    expect(result.payloadValidation.fields).toEqual([]);
+  });
+
+  test("custom validate function — throws error", async () => {
+    const def = notification({
+      id: "custom-fail",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+      validate: (_p: unknown) => {
+        throw new Error("x is required and must be non-empty");
+      },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "custom-fail",
+      payload: {},
+    });
+    expect(result.payloadValidation.valid).toBe(false);
+    expect(result.payloadValidation.fields).toHaveLength(1);
+    expect(result.payloadValidation.fields[0]!.message).toBe(
+      "x is required and must be non-empty",
+    );
+    expect(
+      result.channels
+        .filter((c) => c.allowed)
+        .every((c) => c.outcome === ("invalid_payload" as ChannelOutcome)),
+    ).toBe(true);
+  });
+
+  test("custom validate with structured field errors preserves them", async () => {
+    const def = notification({
+      id: "custom-fields",
+      payload: { a: "string", b: "number" },
+      channels: [inbox({ title: "{{a}}" })],
+      validate: (_p: unknown) => {
+        const err = new Error("Validation failed") as Error & {
+          fields: Array<{ key: string; expected: string; actual: string; message: string }>;
+        };
+        err.fields = [
+          { key: "a", expected: "string", actual: "undefined", message: "a is required" },
+          { key: "b", expected: "number", actual: "string", message: "b must be a number" },
+        ];
+        throw err;
+      },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "custom-fields",
+      payload: {},
+    });
+    expect(result.payloadValidation.valid).toBe(false);
+    expect(result.payloadValidation.fields).toHaveLength(2);
+    expect(result.payloadValidation.fields[0]!.key).toBe("a");
+    expect(result.payloadValidation.fields[1]!.key).toBe("b");
+  });
+
+  test("invalid payload does not write any records", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "no-write",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.explain({
+      recipientId: "u1",
+      notificationId: "no-write",
+      payload: { x: 999 },
+    });
+
+    expect(db._state.notifications).toHaveLength(0);
+    expect(db._state.deliveries).toHaveLength(0);
+    expect(db._state.inboxItems).toHaveLength(0);
+  });
+
+  test("disabled channels keep disabled outcome even with invalid payload", async () => {
+    const def = notification({
+      id: "disabled-test",
+      payload: { msg: "string" },
+      channels: [
+        inbox({ title: "{{msg}}" }),
+        email({ subject: "{{msg}}", body: "{{msg}}" }),
+      ],
+    });
+    const provider = fakeEmailProvider();
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "disabled-test",
+      channels: { email: false },
+    });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "disabled-test",
+      payload: { msg: 42 },
+    });
+    expect(result.payloadValidation.valid).toBe(false);
+    const emailCh = result.channels.find((c) => c.channel === "email")!;
+    expect(emailCh.outcome).toBe("disabled" as ChannelOutcome);
+    const inboxCh = result.channels.find((c) => c.channel === "inbox")!;
+    expect(inboxCh.outcome).toBe("invalid_payload" as ChannelOutcome);
+  });
+
+  test("NaN number field reports invalid", async () => {
+    const def = notification({
+      id: "nan-test",
+      payload: { score: "number" },
+      channels: [inbox({ title: "score" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "nan-test",
+      payload: { score: NaN },
+    });
+    expect(result.payloadValidation.valid).toBe(false);
+    expect(result.payloadValidation.fields).toHaveLength(1);
+    expect(result.payloadValidation.fields[0]!.key).toBe("score");
+    expect(result.payloadValidation.fields[0]!.expected).toBe("number");
+    expect(result.payloadValidation.fields[0]!.actual).toBe("NaN");
+  });
+});
+
+describe("notify.check() alias", () => {
+  test("check() returns same result as explain()", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const explainResult = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+    const checkResult = await notify.check({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+
+    expect(checkResult.recipientId).toBe(explainResult.recipientId);
+    expect(checkResult.notificationId).toBe(explainResult.notificationId);
+    expect(checkResult.wouldRateLimit).toBe(explainResult.wouldRateLimit);
+    expect(checkResult.wouldDeduplicate).toBe(explainResult.wouldDeduplicate);
+    expect(checkResult.wouldDigest).toBe(explainResult.wouldDigest);
+    expect(checkResult.wouldReplayIdempotent).toBe(explainResult.wouldReplayIdempotent);
+    expect(checkResult.channels.length).toBe(explainResult.channels.length);
+  });
+
+  test("check() does not write any records", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    await notify.check({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+
+    expect(db._state.notifications).toHaveLength(0);
+    expect(db._state.deliveries).toHaveLength(0);
+    expect(db._state.inboxItems).toHaveLength(0);
+    expect(provider.sent).toHaveLength(0);
+  });
+});
+
+describe("notify.send({ dryRun: true })", () => {
+  test("dryRun returns DeliveryExplanation instead of SendResult", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    expect(result.recipientId).toBe("u1");
+    expect(result.notificationId).toBe("alert");
+    expect(result.channels.length).toBeGreaterThan(0);
+    expect(result.wouldRateLimit).toBe(false);
+    expect(result.wouldDeduplicate).toBe(false);
+    expect(result.payloadValidation.valid).toBe(true);
+  });
+
+  test("dryRun does not create notification records", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    expect(db._state.notifications).toHaveLength(0);
+    expect(db._state.deliveries).toHaveLength(0);
+    expect(db._state.inboxItems).toHaveLength(0);
+    expect(provider.sent).toHaveLength(0);
+  });
+
+  test("dryRun does not create inbox items", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    expect(db._state.inboxItems).toHaveLength(0);
+  });
+
+  test("dryRun does not consume rate limit budget", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "limited",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      rateLimit: { max: 1, windowMs: 60_000 },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "limited",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    const real = await notify.send({
+      recipientId: "u1",
+      notificationId: "limited",
+      payload: { msg: "hi" },
+    });
+    expect(real.rateLimited).toBe(false);
+  });
+
+  test("dryRun does not insert dedupe keys", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "mention",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { msg: "hi" },
+      dedupeKey: "dup-1",
+      dedupeWindowMs: 60_000,
+      dryRun: true,
+    });
+
+    const real = await notify.send({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { msg: "hi" },
+      dedupeKey: "dup-1",
+      dedupeWindowMs: 60_000,
+    });
+    expect(real.skipped).toHaveLength(0);
+  });
+
+  test("dryRun does not buffer digests", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "digest-test",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      digest: {
+        windowMs: 60_000,
+        render: ({ payloads, count }) => ({ msg: `${count} items` }),
+      },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "digest-test",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    const buffers = await db.digests.list();
+    expect(buffers).toHaveLength(0);
+  });
+
+  test("dryRun does not create scheduled sends for quiet hours", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: { start: "00:00", end: "23:59", timezone: "UTC" },
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    const scheduled = await db.scheduledSends.list();
+    expect(scheduled).toHaveLength(0);
+  });
+
+  test("dryRun: false behaves like normal send", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: false,
+    });
+
+    expect(result.notification).not.toBeNull();
+    expect(db._state.notifications).toHaveLength(1);
   });
 });

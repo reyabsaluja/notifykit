@@ -3,6 +3,7 @@ import {
   fakeEmailProvider,
   fakeWebhookProvider,
   memoryAdapter,
+  type SendResult,
 } from "@notifykitjs/core";
 import { loadConfig } from "../config.js";
 
@@ -41,7 +42,7 @@ export async function runSend(options: SendOptions): Promise<number> {
     recipientId: options.recipientId,
     notificationId: options.notificationId,
     payload: options.payload,
-  } as Parameters<typeof notify.send>[0]);
+  } as Parameters<typeof notify.send>[0]) as SendResult;
 
   if (result.digested) {
     console.log(

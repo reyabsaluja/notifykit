@@ -38,14 +38,29 @@ export type PreferenceExplanation = {
   category?: string;
 };
 
+// Ordered by explain() evaluation priority (first match wins)
 export type ChannelOutcome =
-  | "deliver"
-  | "disabled"
-  | "delayed"
   | "unavailable"
+  | "disabled"
+  | "invalid_payload"
+  | "idempotent"
   | "deduplicated"
   | "rate_limited"
-  | "digested";
+  | "digested"
+  | "delayed"
+  | "deliver";
+
+export type PayloadFieldError = {
+  key: string;
+  expected: string;
+  actual: string;
+  message: string;
+};
+
+export type PayloadValidationResult = {
+  valid: boolean;
+  fields: PayloadFieldError[];
+};
 
 export type DeliveryExplanation = {
   recipientId: string;
@@ -55,9 +70,12 @@ export type DeliveryExplanation = {
   required: boolean;
   classification?: NotificationClassification;
   category?: string;
+  payloadValidation: PayloadValidationResult;
+  wouldReplayIdempotent: boolean;
   wouldDeduplicate: boolean;
   wouldRateLimit: boolean;
   wouldDigest: boolean;
+  idempotency: { key: string; existingNotificationId: string; ttlMs: number } | null;
   dedupe: { key: string; windowMs: number } | null;
   rateLimit: { current: number; max: number; windowMs: number } | null;
   digest: { windowMs: number } | null;
@@ -898,6 +916,12 @@ export type SendInput<
      * first are skipped.
      */
     dedupeWindowMs?: number;
+    /**
+     * When `true`, `send()` performs a dry run and returns a
+     * `DeliveryExplanation` instead of executing the send. No records are
+     * written, no deliveries triggered. Equivalent to calling `explain()`.
+     */
+    dryRun?: boolean;
   };
 }[T[number]["id"]];
 
