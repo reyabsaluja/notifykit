@@ -2558,9 +2558,9 @@ export function createNotifyKit<
     },
     send(input: SendInput<T> & { dryRun?: boolean }): any {
       if (input.dryRun) {
-        return explain(input);
+        return explain(input) satisfies Promise<DeliveryExplanation>;
       }
-      return send(input);
+      return send(input) satisfies Promise<SendResult>;
     },
     explain,
     check: explain,
