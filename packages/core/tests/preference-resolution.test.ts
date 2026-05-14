@@ -2390,3 +2390,291 @@ describe("notify.explain() — payload validation", () => {
     expect(result.payloadValidation.fields[0]!.actual).toBe("NaN");
   });
 });
+
+describe("notify.check() alias", () => {
+  test("check() returns same result as explain()", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const explainResult = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+    const checkResult = await notify.check({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+
+    expect(checkResult.recipientId).toBe(explainResult.recipientId);
+    expect(checkResult.notificationId).toBe(explainResult.notificationId);
+    expect(checkResult.wouldRateLimit).toBe(explainResult.wouldRateLimit);
+    expect(checkResult.wouldDeduplicate).toBe(explainResult.wouldDeduplicate);
+    expect(checkResult.wouldDigest).toBe(explainResult.wouldDigest);
+    expect(checkResult.wouldReplayIdempotent).toBe(explainResult.wouldReplayIdempotent);
+    expect(checkResult.channels.length).toBe(explainResult.channels.length);
+  });
+
+  test("check() does not write any records", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    await notify.check({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+
+    expect(db._state.notifications).toHaveLength(0);
+    expect(db._state.deliveries).toHaveLength(0);
+    expect(db._state.inboxItems).toHaveLength(0);
+    expect(provider.sent).toHaveLength(0);
+  });
+});
+
+describe("notify.send({ dryRun: true })", () => {
+  test("dryRun returns DeliveryExplanation instead of SendResult", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    expect(result.recipientId).toBe("u1");
+    expect(result.notificationId).toBe("alert");
+    expect(result.channels.length).toBeGreaterThan(0);
+    expect(result.wouldRateLimit).toBe(false);
+    expect(result.wouldDeduplicate).toBe(false);
+    expect(result.payloadValidation.valid).toBe(true);
+  });
+
+  test("dryRun does not create notification records", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    expect(db._state.notifications).toHaveLength(0);
+    expect(db._state.deliveries).toHaveLength(0);
+    expect(db._state.inboxItems).toHaveLength(0);
+    expect(provider.sent).toHaveLength(0);
+  });
+
+  test("dryRun does not create inbox items", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    expect(db._state.inboxItems).toHaveLength(0);
+  });
+
+  test("dryRun does not consume rate limit budget", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "limited",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      rateLimit: { max: 1, windowMs: 60_000 },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "limited",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    const real = await notify.send({
+      recipientId: "u1",
+      notificationId: "limited",
+      payload: { msg: "hi" },
+    });
+    expect(real.rateLimited).toBe(false);
+  });
+
+  test("dryRun does not insert dedupe keys", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "mention",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { msg: "hi" },
+      dedupeKey: "dup-1",
+      dedupeWindowMs: 60_000,
+      dryRun: true,
+    });
+
+    const real = await notify.send({
+      recipientId: "u1",
+      notificationId: "mention",
+      payload: { msg: "hi" },
+      dedupeKey: "dup-1",
+      dedupeWindowMs: 60_000,
+    });
+    expect(real.skipped).toHaveLength(0);
+  });
+
+  test("dryRun does not buffer digests", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "digest-test",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+      digest: {
+        windowMs: 60_000,
+        render: ({ payloads, count }) => ({ msg: `${count} items` }),
+      },
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "digest-test",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    const buffers = await db.digests.list();
+    expect(buffers).toHaveLength(0);
+  });
+
+  test("dryRun does not create scheduled sends for quiet hours", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({
+      id: "u1",
+      email: "u@x.com",
+      quietHours: { start: "00:00", end: "23:59", timezone: "UTC" },
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: true,
+    });
+
+    const scheduled = await db.scheduledSends.list();
+    expect(scheduled).toHaveLength(0);
+  });
+
+  test("dryRun: false behaves like normal send", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      dryRun: false,
+    });
+
+    expect(result.notification).not.toBeNull();
+    expect(db._state.notifications).toHaveLength(1);
+  });
+});

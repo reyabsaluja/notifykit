@@ -183,14 +183,24 @@ export type NotifyKit<
    * `recipientId` is used as provided, with no additional auth check.
    * Client-facing code should go through `createHandler()` which resolves
    * the recipient via `identify()`.
+   *
+   * When `dryRun: true` is passed, returns a `DeliveryExplanation` without
+   * writing any records — equivalent to calling `explain()`.
    */
-  send(input: SendInput<T>): Promise<SendResult>;
+  send(input: SendInput<T> & { dryRun: true }): Promise<DeliveryExplanation>;
+  send(input: SendInput<T> & { dryRun?: false }): Promise<SendResult>;
+  send(input: SendInput<T> & { dryRun?: boolean }): Promise<SendResult | DeliveryExplanation>;
   /**
    * Dry-run explanation of what `send()` would do for a given notification +
    * recipient. Covers preference resolution, rate limits, digests, and quiet
    * hours. Does not write any records or trigger delivery.
    */
   explain(input: SendInput<T>): Promise<DeliveryExplanation>;
+  /**
+   * Shorthand for `explain()`. Validates the send input and returns what
+   * would happen without writing any records or triggering delivery.
+   */
+  check(input: SendInput<T>): Promise<DeliveryExplanation>;
   inbox: {
     /**
      * List inbox items. **Server-only** — the caller supplies the
@@ -2512,8 +2522,14 @@ export function createNotifyKit<
         organizationId: undefined,
       });
     },
-    send,
+    send(input: SendInput<T> & { dryRun?: boolean }): any {
+      if ((input as { dryRun?: boolean }).dryRun) {
+        return explain(input);
+      }
+      return send(input);
+    },
     explain,
+    check: explain,
     inbox: {
       list(recipientId, scope, filter, limit?) {
         const s = scope ? normalizeOrgId(scope) : scope;

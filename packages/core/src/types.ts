@@ -916,6 +916,12 @@ export type SendInput<
      * first are skipped.
      */
     dedupeWindowMs?: number;
+    /**
+     * When `true`, `send()` performs a dry run and returns a
+     * `DeliveryExplanation` instead of executing the send. No records are
+     * written, no deliveries triggered. Equivalent to calling `explain()`.
+     */
+    dryRun?: boolean;
   };
 }[T[number]["id"]];
 
