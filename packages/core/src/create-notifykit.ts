@@ -1263,6 +1263,7 @@ export function createNotifyKit<
       workspaceId?: string;
       notificationId: string;
       payload: unknown;
+      idempotencyKey?: string;
       dedupeKey?: string;
       dedupeWindowMs?: number;
     };
@@ -1290,6 +1291,21 @@ export function createNotifyKit<
       );
     }
     const scope = resolveScope(input, recipient);
+
+    let wouldReplayIdempotent = false;
+    let idempotencyInfo: DeliveryExplanation["idempotency"] = null;
+    if (input.idempotencyKey) {
+      const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
+      const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
+      const existing = await database.notifications.findByIdempotencyKey(compositeKey);
+      if (existing) {
+        const age = Date.now() - existing.createdAt.getTime();
+        if (age < ttl) {
+          wouldReplayIdempotent = true;
+          idempotencyInfo = { key: input.idempotencyKey, existingNotificationId: existing.id, ttlMs: ttl };
+        }
+      }
+    }
 
     let payloadValidation: PayloadValidationResult;
     if (def.validate) {
@@ -1377,6 +1393,8 @@ export function createNotifyKit<
         outcome = ch.resolvedBy === "destination_unavailable"
           ? "unavailable"
           : "disabled";
+      } else if (wouldReplayIdempotent) {
+        outcome = "idempotent";
       } else if (!payloadValidation.valid) {
         outcome = "invalid_payload";
       } else if (wouldDeduplicate) {
@@ -1405,9 +1423,11 @@ export function createNotifyKit<
       classification: def.classification,
       category: def.category,
       payloadValidation,
+      wouldReplayIdempotent,
       wouldDeduplicate,
       wouldRateLimit,
       wouldDigest,
+      idempotency: idempotencyInfo,
       dedupe: dedupeInfo,
       rateLimit: rateLimitInfo,
       digest: digestInfo,

@@ -42,6 +42,7 @@ export type PreferenceExplanation = {
 export type ChannelOutcome =
   | "unavailable"
   | "disabled"
+  | "idempotent"
   | "invalid_payload"
   | "deduplicated"
   | "rate_limited"
@@ -70,9 +71,11 @@ export type DeliveryExplanation = {
   classification?: NotificationClassification;
   category?: string;
   payloadValidation: PayloadValidationResult;
+  wouldReplayIdempotent: boolean;
   wouldDeduplicate: boolean;
   wouldRateLimit: boolean;
   wouldDigest: boolean;
+  idempotency: { key: string; existingNotificationId: string; ttlMs: number } | null;
   dedupe: { key: string; windowMs: number } | null;
   rateLimit: { current: number; max: number; windowMs: number } | null;
   digest: { windowMs: number } | null;

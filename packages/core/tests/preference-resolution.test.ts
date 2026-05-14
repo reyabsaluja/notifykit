@@ -1729,6 +1729,299 @@ describe("notify.explain() — delivery-level explanation", () => {
   });
 });
 
+describe("notify.explain() — idempotency reporting", () => {
+  test("no idempotencyKey returns wouldReplayIdempotent: false and null info", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+    });
+    expect(result.wouldReplayIdempotent).toBe(false);
+    expect(result.idempotency).toBeNull();
+  });
+
+  test("idempotencyKey with no prior send returns wouldReplayIdempotent: false", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-new",
+    });
+    expect(result.wouldReplayIdempotent).toBe(false);
+    expect(result.idempotency).toBeNull();
+    expect(result.channels.every((c) => c.outcome === "deliver")).toBe(true);
+  });
+
+  test("idempotencyKey matching existing send within TTL reports idempotent", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const sendResult = await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-1",
+    });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-1",
+    });
+    expect(result.wouldReplayIdempotent).toBe(true);
+    expect(result.idempotency).not.toBeNull();
+    expect(result.idempotency!.key).toBe("key-1");
+    expect(result.idempotency!.existingNotificationId).toBe(sendResult.notification!.id);
+    expect(result.idempotency!.ttlMs).toBe(24 * 60 * 60 * 1000);
+    expect(
+      result.channels
+        .filter((c) => c.allowed)
+        .every((c) => c.outcome === ("idempotent" as ChannelOutcome)),
+    ).toBe(true);
+  });
+
+  test("idempotencyKey expired beyond TTL returns wouldReplayIdempotent: false", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+      idempotencyKeyTtlMs: 1,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-expire",
+    });
+
+    await new Promise((r) => setTimeout(r, 5));
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-expire",
+    });
+    expect(result.wouldReplayIdempotent).toBe(false);
+    expect(result.idempotency).toBeNull();
+  });
+
+  test("idempotencyKey scoped per recipient — different recipients are independent", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+    await notify.upsertRecipient({ id: "u2" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+
+    const r1 = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+    expect(r1.wouldReplayIdempotent).toBe(true);
+
+    const r2 = await notify.explain({
+      recipientId: "u2",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+    expect(r2.wouldReplayIdempotent).toBe(false);
+  });
+
+  test("idempotencyKey scoped per notification — different notifications are independent", async () => {
+    const def1 = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const def2 = notification({
+      id: "reminder",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def1, def2] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+
+    const r1 = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+    expect(r1.wouldReplayIdempotent).toBe(true);
+
+    const r2 = await notify.explain({
+      recipientId: "u1",
+      notificationId: "reminder",
+      payload: { msg: "hi" },
+      idempotencyKey: "shared-key",
+    });
+    expect(r2.wouldReplayIdempotent).toBe(false);
+  });
+
+  test("explain with idempotencyKey does not write any records", async () => {
+    const db = memoryAdapter();
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: db,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-no-write",
+    });
+
+    expect(db._state.notifications).toHaveLength(0);
+    expect(db._state.deliveries).toHaveLength(0);
+    expect(db._state.inboxItems).toHaveLength(0);
+  });
+
+  test("disabled channels keep disabled outcome even when idempotent", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" }), email({ subject: "{{msg}}", body: "{{msg}}" })],
+    });
+    const provider = fakeEmailProvider();
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.preferences.update({
+      recipientId: "u1",
+      notificationId: "alert",
+      channels: { email: false },
+    });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-disabled",
+    });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-disabled",
+    });
+    expect(result.wouldReplayIdempotent).toBe(true);
+    const emailCh = result.channels.find((c) => c.channel === "email")!;
+    expect(emailCh.outcome).toBe("disabled" as ChannelOutcome);
+    const inboxCh = result.channels.find((c) => c.channel === "inbox")!;
+    expect(inboxCh.outcome).toBe("idempotent" as ChannelOutcome);
+  });
+
+  test("custom TTL is reported in idempotency info", async () => {
+    const def = notification({
+      id: "alert",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      idempotencyKeyTtlMs: 5000,
+    });
+    await notify.upsertRecipient({ id: "u1" });
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-ttl",
+    });
+
+    const result = await notify.explain({
+      recipientId: "u1",
+      notificationId: "alert",
+      payload: { msg: "hi" },
+      idempotencyKey: "key-ttl",
+    });
+    expect(result.idempotency!.ttlMs).toBe(5000);
+  });
+});
+
 describe("handler GET /explain", () => {
   function buildHandler() {
     const def = notification({
