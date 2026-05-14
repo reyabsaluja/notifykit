@@ -1336,21 +1336,6 @@ export function createNotifyKit<
       }
     }
 
-    let wouldReplayIdempotent = false;
-    let idempotencyInfo: DeliveryExplanation["idempotency"] = null;
-    if (input.idempotencyKey) {
-      const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
-      const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
-      const existing = await database.notifications.findByIdempotencyKey(compositeKey);
-      if (existing) {
-        const age = Date.now() - existing.createdAt.getTime();
-        if (age < ttl) {
-          wouldReplayIdempotent = true;
-          idempotencyInfo = { key: input.idempotencyKey, existingNotificationId: existing.id, ttlMs: ttl };
-        }
-      }
-    }
-
     let payloadValidation: PayloadValidationResult;
     if (def.validate) {
       try {
@@ -1386,34 +1371,52 @@ export function createNotifyKit<
       payloadValidation = checkPayload(def.payload, input.payload);
     }
 
+    let wouldReplayIdempotent = false;
+    let idempotencyInfo: DeliveryExplanation["idempotency"] = null;
+    let wouldRateLimit = false;
+    let rateLimitInfo: DeliveryExplanation["rateLimit"] = null;
+    let wouldDeduplicate = false;
+    let dedupeInfo: DeliveryExplanation["dedupe"] = null;
+
+    if (payloadValidation.valid) {
+      if (input.idempotencyKey) {
+        const ttl = config.idempotencyKeyTtlMs ?? 24 * 60 * 60 * 1000;
+        const compositeKey = idempotencyCompositeKey(input.idempotencyKey, input.notificationId, input.recipientId);
+        const existing = await database.notifications.findByIdempotencyKey(compositeKey);
+        if (existing) {
+          const age = Date.now() - existing.createdAt.getTime();
+          if (age < ttl) {
+            wouldReplayIdempotent = true;
+            idempotencyInfo = { key: input.idempotencyKey, existingNotificationId: existing.id, ttlMs: ttl };
+          }
+        }
+      }
+
+      if (def.rateLimit) {
+        const limit = def.rateLimit;
+        const rateLimitScope = limit.scope ?? "recipient";
+        const key =
+          rateLimitScope === "global"
+            ? scopedStorageKey(scope, def.id)
+            : scopedStorageKey(scope, recipient.id, def.id);
+        const current = await database.rateLimits.count({
+          key,
+          windowMs: limit.windowMs,
+        });
+        wouldRateLimit = current >= limit.max;
+        rateLimitInfo = { current, max: limit.max, windowMs: limit.windowMs };
+      }
+
+      if (input.dedupeKey && input.dedupeWindowMs && input.dedupeWindowMs > 0) {
+        dedupeInfo = { key: input.dedupeKey, windowMs: input.dedupeWindowMs };
+        const dedupeCompositeKey = buildDedupeCompositeKey(def.id, recipient.id, input.dedupeKey);
+        wouldDeduplicate = await database.dedupe.exists(dedupeCompositeKey);
+      }
+    }
+
     const prefExplanation = resolvePreferences(
       await buildResolutionCtx(recipient, def, scope),
     );
-
-    let wouldRateLimit = false;
-    let rateLimitInfo: DeliveryExplanation["rateLimit"] = null;
-    if (def.rateLimit) {
-      const limit = def.rateLimit;
-      const rateLimitScope = limit.scope ?? "recipient";
-      const key =
-        rateLimitScope === "global"
-          ? scopedStorageKey(scope, def.id)
-          : scopedStorageKey(scope, recipient.id, def.id);
-      const current = await database.rateLimits.count({
-        key,
-        windowMs: limit.windowMs,
-      });
-      wouldRateLimit = current >= limit.max;
-      rateLimitInfo = { current, max: limit.max, windowMs: limit.windowMs };
-    }
-
-    let wouldDeduplicate = false;
-    let dedupeInfo: DeliveryExplanation["dedupe"] = null;
-    if (input.dedupeKey && input.dedupeWindowMs && input.dedupeWindowMs > 0) {
-      dedupeInfo = { key: input.dedupeKey, windowMs: input.dedupeWindowMs };
-      const dedupeCompositeKey = buildDedupeCompositeKey(def.id, recipient.id, input.dedupeKey);
-      wouldDeduplicate = await database.dedupe.exists(dedupeCompositeKey);
-    }
 
     const wouldDigest = !!def.digest;
     const digestInfo: DeliveryExplanation["digest"] = def.digest
