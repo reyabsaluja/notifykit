@@ -42,8 +42,8 @@ export type PreferenceExplanation = {
 export type ChannelOutcome =
   | "unavailable"
   | "disabled"
-  | "idempotent"
   | "invalid_payload"
+  | "idempotent"
   | "deduplicated"
   | "rate_limited"
   | "digested"

@@ -1403,10 +1403,10 @@ export function createNotifyKit<
         outcome = ch.resolvedBy === "destination_unavailable"
           ? "unavailable"
           : "disabled";
-      } else if (wouldReplayIdempotent) {
-        outcome = "idempotent";
       } else if (!payloadValidation.valid) {
         outcome = "invalid_payload";
+      } else if (wouldReplayIdempotent) {
+        outcome = "idempotent";
       } else if (wouldDeduplicate) {
         outcome = "deduplicated";
       } else if (wouldRateLimit) {
