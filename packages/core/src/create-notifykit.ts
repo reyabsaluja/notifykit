@@ -2523,7 +2523,7 @@ export function createNotifyKit<
       });
     },
     send(input: SendInput<T> & { dryRun?: boolean }): any {
-      if ((input as { dryRun?: boolean }).dryRun) {
+      if (input.dryRun) {
         return explain(input);
       }
       return send(input);

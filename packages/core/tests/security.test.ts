@@ -2282,7 +2282,7 @@ describe("tenant-scoped explain()", () => {
     });
     await notify.upsertRecipient({ id: "alice", tenantId: "tenant_a", email: "a@x.com" });
 
-    expect(
+    await expect(
       notify.explain({
         recipientId: "alice",
         tenantId: "tenant_b",
@@ -2306,7 +2306,7 @@ describe("tenant-scoped explain()", () => {
       email: "a@x.com",
     });
 
-    expect(
+    await expect(
       notify.explain({
         recipientId: "alice",
         tenantId: "tenant_a",
