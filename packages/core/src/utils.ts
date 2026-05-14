@@ -122,7 +122,7 @@ export function validatePayload(
   return validated;
 }
 
-export const PAYLOAD_VALID: PayloadValidationResult = Object.freeze({ valid: true, fields: [] });
+export const PAYLOAD_VALID: Readonly<PayloadValidationResult> = Object.freeze({ valid: true, fields: [] });
 
 export function checkPayload(
   schema: PayloadSchema,
