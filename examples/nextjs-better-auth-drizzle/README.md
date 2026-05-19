@@ -2,6 +2,10 @@
 
 Full SaaS example combining NotifyKit with a real authentication system and persistent storage.
 
+## Prerequisites
+
+- **Bun** — This example uses `bun:sqlite` and must be run with Bun (not Node.js)
+
 ## Stack
 
 - **Next.js 15** — App Router
