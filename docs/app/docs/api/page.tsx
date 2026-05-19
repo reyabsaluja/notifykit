@@ -117,26 +117,22 @@ await notify.inbox.unreadCount(recipientId, scope?)`}
 
       <h2>notify.deliveries</h2>
       <Code
-        code={`// List deliveries (optionally filtered by recipient)
-await notify.deliveries.list(recipientId?, scope?, limit?)
-
-// Get a specific delivery
-await notify.deliveries.get(deliveryId)
-
-// List deliveries for a notification record
-await notify.deliveries.listByNotificationRecordId(notificationRecordId)`}
+        code={`// List deliveries (optionally filtered by recipient and scope)
+await notify.deliveries.list(recipientId?, scope?, limit?)`}
       />
 
-      <h2>notify.timeline</h2>
+      <h2>notify.timeline(notificationRecordId, options?)</h2>
       <Code
         code={`// List timeline events for a notification
-await notify.timeline.list(notificationRecordId, limit?)
+await notify.timeline(notificationRecordId)
+await notify.timeline(notificationRecordId, { limit: 100 })
 
-// List timeline events for a delivery
-await notify.timeline.listByDelivery(deliveryId, notificationRecordId?, limit?)
+// List timeline events for a specific delivery
+await notify.timeline(notificationRecordId, { deliveryId, limit: 50 })
 
-// Prune old events
-await notify.timeline.prune(olderThan: Date)`}
+// Prune old events (uses configured timelineRetentionMs if omitted)
+await notify.pruneTimeline(olderThan)
+await notify.pruneTimeline()`}
       />
 
       <h2>notify.drain()</h2>
