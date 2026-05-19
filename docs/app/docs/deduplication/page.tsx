@@ -73,7 +73,7 @@ if (result.deduplicated) {
       <Code
         code={`createNotifyKit({
   // ...
-  idempotencyTtlMs: 48 * 60 * 60_000, // 48 hours
+  idempotencyKeyTtlMs: 48 * 60 * 60_000, // 48 hours
 })`}
       />
 
@@ -100,7 +100,7 @@ if (result.deduplicated) {
           <tr>
             <td><strong>Window</strong></td>
             <td><code>dedupeWindowMs</code> (per-call)</td>
-            <td><code>idempotencyTtlMs</code> (global config)</td>
+            <td><code>idempotencyKeyTtlMs</code> (global config)</td>
           </tr>
           <tr>
             <td><strong>On duplicate</strong></td>
