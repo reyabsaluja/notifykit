@@ -97,16 +97,20 @@ async function main() {
 
   const actors = ["Alice", "Bob", "Charlie", "Diana"];
   for (const actorName of actors) {
-    const result = await notify.send({
-      recipientId: "user_1",
-      notificationId: "comment_mentioned",
-      payload: {
-        actorName,
-        postTitle: `${actorName}'s Post`,
-        postUrl: `/posts/${actorName.toLowerCase()}`,
-      },
-    });
-    console.log(`  send(${actorName}): digested=${result.digested}`);
+    try {
+      const result = await notify.send({
+        recipientId: "user_1",
+        notificationId: "comment_mentioned",
+        payload: {
+          actorName,
+          postTitle: `${actorName}'s Post`,
+          postUrl: `/posts/${actorName.toLowerCase()}`,
+        },
+      });
+      console.log(`  send(${actorName}): digested=${result.digested}`);
+    } catch (err) {
+      console.error(`  send(${actorName}) failed:`, err instanceof Error ? err.message : err);
+    }
   }
 
   console.log("\nWaiting 4 seconds for digest window to expire...");
@@ -122,15 +126,19 @@ async function main() {
   console.log("Sending 5 follower notifications (limit: 3/hour)...\n");
 
   for (let i = 1; i <= 5; i++) {
-    const result = await notify.send({
-      recipientId: "user_1",
-      notificationId: "new_follower",
-      payload: {
-        followerName: `User${i}`,
-        followerUrl: `/users/user${i}`,
-      },
-    });
-    console.log(`  send(User${i}): rateLimited=${result.rateLimited}`);
+    try {
+      const result = await notify.send({
+        recipientId: "user_1",
+        notificationId: "new_follower",
+        payload: {
+          followerName: `User${i}`,
+          followerUrl: `/users/user${i}`,
+        },
+      });
+      console.log(`  send(User${i}): rateLimited=${result.rateLimited}`);
+    } catch (err) {
+      console.error(`  send(User${i}) failed:`, err instanceof Error ? err.message : err);
+    }
   }
 
   console.log(`\nTotal emails actually sent: ${provider.sent.length}`);

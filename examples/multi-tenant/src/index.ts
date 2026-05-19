@@ -84,31 +84,39 @@ async function main() {
 
   // Send to Alice (acme tenant — email disabled by tenant defaults)
   console.log("Sending task_assigned to Alice (tenant: acme):");
-  const r1 = await notify.send({
-    recipientId: "alice",
-    notificationId: "task_assigned",
-    tenantId: "acme",
-    payload: {
-      assignerName: "Carol",
-      taskTitle: "Update landing page",
-      taskUrl: "/tasks/1",
-    },
-  });
-  console.log(`  skipped: ${r1.skippedChannels.join(", ") || "(none)"}\n`);
+  try {
+    const r1 = await notify.send({
+      recipientId: "alice",
+      notificationId: "task_assigned",
+      tenantId: "acme",
+      payload: {
+        assignerName: "Carol",
+        taskTitle: "Update landing page",
+        taskUrl: "/tasks/1",
+      },
+    });
+    console.log(`  skipped: ${r1.skippedChannels.join(", ") || "(none)"}\n`);
+  } catch (err) {
+    console.error("  send failed:", err instanceof Error ? err.message : err);
+  }
 
   // Send to Bob (bigcorp tenant — all channels enabled)
   console.log("Sending task_assigned to Bob (tenant: bigcorp):");
-  const r2 = await notify.send({
-    recipientId: "bob",
-    notificationId: "task_assigned",
-    tenantId: "bigcorp",
-    payload: {
-      assignerName: "Dave",
-      taskTitle: "Review Q2 budget",
-      taskUrl: "/tasks/2",
-    },
-  });
-  console.log(`  skipped: ${r2.skippedChannels.join(", ") || "(none)"}\n`);
+  try {
+    const r2 = await notify.send({
+      recipientId: "bob",
+      notificationId: "task_assigned",
+      tenantId: "bigcorp",
+      payload: {
+        assignerName: "Dave",
+        taskTitle: "Review Q2 budget",
+        taskUrl: "/tasks/2",
+      },
+    });
+    console.log(`  skipped: ${r2.skippedChannels.join(", ") || "(none)"}\n`);
+  } catch (err) {
+    console.error("  send failed:", err instanceof Error ? err.message : err);
+  }
 
   // --- Scoped inbox queries ---
   console.log("=== Scoped inbox queries ===\n");
@@ -131,16 +139,20 @@ async function main() {
   });
 
   console.log("Sending weekly_report to Bob (email opted-out per preference):");
-  const r3 = await notify.send({
-    recipientId: "bob",
-    notificationId: "weekly_report",
-    tenantId: "bigcorp",
-    payload: {
-      reportUrl: "/reports/2024-w20",
-      weekOf: "May 13, 2024",
-    },
-  });
-  console.log(`  skipped: ${r3.skippedChannels.join(", ") || "(none)"}`);
+  try {
+    const r3 = await notify.send({
+      recipientId: "bob",
+      notificationId: "weekly_report",
+      tenantId: "bigcorp",
+      payload: {
+        reportUrl: "/reports/2024-w20",
+        weekOf: "May 13, 2024",
+      },
+    });
+    console.log(`  skipped: ${r3.skippedChannels.join(", ") || "(none)"}`);
+  } catch (err) {
+    console.error("  send failed:", err instanceof Error ? err.message : err);
+  }
 
   // --- Preference explain ---
   console.log("\n=== Preference resolution explain ===\n");
