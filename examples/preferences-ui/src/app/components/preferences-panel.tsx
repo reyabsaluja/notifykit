@@ -1,6 +1,11 @@
 "use client";
 
-import { usePreferences } from "@notifykitjs/react";
+import { useEffect, useState } from "react";
+import {
+  usePreferences,
+  useNotifyKitClient,
+  type NotificationMetadata,
+} from "@notifykitjs/react";
 
 const CHANNEL_LABELS: Record<string, string> = {
   inbox: "In-app",
@@ -16,21 +21,48 @@ const CATEGORY_LABELS: Record<string, string> = {
   security: "Security",
 };
 
-export function PreferencesPanel() {
-  const { items, status, update } = usePreferences();
+type MergedPref = {
+  notificationId: string;
+  description?: string;
+  category?: string;
+  required?: boolean;
+  availableChannels: string[];
+  channels: Record<string, boolean>;
+};
 
-  if (status === "loading") {
+export function PreferencesPanel() {
+  const client = useNotifyKitClient();
+  const { items, status, update } = usePreferences();
+  const [definitions, setDefinitions] = useState<NotificationMetadata[]>([]);
+
+  useEffect(() => {
+    client.notifications.list().then(setDefinitions);
+  }, [client]);
+
+  if (status === "loading" || definitions.length === 0) {
     return <div className="loading">Loading preferences...</div>;
   }
 
-  const grouped = items.reduce(
+  const merged: MergedPref[] = definitions.map((def) => {
+    const saved = items.find((p) => p.notificationId === def.id);
+    return {
+      notificationId: def.id,
+      description: def.description,
+      category: def.category,
+      required: def.required,
+      availableChannels: def.channels,
+      channels: saved?.channels ?? {},
+    };
+  });
+
+  const grouped = merged.reduce(
     (acc, item) => {
       const cat = item.category ?? "other";
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(item);
       return acc;
     },
-    {} as Record<string, typeof items>,
+    {} as Record<string, MergedPref[]>,
   );
 
   return (
@@ -68,18 +100,18 @@ export function PreferencesPanel() {
                   )}
                 </div>
                 {["inbox", "email", "sms"].map((ch) => {
-                  const enabled = pref.channels?.[ch] !== false;
-                  const available = pref.availableChannels?.includes(ch) ?? true;
+                  const enabled = pref.channels[ch] !== false;
+                  const available = pref.availableChannels.includes(ch);
                   const locked = pref.required;
 
                   return (
                     <label
                       key={ch}
-                      className={`prefs-col-channel toggle-label ${locked ? "locked" : ""}`}
+                      className={`prefs-col-channel toggle-label ${locked ? "locked" : ""} ${!available ? "locked" : ""}`}
                     >
                       <input
                         type="checkbox"
-                        checked={enabled}
+                        checked={available && enabled}
                         disabled={!available || locked}
                         onChange={() => {
                           update({
