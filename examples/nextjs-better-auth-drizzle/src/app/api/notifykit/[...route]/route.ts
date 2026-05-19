@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { notify } from "@/lib/notify";
 import { headers } from "next/headers";
 
+const syncedRecipients = new Set<string>();
+
 export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
   notifykit: notify,
   identify: async () => {
@@ -10,11 +12,14 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
       headers: await headers(),
     });
     if (!session) return null;
-    await notify.upsertRecipient({
-      id: session.user.id,
-      email: session.user.email,
-      name: session.user.name,
-    });
+    if (!syncedRecipients.has(session.user.id)) {
+      await notify.upsertRecipient({
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
+      });
+      syncedRecipients.add(session.user.id);
+    }
     return session.user.id;
   },
 });
