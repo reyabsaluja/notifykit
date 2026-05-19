@@ -3,7 +3,8 @@ import { createSqliteTables } from "@notifykitjs/drizzle";
 
 await createSqliteTables(db);
 
-// Simplified Better Auth tables pinned to v1.6 — in production, use auth.migrate() instead
+// Simplified Better Auth tables pinned to v1.6.10 — in production, use auth.migrate() instead
+// Schema reference: https://www.better-auth.com/docs/concepts/database#core-schema
 db.run(`CREATE TABLE IF NOT EXISTS "user" (
   "id" TEXT PRIMARY KEY,
   "name" TEXT NOT NULL,
