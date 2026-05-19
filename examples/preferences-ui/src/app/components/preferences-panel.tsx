@@ -1,0 +1,154 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  usePreferences,
+  useNotifyKitClient,
+  type NotificationMetadata,
+} from "@notifykitjs/react";
+
+const CHANNEL_LABELS: Record<string, string> = {
+  inbox: "In-app",
+  email: "Email",
+  sms: "SMS",
+  webhook: "Webhook",
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  social: "Social",
+  tasks: "Tasks",
+  billing: "Billing",
+  security: "Security",
+};
+
+type MergedPref = {
+  notificationId: string;
+  description?: string;
+  category?: string;
+  required?: boolean;
+  availableChannels: string[];
+  channels: Record<string, boolean>;
+};
+
+export function PreferencesPanel() {
+  const client = useNotifyKitClient();
+  const { items, status, update } = usePreferences();
+  const [definitions, setDefinitions] = useState<NotificationMetadata[]>([]);
+  const [definitionsLoaded, setDefinitionsLoaded] = useState(false);
+
+  useEffect(() => {
+    client.notifications
+      .list()
+      .then((defs) => {
+        setDefinitions(defs);
+        setDefinitionsLoaded(true);
+      })
+      .catch(() => setDefinitionsLoaded(true));
+  }, [client]);
+
+  if (status === "loading" || !definitionsLoaded) {
+    return <div className="loading">Loading preferences...</div>;
+  }
+
+  if (definitions.length === 0) {
+    return <div className="loading">No notifications configured.</div>;
+  }
+
+  const merged: MergedPref[] = definitions.map((def) => {
+    const saved = items.find((p) => p.notificationId === def.id);
+    return {
+      notificationId: def.id,
+      description: def.description,
+      category: def.category,
+      required: def.required,
+      availableChannels: def.channels,
+      channels: saved?.channels ?? {},
+    };
+  });
+
+  const grouped = merged.reduce(
+    (acc, item) => {
+      const cat = item.category ?? "other";
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(item);
+      return acc;
+    },
+    {} as Record<string, MergedPref[]>,
+  );
+
+  return (
+    <div className="prefs">
+      <div className="prefs-header">
+        <h1>Notification preferences</h1>
+        <p>Choose how you want to be notified for each type of event.</p>
+      </div>
+
+      {Object.entries(grouped).map(([category, prefs]) => (
+        <section key={category} className="prefs-section">
+          <h2 className="prefs-category">
+            {CATEGORY_LABELS[category] ?? category}
+          </h2>
+
+          <div className="prefs-table">
+            <div className="prefs-table-header">
+              <span className="prefs-col-name">Notification</span>
+              {["inbox", "email", "sms"].map((ch) => (
+                <span key={ch} className="prefs-col-channel">
+                  {CHANNEL_LABELS[ch]}
+                </span>
+              ))}
+            </div>
+
+            {prefs.map((pref) => (
+              <div key={pref.notificationId} className="prefs-row">
+                <div className="prefs-col-name">
+                  <strong>{formatId(pref.notificationId)}</strong>
+                  {pref.description && (
+                    <span className="prefs-desc">{pref.description}</span>
+                  )}
+                  {pref.required && (
+                    <span className="prefs-badge">Required</span>
+                  )}
+                </div>
+                {["inbox", "email", "sms"].map((ch) => {
+                  const enabled = pref.channels[ch] !== false;
+                  const available = pref.availableChannels.includes(ch);
+                  const locked = pref.required;
+
+                  return (
+                    <label
+                      key={ch}
+                      className={`prefs-col-channel toggle-label ${locked || !available ? "locked" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={available && enabled}
+                        disabled={!available || locked}
+                        onChange={() => {
+                          update({
+                            notificationId: pref.notificationId,
+                            channels: {
+                              ...pref.channels,
+                              [ch]: !enabled,
+                            },
+                          });
+                        }}
+                      />
+                      <span className="toggle-track">
+                        <span className="toggle-thumb" />
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function formatId(id: string) {
+  return id.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}

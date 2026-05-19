@@ -24,6 +24,12 @@
     "example": "bun run --cwd examples/basic start",
     "example:drizzle": "bun run --cwd examples/drizzle start",
     "example:handler": "bun run --cwd examples/handler start",
+    "example:resend": "bun run --cwd examples/resend start",
+    "example:digest": "bun run --cwd examples/digest start",
+    "example:multi-tenant": "bun run --cwd examples/multi-tenant start",
+    "example:inbox-ui": "bun run --cwd examples/inbox-ui dev",
+    "example:preferences-ui": "bun run --cwd examples/preferences-ui dev",
+    "example:full-stack": "bun run --cwd examples/nextjs-better-auth-drizzle dev",
     "typecheck": "tsc -p packages/core/tsconfig.check.json",
     "docs:dev": "bun run --cwd docs dev",
     "docs:build": "bun run --cwd docs build"
