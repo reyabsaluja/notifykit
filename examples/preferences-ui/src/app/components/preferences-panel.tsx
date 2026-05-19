@@ -118,7 +118,7 @@ export function PreferencesPanel() {
                   return (
                     <label
                       key={ch}
-                      className={`prefs-col-channel toggle-label ${locked ? "locked" : ""} ${!available ? "locked" : ""}`}
+                      className={`prefs-col-channel toggle-label ${locked || !available ? "locked" : ""}`}
                     >
                       <input
                         type="checkbox"
