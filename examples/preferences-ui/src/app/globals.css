@@ -1,0 +1,193 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #fafafa;
+  --fg: #111;
+  --muted: #666;
+  --border: #e5e5e5;
+  --accent: #0070f3;
+  --card-bg: #fff;
+  --toggle-off: #ccc;
+  --toggle-on: #0070f3;
+  --badge-bg: #f0f0f0;
+  --badge-fg: #555;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0a0a;
+    --fg: #ededed;
+    --muted: #999;
+    --border: #2a2a2a;
+    --card-bg: #141414;
+    --toggle-off: #444;
+    --badge-bg: #2a2a2a;
+    --badge-fg: #aaa;
+  }
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+}
+
+.loading {
+  padding: 48px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* Preferences layout */
+.prefs {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+.prefs-header {
+  margin-bottom: 40px;
+}
+
+.prefs-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.prefs-header p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.prefs-section {
+  margin-bottom: 32px;
+}
+
+.prefs-category {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Table layout */
+.prefs-table {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.prefs-table-header {
+  display: grid;
+  grid-template-columns: 1fr 72px 72px 72px;
+  padding: 10px 16px;
+  background: var(--badge-bg);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+
+.prefs-row {
+  display: grid;
+  grid-template-columns: 1fr 72px 72px 72px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  align-items: center;
+}
+
+.prefs-col-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prefs-col-name strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.prefs-desc {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.prefs-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 4px;
+  width: fit-content;
+}
+
+.prefs-col-channel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Toggle switch */
+.toggle-label {
+  cursor: pointer;
+}
+
+.toggle-label.locked {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.toggle-label input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  background: var(--toggle-off);
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+
+.toggle-label input:checked + .toggle-track {
+  background: var(--toggle-on);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-label input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(16px);
+}
