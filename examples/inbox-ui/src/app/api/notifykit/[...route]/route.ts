@@ -2,7 +2,7 @@ import { createRouteHandler } from "@notifykitjs/next";
 import { notify } from "@/lib/notify";
 import { seed } from "@/lib/seed";
 
-// Dev-only: module-level flag resets on serverless cold starts — do not use in production
+// Dev-only: concurrent requests may race past this check — harmless since seed() uses upsert
 let seeded = false;
 
 export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
