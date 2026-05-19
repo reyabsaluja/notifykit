@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { notify } from "@/lib/notify";
 import { headers } from "next/headers";
 
+// Dev-only: module-level cache resets on serverless cold starts — do not use in production
 const syncedRecipients = new Set<string>();
 
 export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
