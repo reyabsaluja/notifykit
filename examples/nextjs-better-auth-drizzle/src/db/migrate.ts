@@ -3,7 +3,7 @@ import { createSqliteTables } from "@notifykitjs/drizzle";
 
 await createSqliteTables(db);
 
-// Better Auth tables (simplified for example)
+// Simplified Better Auth tables pinned to v1.6 — in production, use auth.migrate() instead
 db.run(`CREATE TABLE IF NOT EXISTS "user" (
   "id" TEXT PRIMARY KEY,
   "name" TEXT NOT NULL,
