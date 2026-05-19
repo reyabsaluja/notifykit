@@ -117,6 +117,12 @@ body {
 }
 
 /* Inbox overlay */
+.inbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
 .inbox-overlay {
   position: fixed;
   top: 60px;

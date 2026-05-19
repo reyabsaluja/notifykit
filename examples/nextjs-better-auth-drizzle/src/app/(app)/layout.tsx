@@ -3,10 +3,9 @@
 import { NotifyKitProvider } from "@notifykitjs/react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Bell } from "../components/bell";
 import { InboxPanel } from "../components/inbox-panel";
-import { useState } from "react";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { data: session, isPending } = useSession();
@@ -18,6 +17,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       router.push("/login");
     }
   }, [session, isPending, router]);
+
+  useEffect(() => {
+    if (!inboxOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setInboxOpen(false);
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [inboxOpen]);
 
   if (isPending) return <div className="loading">Loading...</div>;
   if (!session) return null;
@@ -36,9 +44,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
         {inboxOpen && (
-          <div className="inbox-overlay">
-            <InboxPanel onClose={() => setInboxOpen(false)} />
-          </div>
+          <>
+            <div className="inbox-backdrop" onClick={() => setInboxOpen(false)} />
+            <div className="inbox-overlay">
+              <InboxPanel onClose={() => setInboxOpen(false)} />
+            </div>
+          </>
         )}
         <main className="app-content">{children}</main>
       </div>

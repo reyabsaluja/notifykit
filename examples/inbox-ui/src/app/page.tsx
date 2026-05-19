@@ -1,11 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bell } from "./components/notification-bell";
 import { InboxPanel } from "./components/inbox-panel";
 
 export default function Home() {
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open]);
 
   return (
     <div className="app">
@@ -17,9 +26,12 @@ export default function Home() {
       </header>
 
       {open && (
-        <div className="inbox-overlay">
-          <InboxPanel onClose={() => setOpen(false)} />
-        </div>
+        <>
+          <div className="inbox-backdrop" onClick={() => setOpen(false)} />
+          <div className="inbox-overlay">
+            <InboxPanel onClose={() => setOpen(false)} />
+          </div>
+        </>
       )}
 
       <main className="app-main">
