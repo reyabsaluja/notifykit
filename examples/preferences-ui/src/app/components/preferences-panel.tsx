@@ -34,13 +34,24 @@ export function PreferencesPanel() {
   const client = useNotifyKitClient();
   const { items, status, update } = usePreferences();
   const [definitions, setDefinitions] = useState<NotificationMetadata[]>([]);
+  const [definitionsLoaded, setDefinitionsLoaded] = useState(false);
 
   useEffect(() => {
-    client.notifications.list().then(setDefinitions);
+    client.notifications
+      .list()
+      .then((defs) => {
+        setDefinitions(defs);
+        setDefinitionsLoaded(true);
+      })
+      .catch(() => setDefinitionsLoaded(true));
   }, [client]);
 
-  if (status === "loading" || definitions.length === 0) {
+  if (status === "loading" || !definitionsLoaded) {
     return <div className="loading">Loading preferences...</div>;
+  }
+
+  if (definitions.length === 0) {
+    return <div className="loading">No notifications configured.</div>;
   }
 
   const merged: MergedPref[] = definitions.map((def) => {
