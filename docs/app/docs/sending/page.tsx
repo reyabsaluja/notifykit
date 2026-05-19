@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Code } from "../../_components/code";
 
 export const metadata: Metadata = { title: "Sending" };
 
@@ -14,8 +15,8 @@ export default function SendingPage() {
       </p>
 
       <h2>Basic send</h2>
-      <pre>
-        <code>{`await notify.upsertRecipient({
+      <Code
+        code={`await notify.upsertRecipient({
   id: user.id,
   email: user.email,
   name: user.name,
@@ -29,44 +30,34 @@ const result = await notify.send({
     postTitle: "Launch Plan",
     postUrl: "/posts/42",
   },
-})`}</code>
-      </pre>
+})`}
+      />
+
+      <h2>SendResult</h2>
       <p>
-        <code>result</code> tells you exactly what happened:
+        The result tells you exactly what happened:
       </p>
-      <ul>
-        <li>
-          <code>notification</code> — the created notification record, or{" "}
-          <code>null</code> if the send was buffered or rate-limited.
-        </li>
-        <li>
-          <code>inboxItems</code> — inbox rows that were written.
-        </li>
-        <li>
-          <code>deliveries</code> — email/webhook delivery rows. When using
-          the inline queue (default) their status is already{" "}
-          <code>&quot;sent&quot;</code> or <code>&quot;failed&quot;</code>; with an async
-          queue they&apos;re still <code>&quot;pending&quot;</code>.
-        </li>
-        <li>
-          <code>skippedChannels</code> — channels skipped by preferences.
-        </li>
-        <li>
-          <code>deferredChannels</code> — channels deferred by quiet hours.
-        </li>
-        <li>
-          <code>digested</code>, <code>rateLimited</code> — boolean flags for
-          the two interceptor outcomes.
-        </li>
-      </ul>
+      <Code
+        code={`type SendResult = {
+  notification: NotificationRecord | null  // null if buffered/rate-limited
+  inboxItems: InboxItem[]                  // inbox rows written
+  deliveries: DeliveryRecord[]             // email/webhook/sms delivery records
+  skippedChannels: SkippedDelivery[]       // channels skipped by preferences
+  deferredChannels: Array<{ channel; resumesAt }> // quiet hours deferrals
+  digested: boolean                        // true if buffered into digest
+  rateLimited: boolean                     // true if rate limit hit
+  deduplicated: boolean                    // true if dedup key matched
+  idempotentReplay: boolean                // true if idempotency key matched
+}`}
+      />
 
       <h2>Type safety</h2>
-      <p>These all fail at <em>compile time</em>, not at runtime:</p>
-      <pre>
-        <code>{`// ❌ Unknown notification id
+      <p>These fail at <em>compile time</em>, not at runtime:</p>
+      <Code
+        code={`// ❌ Unknown notification id
 await notify.send({
   recipientId: "u_1",
-  notificationId: "wrong_id",  // error: not assignable
+  notificationId: "wrong_id",  // TS error: not assignable
   payload: {},
 })
 
@@ -74,19 +65,18 @@ await notify.send({
 await notify.send({
   recipientId: "u_1",
   notificationId: "comment_mentioned",
-  payload: { actorName: 42 },  // error: number is not a string
-})`}</code>
-      </pre>
+  payload: { actorName: 42 },  // TS error: number is not string
+})`}
+      />
 
       <h2>Inline vs async queue</h2>
       <p>
-        By default <code>send()</code> runs provider deliveries
-        synchronously (same as your API route). Swap in{" "}
-        <code>setTimeoutQueue()</code> — or your own — to return from{" "}
-        <code>send()</code> instantly and have deliveries run later.
+        By default, <code>send()</code> runs provider deliveries
+        synchronously. Swap in <code>setTimeoutQueue()</code> — or your own
+        — to return instantly and run deliveries later.
       </p>
-      <pre>
-        <code>{`import { setTimeoutQueue } from "@notifykitjs/core"
+      <Code
+        code={`import { setTimeoutQueue } from "@notifykitjs/core"
 
 const notify = createNotifyKit({
   // ...
@@ -95,54 +85,61 @@ const notify = createNotifyKit({
 })
 
 // Wait for in-flight jobs before shutdown:
-await notify.drain()`}</code>
-      </pre>
+await notify.drain()`}
+      />
 
-      <h2>Hooks: observability</h2>
+      <h2>Event hooks</h2>
       <p>
-        Every interesting moment fires a hook. Pipe them to your metrics or
-        audit log.
+        Every interesting moment fires a hook. See{" "}
+        <Link href="/docs/hooks">Hooks &amp; observability</Link> for the
+        full list.
       </p>
-      <pre>
-        <code>{`createNotifyKit({
+      <Code
+        code={`createNotifyKit({
   // ...
   on: {
-    "notification.created": ({ notification }) => log("created", notification.id),
-    "notification.rate_limited": ({ notificationId, recipientId }) =>
-      metrics.inc("notifications.rate_limited", { notificationId, recipientId }),
-    "inbox.created":    ({ inboxItem }) => log("inbox", inboxItem.id),
-    "delivery.sent":    ({ delivery }) => metrics.inc("email.sent"),
-    "delivery.failed":  ({ delivery, error }) => log.error("email.failed", { delivery, error }),
+    "notification.created": ({ notification }) =>
+      metrics.inc("notifications.created"),
+    "delivery.sent": ({ delivery }) =>
+      metrics.inc("delivery.sent", { channel: delivery.channel }),
+    "delivery.failed": ({ delivery, error }) =>
+      sentry.captureException(error),
   },
-})`}</code>
-      </pre>
+})`}
+      />
 
       <h2>Quiet hours</h2>
       <p>
-        Attach to a recipient. Inbox still delivers immediately (it&apos;s
-        user-pulled, not push). Email, SMS, and webhook defer until the window
-        ends.
+        Recipients with quiet hours configured get push-style channels
+        (email, SMS, webhook) deferred until the window ends. Inbox still
+        delivers immediately.
       </p>
-      <pre>
-        <code>{`await notify.upsertRecipient({
+      <Code
+        code={`await notify.upsertRecipient({
   id: user.id,
   email: user.email,
   quietHours: {
     start: "22:00",
-    end:   "08:00",
+    end: "08:00",
     timezone: "America/New_York",
   },
-})`}</code>
-      </pre>
+})`}
+      />
       <p>
-        <code>notify.flushScheduledSends()</code> forces pending deferrals
-        to fire now — useful for tests and for an admin &quot;send now&quot;
-        button.
+        See <Link href="/docs/quiet-hours">Quiet hours</Link> for details on
+        flushing scheduled sends.
       </p>
 
-      <p>
-        Next: <Link href="/docs/preferences">Preferences &amp; unsubscribe →</Link>
-      </p>
+      <div className="page-nav">
+        <Link href="/docs/defining">
+          <span className="page-nav-label">Previous</span>
+          <span className="page-nav-title">Defining notifications</span>
+        </Link>
+        <Link href="/docs/channels">
+          <span className="page-nav-label">Next</span>
+          <span className="page-nav-title">Channels</span>
+        </Link>
+      </div>
     </article>
   );
 }

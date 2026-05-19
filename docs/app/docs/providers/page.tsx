@@ -1,89 +1,64 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Code } from "../../_components/code";
 
-export const metadata: Metadata = { title: "Production providers" };
+export const metadata: Metadata = { title: "Email & webhook providers" };
 
 export default function ProvidersPage() {
   return (
     <article>
-      <h1>Production providers</h1>
+      <h1>Email &amp; webhook providers</h1>
       <p>
         The zero-config defaults — memory adapter, fake email — are great
-        for getting started. For production, swap in a real database and
-        real email provider. Each is a one-line change.
+        for getting started. For production, swap in real providers. Each is
+        a one-line change.
       </p>
 
-      <h2>Database: Drizzle SQLite</h2>
-      <pre>
-        <code>{`npm install @notifykitjs/drizzle drizzle-orm better-sqlite3`}</code>
-      </pre>
-      <pre>
-        <code>{`import Database from "better-sqlite3"
-import { drizzle } from "drizzle-orm/better-sqlite3"
-import { createSqliteTables, drizzleSqliteAdapter } from "@notifykitjs/drizzle"
-
-const db = drizzle(new Database("app.db"))
-await createSqliteTables(db)  // one-off; use drizzle-kit in production
-
-export const notify = createNotifyKit({
-  // ...
-  database: drizzleSqliteAdapter(db),
-})`}</code>
-      </pre>
-      <p>
-        The exported schema (<code>notifyKitSchema</code>) lets you join
-        NotifyKit tables against your own app tables — match{" "}
-        <code>notifykit_recipients.id</code> to your{" "}
-        <code>users.id</code>.
-      </p>
-      <p>
-        Postgres is also supported. Swap the schema and adapter imports
-        from <code>sqlite</code> to <code>postgres</code> and you&apos;re
-        done. MySQL support is planned.
-      </p>
-
-      <h2>Email: Resend</h2>
-      <pre>
-        <code>{`npm install @notifykitjs/resend`}</code>
-      </pre>
-      <pre>
-        <code>{`import { resendProvider } from "@notifykitjs/resend"
+      <h2>Resend</h2>
+      <Code
+        lang="bash"
+        code={`npm install @notifykitjs/resend`}
+      />
+      <Code
+        code={`import { resendProvider } from "@notifykitjs/resend"
 
 export const notify = createNotifyKit({
   // ...
   providers: {
     email: resendProvider({
       apiKey: process.env.RESEND_API_KEY!,
-      from:   process.env.RESEND_FROM!,
-      replyTo: "support@acme.com",  // optional
+      from: process.env.RESEND_FROM!,   // "App <noreply@app.com>"
+      replyTo: "support@app.com",       // optional
     }),
   },
-})`}</code>
-      </pre>
+})`}
+      />
       <p>
-        The Resend provider uses <code>fetch</code> internally with a
-        10-second default timeout. Non-2xx responses throw, so the normal
-        retry + fallback pipeline handles them.
+        Uses <code>fetch</code> internally with a 10-second timeout.
+        Non-2xx responses throw, triggering the retry + fallback pipeline.
       </p>
 
-      <h2>Custom providers</h2>
+      <h2>Custom email provider</h2>
       <p>
-        Either interface is tiny. Wrap Postmark, SES, or any outbound HTTP
-        service in ~20 lines:
+        The <code>EmailProvider</code> interface is tiny. Wrap Postmark, SES,
+        SendGrid, or any HTTP service in ~20 lines:
       </p>
-      <pre>
-        <code>{`import type { EmailProvider } from "@notifykitjs/core"
+      <Code
+        code={`import type { EmailProvider } from "@notifykitjs/core"
 
-export function postmarkProvider(opts: { token: string; from: string }): EmailProvider {
+export function postmarkProvider(opts: {
+  token: string
+  from: string
+}): EmailProvider {
   return {
     id: "postmark",
     async send(input) {
       const res = await fetch("https://api.postmarkapp.com/email", {
         method: "POST",
         headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-          "x-postmark-server-token": opts.token,
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "X-Postmark-Server-Token": opts.token,
         },
         body: JSON.stringify({
           From: opts.from,
@@ -97,18 +72,16 @@ export function postmarkProvider(opts: { token: string; from: string }): EmailPr
       return { providerMessageId: json.MessageID }
     },
   }
-}`}</code>
-      </pre>
+}`}
+      />
 
-      <h2>Webhook providers</h2>
+      <h2>Webhook provider</h2>
       <p>
-        The <code>webhook</code> channel ships its own provider —{" "}
-        <code>webhookProvider({"{ secret }"})</code> — that POSTs a signed
-        JSON envelope. Every channel of type <code>webhook</code> in any
-        notification uses it:
+        The webhook channel ships its own provider that POSTs a signed JSON
+        envelope:
       </p>
-      <pre>
-        <code>{`import { webhookProvider } from "@notifykitjs/core"
+      <Code
+        code={`import { webhookProvider } from "@notifykitjs/core"
 
 createNotifyKit({
   // ...
@@ -117,50 +90,110 @@ createNotifyKit({
       secret: process.env.WEBHOOK_SIGNING_SECRET,
     }),
   },
-})`}</code>
-      </pre>
+})`}
+      />
       <p>
-        Receivers verify by HMAC-SHA256-ing the raw body with the shared
-        secret. Same pattern as Stripe, GitHub, any serious webhook
-        producer.
+        Every request includes an <code>x-notifykit-signature: sha256=&lt;hex&gt;</code>{" "}
+        header. Receivers verify by HMAC-SHA256-ing the raw body with the
+        shared secret — same pattern as Stripe and GitHub.
       </p>
 
-      <h2>Queues</h2>
-      <p>
-        The default <code>inlineQueue()</code> runs deliveries synchronously
-        in <code>send()</code>. Switch to <code>setTimeoutQueue()</code> for
-        local dev async, or implement the <code>Queue</code> interface
-        against BullMQ, SQS, Cloudflare Queues, whatever you already run:
-      </p>
-      <pre>
-        <code>{`import type { Queue } from "@notifykitjs/core"
+      <h3>Verifying webhooks on the receiving end</h3>
+      <Code
+        code={`import { verifyWebhookSignature } from "@notifykitjs/core"
 
-const myQueue: Queue = {
+app.post("/webhooks/notifykit", (req, res) => {
+  const signature = req.headers["x-notifykit-signature"]
+  const valid = verifyWebhookSignature(req.rawBody, signature, SECRET)
+  if (!valid) return res.status(401).end()
+  // process the notification...
+})`}
+      />
+
+      <h2>SMS provider</h2>
+      <p>
+        Same pattern as email. Implement the <code>SmsProvider</code>{" "}
+        interface:
+      </p>
+      <Code
+        code={`import type { SmsProvider } from "@notifykitjs/core"
+
+export function twilioProvider(opts: {
+  accountSid: string
+  authToken: string
+  from: string
+}): SmsProvider {
+  return {
+    id: "twilio",
+    async send(input) {
+      const res = await fetch(
+        \`https://api.twilio.com/2010-04-01/Accounts/\${opts.accountSid}/Messages.json\`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: \`Basic \${btoa(\`\${opts.accountSid}:\${opts.authToken}\`)}\`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            From: opts.from,
+            To: input.to,
+            Body: input.body,
+          }),
+        },
+      )
+      if (!res.ok) throw new Error(\`Twilio: \${res.status}\`)
+      const json = await res.json() as { sid: string }
+      return { providerMessageId: json.sid }
+    },
+  }
+}`}
+      />
+
+      <h2>Queues &amp; retries</h2>
+      <p>
+        The default <code>inlineQueue()</code> runs deliveries synchronously.
+        Switch to <code>setTimeoutQueue()</code> for async, or implement the{" "}
+        <code>Queue</code> interface for BullMQ, SQS, or Cloudflare Queues:
+      </p>
+      <Code
+        code={`import type { Queue } from "@notifykitjs/core"
+
+const bullQueue: Queue = {
   async enqueue(job, run) {
-    await bullmq.add("notifykit", job, { attempts: 1 /* engine handles retries */ })
+    await queue.add("notifykit", { job, run: run.toString() })
   },
   async drain() {
-    await bullmq.drain()
+    await queue.drain()
   },
-}
-
-// Somewhere in a worker process:
-bullmq.process("notifykit", async (job) => {
-  // The engine exposes the same worker via whichever path you set up.
-  // Simplest: re-run send() handling; more advanced: call the worker
-  // function you passed to enqueue().
-})`}</code>
-      </pre>
+}`}
+      />
       <div className="callout">
-        Retries, backoff, and terminal-failure semantics live in the engine,
-        not the queue. A queue&apos;s only job is to decide <em>when</em> a
-        worker runs. This means every queue implementation gets retries and
-        fallback channels for free.
+        <strong>Retries live in the engine, not the queue.</strong> A queue&apos;s
+        only job is to decide <em>when</em> a worker runs. Every queue
+        implementation gets retries and fallback channels for free.
       </div>
 
-      <p>
-        Back to <Link href="/docs/installation">Installation</Link>.
-      </p>
+      <h2>Retry configuration</h2>
+      <Code
+        code={`createNotifyKit({
+  // ...
+  retry: {
+    maxAttempts: 5,
+    delayMs: (attempt) => Math.min(1000 * 2 ** (attempt - 1), 30_000),
+  },
+})`}
+      />
+
+      <div className="page-nav">
+        <Link href="/docs/database">
+          <span className="page-nav-label">Previous</span>
+          <span className="page-nav-title">Database adapters</span>
+        </Link>
+        <Link href="/docs/multi-tenancy">
+          <span className="page-nav-label">Next</span>
+          <span className="page-nav-title">Multi-tenancy</span>
+        </Link>
+      </div>
     </article>
   );
 }

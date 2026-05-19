@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Code } from "../../_components/code";
 
 export const metadata: Metadata = { title: "Defining notifications" };
 
@@ -10,13 +11,13 @@ export default function DefiningPage() {
       <p>
         A notification has an <code>id</code>, a <code>payload</code> schema,
         and a list of <code>channels</code>. Define them in code. Your
-        notification ids and payload shapes become typed values the rest of
+        notification IDs and payload shapes become typed values the rest of
         your app can rely on.
       </p>
 
       <h2>Basic definition</h2>
-      <pre>
-        <code>{`import { channel, notification } from "@notifykitjs/core"
+      <Code
+        code={`import { channel, notification } from "@notifykitjs/core"
 
 const inbox = channel.inbox()
 const email = channel.email()
@@ -39,8 +40,8 @@ export const commentMentioned = notification({
       body: "Open {{postUrl}} to reply.",
     }),
   ],
-})`}</code>
-      </pre>
+})`}
+      />
 
       <h2>Payload schema</h2>
       <p>
@@ -49,8 +50,8 @@ export const commentMentioned = notification({
         type-check payloads at the <code>send()</code> call site and validate
         at runtime.
       </p>
-      <pre>
-        <code>{`notification({
+      <Code
+        code={`notification({
   id: "order_shipped",
   payload: {
     orderNumber: "string",
@@ -58,109 +59,95 @@ export const commentMentioned = notification({
     expedited:   "boolean",
   },
   channels: [...],
-})`}</code>
-      </pre>
+})`}
+      />
+      <p>
+        For complex validation (nested objects, arrays, refinements), use the{" "}
+        <code>validate</code> field with Zod, Valibot, or ArkType:
+      </p>
+      <Code
+        code={`import { z } from "zod"
+import { withZod } from "@notifykitjs/core/zod"
+
+notification({
+  id: "invoice_created",
+  payload: { invoiceId: "string", amount: "number" },
+  validate: withZod(z.object({
+    invoiceId: z.string().uuid(),
+    amount: z.number().positive(),
+  })),
+  channels: [...],
+})`}
+      />
 
       <h2>Templates</h2>
       <p>
         Every channel&apos;s string fields support <code>{`{{key}}`}</code>{" "}
-        interpolation against the payload. Missing keys render as empty
-        strings.
+        interpolation against the payload. Missing keys render as empty strings.
       </p>
       <p>
         Email <code>body</code> additionally gets a reserved{" "}
-        <code>{`{{_unsubscribeUrl}}`}</code> key when unsubscribe is
+        <code>{`{{_unsubscribeUrl}}`}</code> variable when unsubscribe is
         configured — see{" "}
         <Link href="/docs/preferences">Preferences &amp; unsubscribe</Link>.
       </p>
 
-      <h2>Channels</h2>
-      <ul>
-        <li>
-          <code>channel.inbox()</code> — writes a row to the adapter. Shows
-          up in the <code>useInbox()</code> hook and{" "}
-          <code>&lt;Inbox /&gt;</code> component. User-pulled viewing.
-        </li>
-        <li>
-          <code>channel.email()</code> — goes through the queue +
-          retry + unsubscribe pipeline.
-        </li>
-        <li>
-          <code>channel.webhook()</code> — POSTs a signed JSON envelope to{" "}
-          <code>url</code> with optional <code>headers</code>. Same
-          queue/retry/fallback path as email.
-        </li>
-      </ul>
+      <h2>Optional fields</h2>
+      <Code
+        code={`notification({
+  id: "team_invite",
+  payload: { inviterName: "string", teamName: "string" },
+  channels: [...],
 
-      <h2>Guarding against spam: digest + rateLimit</h2>
+  // Metadata
+  description: "Sent when a user is invited to a team",
+  category: "social",
+  classification: "product",
+  version: 1,
+
+  // Behavior
+  required: true,                         // bypasses preferences
+  defaultChannels: { email: true, inbox: true },
+  redact: ["inviterName"],                // mask in logs
+
+  // Delivery control
+  rateLimit: { max: 5, windowMs: 60_000 },
+  digest: { windowMs: 300_000, render: ... },
+  fallback: inbox({ title: "You have a team invite" }),
+})`}
+      />
+
+      <h2>Registering definitions</h2>
       <p>
-        Two optional fields do the heavy lifting for noisy notifications.
+        Pass all notification definitions to <code>createNotifyKit()</code>.
+        The <code>as const</code> assertion is required for full type inference:
       </p>
-      <pre>
-        <code>{`notification({
-  id: "comment_mentioned",
-  payload: {
-    actorName: "string",
-    postTitle: "string",
-    // count is part of the payload because the digest's render() produces it
-    // and the inbox template references it.
-    count: "number",
-  },
-  channels: [
-    inbox({ title: "{{count}} new comments on {{postTitle}}" }),
-  ],
-  // Coalesce multiple sends in a rolling window into one notification.
-  digest: {
-    windowMs: 5 * 60_000,
-    key: ({ payload }) => payload.postTitle,
-    render: ({ payloads, count }) => ({
-      actorName: payloads[payloads.length - 1]!.actorName,
-      postTitle: payloads[0]!.postTitle,
-      count,
-    }),
-  },
-  // Hard cap — anything over the limit is dropped (not buffered).
-  rateLimit: { max: 20, windowMs: 60 * 60_000 },
-})`}</code>
-      </pre>
-      <div className="callout">
-        <strong>Rate limit runs before digest.</strong> If a send is over the
-        limit it&apos;s dropped outright. Users never get a sneaky mega-digest
-        because an attacker flooded the bucket.
+      <Code
+        code={`import { createNotifyKit } from "@notifykitjs/core"
+import { commentMentioned } from "./notifications/comment-mentioned"
+import { orderShipped } from "./notifications/order-shipped"
+import { teamInvite } from "./notifications/team-invite"
+
+export const notify = createNotifyKit({
+  notifications: [commentMentioned, orderShipped, teamInvite] as const,
+  // ...
+})`}
+      />
+      <p>
+        Now <code>notify.send()</code> only accepts valid notification IDs and
+        the correct payload shape for each.
+      </p>
+
+      <div className="page-nav">
+        <Link href="/docs/quickstart">
+          <span className="page-nav-label">Previous</span>
+          <span className="page-nav-title">Quickstart</span>
+        </Link>
+        <Link href="/docs/sending">
+          <span className="page-nav-label">Next</span>
+          <span className="page-nav-title">Sending</span>
+        </Link>
       </div>
-
-      <h2>Fallback channels</h2>
-      <p>
-        When a primary delivery fails after all retries, a fallback inbox
-        item keeps the user informed:
-      </p>
-      <pre>
-        <code>{`notification({
-  id: "password_reset",
-  payload: { link: "string" },
-  channels: [email({ subject: "Reset password", body: "{{link}}" })],
-  fallback: inbox({
-    title: "Password reset (your email bounced)",
-    body: "Open {{link}} to continue.",
-  }),
-})`}</code>
-      </pre>
-
-      <h2>CLI check</h2>
-      <p>
-        <code>notifykit check</code> validates every{" "}
-        <code>{`{{key}}`}</code> in every channel template against the
-        declared payload schema. Typos become CI failures, not 3am incidents:
-      </p>
-      <pre>
-        <code>{`$ notifykit check
-Found 1 issue(s):
-  comment_mentioned · inbox[0].title: Template references "{{actorNmae}}" but payload has no "actorNmae" field.`}</code>
-      </pre>
-
-      <p>
-        Next: <Link href="/docs/sending">Sending →</Link>
-      </p>
     </article>
   );
 }
