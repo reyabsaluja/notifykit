@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Code } from "../../_components/code";
 
 export const metadata: Metadata = { title: "Installation" };
 
@@ -13,32 +14,35 @@ export default function InstallationPage() {
       </p>
 
       <h2>Starter scaffold</h2>
-      <pre>
-        <code>{`npx create-notifykit-app my-app
+      <Code
+        lang="bash"
+        code={`npx create-notifykit-app my-app
 cd my-app
 cp .env.example .env.local
-# generate a 32-byte hex secret and paste as NOTIFYKIT_SECRET
+# generate a 32-byte hex secret:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# paste as NOTIFYKIT_SECRET in .env.local
 
 npm install
-npm run dev`}</code>
-      </pre>
+npm run dev`}
+      />
       <p>
         Open <code>http://localhost:3000</code>. Sign in as the demo user,
         send yourself a test notification, manage preferences at{" "}
         <code>/settings/notifications</code>. The scaffold uses the in-memory
-        adapter and a fake email provider so it works offline before any
-        secrets are configured.
+        adapter and a fake email provider so it works offline.
       </p>
 
       <h2>Or install into an existing Next.js app</h2>
-      <pre>
-        <code>{`npm install @notifykitjs/core @notifykitjs/next @notifykitjs/react`}</code>
-      </pre>
-      <p>A minimal setup:</p>
-      <pre>
-        <code>{`// lib/notifykit.ts
-import {
+      <Code
+        lang="bash"
+        code={`npm install @notifykitjs/core @notifykitjs/next @notifykitjs/react`}
+      />
+      <p>A minimal setup needs three files:</p>
+
+      <Code
+        filename="lib/notifykit.ts"
+        code={`import {
   channel,
   createNotifyKit,
   fakeEmailProvider,
@@ -69,11 +73,11 @@ export const notify = createNotifyKit({
     secret: process.env.NOTIFYKIT_SECRET!,
     baseUrl: "http://localhost:3000/api/notifykit",
   },
-})`}</code>
-      </pre>
-      <pre>
-        <code>{`// app/api/notifykit/[...route]/route.ts
-import { createRouteHandler } from "@notifykitjs/next"
+})`}
+      />
+      <Code
+        filename="app/api/notifykit/[...route]/route.ts"
+        code={`import { createRouteHandler } from "@notifykitjs/next"
 import { notify } from "@/lib/notifykit"
 import { getCurrentUserId } from "@/lib/session"
 
@@ -81,26 +85,11 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
   notifykit: notify,
   identify: () => getCurrentUserId(),
   unsubscribeSecret: process.env.NOTIFYKIT_SECRET,
-})`}</code>
-      </pre>
-      <pre>
-        <code>{`// middleware.ts (optional — adds CORS for cross-origin clients)
-import { createNotifyKitMiddleware } from "@notifykitjs/next/middleware"
-import type { NextRequest } from "next/server"
-
-const withNotifyKit = createNotifyKitMiddleware({
-  cors: { origin: "https://your-app.com" },
-})
-
-export function middleware(request: NextRequest) {
-  return withNotifyKit(request)
-}
-
-export const config = { matcher: "/api/notifykit/:path*" }`}</code>
-      </pre>
-      <pre>
-        <code>{`// app/layout.tsx
-import { NotifyKitProvider } from "@notifykitjs/react"
+})`}
+      />
+      <Code
+        filename="app/layout.tsx"
+        code={`import { NotifyKitProvider } from "@notifykitjs/react"
 
 export default function RootLayout({ children }) {
   return (
@@ -112,8 +101,8 @@ export default function RootLayout({ children }) {
       </body>
     </html>
   )
-}`}</code>
-      </pre>
+}`}
+      />
 
       <h2>Requirements</h2>
       <ul>
@@ -121,7 +110,7 @@ export default function RootLayout({ children }) {
           Node 18+ or another runtime with <code>fetch</code> and
           Node-compatible <code>crypto</code> APIs.
         </li>
-        <li>TypeScript 5.0+ for the full type inference.</li>
+        <li>TypeScript 5.0+ for full type inference.</li>
         <li>
           Next.js 14+ (App Router) if you&apos;re using the handler and React
           bindings. Other frameworks work too — the handler is plain Web
@@ -129,9 +118,32 @@ export default function RootLayout({ children }) {
         </li>
       </ul>
 
-      <p>
-        Next: <Link href="/docs/defining">Defining notifications →</Link>
-      </p>
+      <h2>Packages</h2>
+      <table>
+        <thead>
+          <tr><th>Package</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>@notifykitjs/core</code></td><td>Engine, channels, providers, types</td></tr>
+          <tr><td><code>@notifykitjs/next</code></td><td>Route handler, server actions, middleware</td></tr>
+          <tr><td><code>@notifykitjs/react</code></td><td>Hooks, components, client SDK</td></tr>
+          <tr><td><code>@notifykitjs/drizzle</code></td><td>SQLite + Postgres database adapters</td></tr>
+          <tr><td><code>@notifykitjs/resend</code></td><td>Resend email provider</td></tr>
+          <tr><td><code>@notifykitjs/realtime-pg</code></td><td>PostgreSQL NOTIFY realtime adapter</td></tr>
+          <tr><td><code>@notifykitjs/realtime-ws</code></td><td>WebSocket realtime adapter</td></tr>
+        </tbody>
+      </table>
+
+      <div className="page-nav">
+        <Link href="/">
+          <span className="page-nav-label">Previous</span>
+          <span className="page-nav-title">Overview</span>
+        </Link>
+        <Link href="/docs/quickstart">
+          <span className="page-nav-label">Next</span>
+          <span className="page-nav-title">Quickstart</span>
+        </Link>
+      </div>
     </article>
   );
 }
