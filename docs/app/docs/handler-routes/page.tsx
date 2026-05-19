@@ -47,7 +47,7 @@ const handler = createHandler(notify, {
       <h3>POST /inbox/:id/read</h3>
       <p>Mark an inbox item as read. Returns the updated item or 403 if it belongs to another user.</p>
 
-      <h3>POST /inbox/read-all</h3>
+      <h3>POST /inbox/mark-all-read</h3>
       <p>Mark all inbox items as read. Returns <code>{`{ count }`}</code>.</p>
 
       <h3>POST /inbox/:id/archive</h3>
