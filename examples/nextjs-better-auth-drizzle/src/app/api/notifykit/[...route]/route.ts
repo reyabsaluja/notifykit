@@ -10,6 +10,11 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
       headers: await headers(),
     });
     if (!session) return null;
+    await notify.upsertRecipient({
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+    });
     return session.user.id;
   },
 });
