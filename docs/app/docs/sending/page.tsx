@@ -39,15 +39,15 @@ const result = await notify.send({
       </p>
       <Code
         code={`type SendResult = {
-  notification: NotificationRecord | null  // null if buffered/rate-limited
+  notification: NotificationRecord | null  // null if digested
   inboxItems: InboxItem[]                  // inbox rows written
-  deliveries: DeliveryRecord[]             // email/webhook/sms delivery records
-  skippedChannels: SkippedDelivery[]       // channels skipped by preferences
-  deferredChannels: Array<{ channel; resumesAt }> // quiet hours deferrals
+  deliveries: DeliveryRecord[]             // all deliveries incl. skipped
+  skippedChannels: ChannelType[]           // deprecated — use skipped[]
+  skipped: SkippedDelivery[]               // channels skipped with reasons
+  deferredChannels: ChannelType[]          // quiet hours deferrals
   digested: boolean                        // true if buffered into digest
   rateLimited: boolean                     // true if rate limit hit
-  deduplicated: boolean                    // true if dedup key matched
-  idempotentReplay: boolean                // true if idempotency key matched
+  idempotent: boolean                      // true if idempotency key matched
 }`}
       />
 
