@@ -24,8 +24,9 @@ export default function SettingsPage() {
           <thead>
             <tr>
               <th>Notification</th>
-              <th>In-app</th>
-              <th>Email</th>
+              {Object.entries(CHANNEL_LABELS).map(([key, label]) => (
+                <th key={key}>{label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -36,7 +37,7 @@ export default function SettingsPage() {
                   {pref.description && <span className="pref-desc">{pref.description}</span>}
                   {pref.required && <span className="badge">Required</span>}
                 </td>
-                {["inbox", "email"].map((ch) => {
+                {Object.keys(CHANNEL_LABELS).map((ch) => {
                   const enabled = pref.channels?.[ch] !== false;
                   return (
                     <td key={ch}>
