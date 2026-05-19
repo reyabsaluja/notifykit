@@ -31,11 +31,16 @@ export function InboxPanel({ onClose }: { onClose: () => void }) {
             <div className="inbox-item-actions">
               {!item.readAt && (
                 <button onClick={() => markRead(item.id)} title="Mark read">
-                  &#10003;
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
                 </button>
               )}
               <button onClick={() => archive(item.id)} title="Archive">
-                &#128230;
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="21 8 21 21 3 21 3 8" />
+                  <rect x="1" y="3" width="22" height="5" />
+                </svg>
               </button>
             </div>
           </li>
