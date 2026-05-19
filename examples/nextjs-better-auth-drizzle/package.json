@@ -15,7 +15,7 @@
     "@notifykitjs/next": "workspace:*",
     "@notifykitjs/react": "workspace:*",
     "@notifykitjs/resend": "workspace:*",
-    "better-auth": "^1.2.0",
+    "better-auth": "^1.6.0",
     "drizzle-orm": "^0.45.2",
     "next": "^15.1.0",
     "react": "^19.0.0",
