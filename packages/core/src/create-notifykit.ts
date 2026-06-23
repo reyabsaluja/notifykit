@@ -164,6 +164,11 @@ export type CreateNotifyKitInput<
    */
   onTimelineError?: (error: unknown) => void;
   /**
+   * Called when a lifecycle hook throws. Defaults to re-throwing (halts the
+   * pipeline). Return or resolve to swallow the error silently.
+   */
+  onHookError?: (hookName: string, error: unknown) => void | Promise<void>;
+  /**
    * How long to retain timeline events. Events older than this are pruned
    * opportunistically during flush. Default: 7 days. Set to `0` to disable.
    */
@@ -539,6 +544,7 @@ export function createNotifyKit<
   const devCaptured: CapturedSend[] = devResult ? devResult.captured : [];
 
   const { notifications, database, on } = config;
+  const onHookError = config.onHookError;
   const onTimelineError = config.onTimelineError ?? ((err: unknown) => {
     console.error("[notifykit] timeline append error:", err);
   });
@@ -634,7 +640,13 @@ export function createNotifyKit<
       // @ts-expect-error — dispatch to the user-provided hook with matching args
       await fn(...args);
     } catch (err) {
-      console.error(`[notifykit] hook "${String(name)}" error:`, err);
+      if (onHookError) {
+        await onHookError(String(name), err);
+      } else {
+        throw err instanceof Error
+          ? err
+          : new Error(`Hook "${String(name)}" threw a non-error value.`);
+      }
     }
   }
 
