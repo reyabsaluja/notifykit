@@ -9,6 +9,7 @@ import {
 const inbox = channel.inbox();
 const email = channel.email();
 const sms = channel.sms();
+const webhook = channel.webhook();
 
 const alertNotification = notification({
   id: "alert",
@@ -29,6 +30,12 @@ const smsNotification = notification({
   id: "verify_phone",
   payload: { code: "string" },
   channels: [sms({ body: "Your code is {{code}}" })],
+});
+
+const webhookNotification = notification({
+  id: "webhook_event",
+  payload: { event: "string" },
+  channels: [webhook({ url: "https://example.com/hook", headers: {} })],
 });
 
 describe("dev mode", () => {
@@ -177,6 +184,28 @@ describe("dev mode", () => {
     expect(notify.captured[0]!.channel).toBe("sms");
     expect(notify.captured[0]!.blocked).toBe(true);
     expect(notify.captured[0]!.to).toBe("+15551234567");
+  });
+
+  test("webhook channel is blocked in dev mode", async () => {
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [webhookNotification] as const,
+      database: db,
+      mode: "development",
+      providers: { webhook: { id: "real-webhook", signed: false, async send() { return {}; } } },
+    });
+
+    await notify.upsertRecipient({ id: "u1" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "webhook_event",
+      payload: { event: "test" },
+    });
+
+    expect(notify.captured).toHaveLength(1);
+    expect(notify.captured[0]!.channel).toBe("webhook");
+    expect(notify.captured[0]!.blocked).toBe(true);
+    expect(notify.captured[0]!.to).toBe("https://example.com/hook");
   });
 
   test("inbox channel still works normally in dev mode", async () => {

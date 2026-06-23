@@ -471,7 +471,7 @@ function applyDevProviders(
         id: providers.webhook.id,
         signed: providers.webhook.signed,
         async send(input) {
-          const blocked = allowlist.length > 0 && !isAllowed(input.url);
+          const blocked = !isAllowed(input.url);
           const body = JSON.stringify(input.payload);
           captured.push({ channel: "webhook", to: input.url, body, blocked, timestamp: new Date() });
           logPreview("webhook", input.url, undefined, body, blocked);
