@@ -74,16 +74,6 @@ export function createTestNotifyKit<
   const results: SendResult[] = [];
   let lastResult: SendResult | null = null;
 
-  const originalSend = notify.send.bind(notify);
-  (notify as any).send = async function (input: any): Promise<unknown> {
-    const result: unknown = await originalSend(input);
-    if (!input.dryRun && result && typeof result === "object" && "deliveries" in result) {
-      results.push(result as SendResult);
-      lastResult = result as SendResult;
-    }
-    return result;
-  };
-
   const testing = {
     database,
     providers: { email, webhook, sms },
@@ -125,9 +115,22 @@ export function createTestNotifyKit<
     },
   };
 
-  (notify as any).testing = testing;
-
-  return notify as TestNotifyKit<T>;
+  return new Proxy(notify, {
+    get(target, prop, receiver) {
+      if (prop === "testing") return testing;
+      if (prop === "send") {
+        return async (input: any) => {
+          const result: unknown = await target.send(input);
+          if (!input.dryRun && result && typeof result === "object" && "deliveries" in result) {
+            results.push(result as SendResult);
+            lastResult = result as SendResult;
+          }
+          return result;
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as TestNotifyKit<T>;
 }
 
 export type AssertSentEmailMatch = {
