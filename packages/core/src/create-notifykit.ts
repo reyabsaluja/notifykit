@@ -523,7 +523,7 @@ export function createNotifyKit<
   const devConfig: DevModeConfig = isDev ? (config.dev ?? {}) : {};
   const devAllowlist = devConfig.allowlist ?? [];
   const devSubjectPrefix = devConfig.subjectPrefix ?? "[DEV] ";
-  const devLogPreviews = devConfig.logPreviews ?? isDev;
+  const devLogPreviews = devConfig.logPreviews ?? false;
   const devMaxCaptured = Math.max(devConfig.maxCaptured ?? 1000, 1);
 
   const providers = isDev

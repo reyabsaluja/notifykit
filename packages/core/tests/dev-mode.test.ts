@@ -298,7 +298,7 @@ describe("dev mode", () => {
     expect(notify.captured).toHaveLength(1);
   });
 
-  test("logPreviews: false suppresses console output", async () => {
+  test("logPreviews defaults to false (no body in console)", async () => {
     const consoleSpy = mock(() => {});
     const originalLog = console.log;
     console.log = consoleSpy;
@@ -309,7 +309,6 @@ describe("dev mode", () => {
         notifications: [welcomeNotification] as const,
         database: db,
         mode: "development",
-        dev: { logPreviews: false },
       });
 
       await notify.upsertRecipient({ id: "u1", email: "a@test.com" });
@@ -323,6 +322,36 @@ describe("dev mode", () => {
         (args) => typeof args[0] === "string" && args[0].includes("[notifykit:dev]"),
       );
       expect(devLogCalls).toHaveLength(0);
+    } finally {
+      console.log = originalLog;
+    }
+  });
+
+  test("logPreviews: true enables console output", async () => {
+    const consoleSpy = mock(() => {});
+    const originalLog = console.log;
+    console.log = consoleSpy;
+
+    try {
+      const db = memoryAdapter();
+      const notify = createNotifyKit({
+        notifications: [welcomeNotification] as const,
+        database: db,
+        mode: "development",
+        dev: { logPreviews: true },
+      });
+
+      await notify.upsertRecipient({ id: "u1", email: "a@test.com" });
+      await notify.send({
+        recipientId: "u1",
+        notificationId: "welcome",
+        payload: { name: "Logged" },
+      });
+
+      const devLogCalls = consoleSpy.mock.calls.filter(
+        (args) => typeof args[0] === "string" && args[0].includes("[notifykit:dev]"),
+      );
+      expect(devLogCalls.length).toBeGreaterThan(0);
     } finally {
       console.log = originalLog;
     }
