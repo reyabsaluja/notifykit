@@ -1,4 +1,4 @@
-import { cp, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { cp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,39 +47,48 @@ export async function scaffold(options: ScaffoldOptions): Promise<ScaffoldResult
     );
   }
 
-  await cp(templateDir, targetDir, { recursive: true });
+  const stagingDir = `${targetDir}.__notifykit_tmp_${process.pid}_${Date.now()}`;
 
-  // `npm pack` drops .gitignore. We ship it as _gitignore in the template so
-  // publish keeps it; rename on copy.
-  const dotted = resolve(targetDir, "_gitignore");
-  if (existsSync(dotted)) {
-    await rename(dotted, resolve(targetDir, ".gitignore"));
-  }
+  try {
+    await cp(templateDir, stagingDir, { recursive: true });
 
-  // Rewrite package.json with the real project name.
-  const pkgPath = resolve(targetDir, "package.json");
-  const pkgRaw = await readFile(pkgPath, "utf8");
-  const pkg = JSON.parse(pkgRaw) as { name: string };
-  pkg.name = projectName;
-  await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
-
-  // Sanity check: the template should have produced at least these files.
-  const required = [
-    "app/layout.tsx",
-    "app/page.tsx",
-    "app/api/notifykit/[...route]/route.ts",
-    "lib/notifykit.ts",
-    "lib/session.ts",
-    ".env.example",
-    "package.json",
-    "tsconfig.json",
-  ];
-  for (const file of required) {
-    if (!existsSync(resolve(targetDir, file))) {
-      throw new ScaffoldError(
-        `Scaffold is missing an expected file: ${file}. Template may be corrupt.`,
-      );
+    // `npm pack` drops .gitignore. We ship it as _gitignore in the template so
+    // publish keeps it; rename on copy.
+    const dotted = resolve(stagingDir, "_gitignore");
+    if (existsSync(dotted)) {
+      await rename(dotted, resolve(stagingDir, ".gitignore"));
     }
+
+    // Rewrite package.json with the real project name.
+    const pkgPath = resolve(stagingDir, "package.json");
+    const pkgRaw = await readFile(pkgPath, "utf8");
+    const pkg = JSON.parse(pkgRaw) as { name: string };
+    pkg.name = projectName;
+    await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
+
+    // Sanity check: the template should have produced at least these files.
+    const required = [
+      "app/layout.tsx",
+      "app/page.tsx",
+      "app/api/notifykit/[...route]/route.ts",
+      "lib/notifykit.ts",
+      "lib/session.ts",
+      ".env.example",
+      "package.json",
+      "tsconfig.json",
+    ];
+    for (const file of required) {
+      if (!existsSync(resolve(stagingDir, file))) {
+        throw new ScaffoldError(
+          `Scaffold is missing an expected file: ${file}. Template may be corrupt.`,
+        );
+      }
+    }
+
+    await rename(stagingDir, targetDir);
+  } catch (err) {
+    await rm(stagingDir, { recursive: true, force: true });
+    throw err;
   }
 
   return { targetDir, projectName };

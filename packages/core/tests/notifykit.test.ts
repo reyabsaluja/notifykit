@@ -136,6 +136,15 @@ describe("NotifyKit core", () => {
     expect(items[0]!.title).toBe("Welcome, Alice");
   });
 
+  test("rejects invalid server-side list limits before calling adapters", async () => {
+    const { notify } = buildKit();
+    await notify.upsertRecipient({ id: "user_1" });
+
+    expect(() => notify.inbox.list("user_1", undefined, undefined, -1)).toThrow(/positive integer/);
+    expect(() => notify.inbox.list("user_1", undefined, undefined, 1.5)).toThrow(/positive integer/);
+    expect(() => notify.deliveries.list("user_1", undefined, Number.NaN)).toThrow(/positive integer/);
+  });
+
   test("can send a fake email", async () => {
     const { notify, provider } = buildKit();
     await notify.upsertRecipient({
@@ -190,6 +199,25 @@ describe("NotifyKit core", () => {
         payload: { name: "x" },
       }),
     ).rejects.toThrow(/Unknown recipient/);
+  });
+
+  test("send and explain reject whitespace-only recipient ids", async () => {
+    const { notify } = buildKit();
+    await expect(
+      notify.send({
+        recipientId: " ",
+        notificationId: "user_welcome",
+        payload: { name: "x" },
+      }),
+    ).rejects.toThrow(/recipientId must be a non-empty string/);
+
+    await expect(
+      notify.explain({
+        recipientId: "\t",
+        notificationId: "user_welcome",
+        payload: { name: "x" },
+      }),
+    ).rejects.toThrow(/recipientId must be a non-empty string/);
   });
 
   test("unknown notification throws", async () => {

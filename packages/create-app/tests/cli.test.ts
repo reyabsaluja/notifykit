@@ -56,6 +56,13 @@ describe("create-notifykit-app CLI", () => {
     expect(existsSync(resolve(workDir, "my-app/lib/notifykit.ts"))).toBe(true);
   });
 
+  test("extra positional args print usage and exit 1", async () => {
+    const result = await runCli(["my-app", "extra"], workDir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/unexpected extra argument/i);
+    expect(existsSync(resolve(workDir, "my-app"))).toBe(false);
+  });
+
   test("--name overrides the package name in package.json", async () => {
     const result = await runCli(["apps/web", "--name", "acme-web"], workDir);
     expect(result.code).toBe(0);

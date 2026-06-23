@@ -101,6 +101,28 @@ describe("createServerActions", () => {
     expect(pref.channels.email).toBe(false);
   });
 
+  test("updatePreference ignores client-supplied scope fields", async () => {
+    const { notifykit } = buildKit();
+    await notifykit.upsertRecipient({ id: "user-1", email: "u@x.com" });
+
+    const actions = createServerActions({
+      notifykit,
+      identify: () => "user-1",
+    });
+
+    const pref = await actions.updatePreference({
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+      tenantId: "tenant-b",
+      workspaceId: "workspace-b",
+    } as never);
+
+    expect(pref.recipientId).toBe("user-1");
+    expect(pref.tenantId).toBeUndefined();
+    expect(pref.workspaceId).toBeUndefined();
+    expect(pref.channels.email).toBe(false);
+  });
+
   test("preference actions accept sms channel preferences", async () => {
     const { notifykit } = buildKit();
     await notifykit.upsertRecipient({ id: "user-1", email: "u@x.com" });
@@ -149,6 +171,25 @@ describe("createServerActions", () => {
 
     await actions.inbox.unreadCount();
     expect(identifyCalls).toBe(4);
+  });
+
+  test("identity rejects whitespace-only recipient and scope ids", async () => {
+    const { notifykit } = buildKit();
+    const cases = [
+      () => " ",
+      () => ({} as never),
+      () => ({ recipientId: 123 } as never),
+      () => ({ recipientId: "\t" }),
+      () => ({ recipientId: "user-1", tenantId: "" }),
+      () => ({ recipientId: "user-1", tenantId: " " }),
+      () => ({ recipientId: "user-1", organizationId: " " }),
+      () => ({ recipientId: "user-1", workspaceId: "\t" }),
+    ];
+
+    for (const identify of cases) {
+      const actions = createServerActions({ notifykit, identify });
+      await expect(actions.getPreferences()).rejects.toThrow(/empty/);
+    }
   });
 
   test("inbox operations use identity binding", async () => {

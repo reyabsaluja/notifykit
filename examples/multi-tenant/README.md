@@ -34,4 +34,6 @@ All operations accept a security scope (`tenantId`, `organizationId`, `workspace
 
 - Inbox items from one tenant are invisible to queries scoped to another
 - Preferences set under one tenant don't affect another
-- Rate limits and dedup keys are scoped per tenant
+- Rate limits are scoped per tenant
+- Deduplication and idempotency keys are recipient-level by default; include
+  the tenant in your key if you need tenant-distinct de-duplication

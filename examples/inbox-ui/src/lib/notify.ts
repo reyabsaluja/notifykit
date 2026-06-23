@@ -44,7 +44,7 @@ const taskAssigned = notification({
     }),
     email({
       subject: "New task: {{taskTitle}}",
-      body: "{{assignerName}} assigned you "{{taskTitle}}".",
+      body: '{{assignerName}} assigned you "{{taskTitle}}".',
     }),
   ],
 });

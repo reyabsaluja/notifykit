@@ -9,6 +9,7 @@ import type {
   NotificationDefinition,
   PayloadSchema,
   PrimitiveSchema,
+  RetryPolicy,
   SmsProvider,
   WebhookProvider,
 } from "./types.js";
@@ -44,6 +45,7 @@ export type ValidateConfigInput = {
     digests?: object;
     rateLimits?: object;
   };
+  retry?: Partial<RetryPolicy>;
   idempotencyKeyTtlMs?: number;
   timelineRetentionMs?: number;
 };
@@ -51,11 +53,21 @@ export type ValidateConfigInput = {
 const ID_RE = /^[a-z][a-z0-9._-]*$/;
 const VALID_CHANNEL_TYPES: ReadonlySet<string> = new Set(["inbox", "email", "webhook", "sms"]);
 const VALID_SCHEMA_TYPES: ReadonlySet<string> = new Set<PrimitiveSchema>(["string", "number", "boolean"]);
-
+const HTTP_HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 function isLegacyFallback(
   fb: InboxChannelConfig | FallbackRule[],
 ): fb is InboxChannelConfig {
   return !Array.isArray(fb);
+}
+
+function notificationUsesChannelType(
+  def: NotificationDefinition<string, PayloadSchema>,
+  type: ChannelType,
+): boolean {
+  if (def.channels.some((ch) => ch.type === type)) return true;
+  if (!def.fallback) return false;
+  if (isLegacyFallback(def.fallback)) return def.fallback.type === type;
+  return def.fallback.some((rule) => rule.then.type === type);
 }
 
 function collectChannelShapeIssues(
@@ -111,6 +123,32 @@ function collectChannelShapeIssues(
         message: `Notification "${notificationId}" webhook channel is missing "url".`,
         fix: `Add a url string: channel.webhook({ url: "https://..." }).`,
       });
+    }
+    if (ch.headers) {
+      for (const [hk, hv] of Object.entries(ch.headers)) {
+        if (!HTTP_HEADER_NAME_RE.test(hk)) {
+          out.push({
+            severity: "error",
+            code: "INVALID_WEBHOOK_HEADER_NAME",
+            notificationId,
+            channel: label,
+            field: `headers.${hk}`,
+            message: `Webhook header name "${hk}" is not a valid HTTP header name.`,
+            fix: "Use only RFC 7230 token characters in webhook header names.",
+          });
+        }
+        if (typeof hv !== "string") {
+          out.push({
+            severity: "error",
+            code: "INVALID_WEBHOOK_HEADER_VALUE",
+            notificationId,
+            channel: label,
+            field: `headers.${hk}`,
+            message: `Webhook header "${hk}" must have a string value.`,
+            fix: `Change "${hk}" to a string template value, e.g. "{{field}}" or "static-value".`,
+          });
+        }
+      }
     }
   } else if (ch.type === "sms") {
     if (typeof ch.body !== "string" || ch.body.length === 0) {
@@ -173,6 +211,18 @@ function collectChannelTemplateIssues(
     collectTemplateIssues(notificationId, label, "url", ch.url, payloadKeys, out);
     if (ch.headers) {
       for (const [hk, hv] of Object.entries(ch.headers)) {
+        if (hk.toLowerCase() === "host") {
+          out.push({
+            severity: "error",
+            code: "RESERVED_WEBHOOK_HEADER",
+            notificationId,
+            channel: label,
+            field: `headers.${hk}`,
+            message: `Webhook header "${hk}" is reserved and cannot be configured by notifications.`,
+            fix: `Remove "${hk}" from the webhook headers. NotifyKit sets Host internally after URL safety checks.`,
+          });
+        }
+        if (typeof hv !== "string") continue;
         collectTemplateIssues(notificationId, label, `headers.${hk}`, hv, payloadKeys, out);
       }
     }
@@ -303,6 +353,17 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
 
     const seenTypes = new Set<string>();
     for (const [i, ch] of def.channels.entries()) {
+      if (!VALID_CHANNEL_TYPES.has(ch.type)) {
+        issues.push({
+          severity: "error",
+          code: "UNKNOWN_CHANNEL_TYPE",
+          notificationId: def.id,
+          channel: `${ch.type}[${i}]`,
+          field: "channels",
+          message: `Notification "${def.id}" has unknown channel type "${ch.type}".`,
+          fix: `Valid channel types: ${[...VALID_CHANNEL_TYPES].join(", ")}.`,
+        });
+      }
       collectChannelShapeIssues(def.id, ch, i, issues);
       if (seenTypes.has(ch.type)) {
         issues.push({
@@ -359,7 +420,20 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
       const fallbackConfigs = isLegacyFallback(def.fallback)
         ? [def.fallback]
         : def.fallback.map((r) => r.then);
-      for (const fb of fallbackConfigs) {
+      for (const [fi, fb] of fallbackConfigs.entries()) {
+        if (!VALID_CHANNEL_TYPES.has(fb.type)) {
+          issues.push({
+            severity: "error",
+            code: "UNKNOWN_FALLBACK_CHANNEL_TYPE",
+            notificationId: def.id,
+            channel: "fallback",
+            field: isLegacyFallback(def.fallback)
+              ? "fallback"
+              : `fallback[${fi}].then`,
+            message: `Notification "${def.id}" fallback targets unknown channel type "${fb.type}".`,
+            fix: `Valid channel types: ${[...VALID_CHANNEL_TYPES].join(", ")}.`,
+          });
+        }
         collectChannelTemplateIssues(def.id, fb, "fallback", payloadKeys, issues);
       }
       if (!isLegacyFallback(def.fallback)) {
@@ -641,6 +715,20 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
           fix: "Set windowMs to a positive millisecond value (e.g. rateLimit: { max: 5, windowMs: 60000 }).",
         });
       }
+      if (
+        def.rateLimit.scope !== undefined &&
+        def.rateLimit.scope !== "recipient" &&
+        def.rateLimit.scope !== "global"
+      ) {
+        issues.push({
+          severity: "error",
+          code: "INVALID_RATE_LIMIT",
+          notificationId: def.id,
+          field: "rateLimit.scope",
+          message: `Notification "${def.id}" rateLimit.scope must be "recipient" or "global", got "${String(def.rateLimit.scope)}".`,
+          fix: "Use scope: \"recipient\" for per-recipient limits, scope: \"global\" for notification-wide limits, or omit scope.",
+        });
+      }
     }
 
     // --- SMS without rate limit warning ---
@@ -723,6 +811,30 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
     }
   }
 
+  // --- retry policy validation ---
+  if (input.retry?.maxAttempts !== undefined) {
+    if (!Number.isSafeInteger(input.retry.maxAttempts) || input.retry.maxAttempts <= 0) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_RETRY_MAX_ATTEMPTS",
+        field: "retry.maxAttempts",
+        message: `retry.maxAttempts must be a positive integer, got ${input.retry.maxAttempts}.`,
+        fix: "Set retry.maxAttempts to a positive integer, e.g. 3.",
+      });
+    }
+  }
+  if (input.retry?.delayMs !== undefined) {
+    if (typeof input.retry.delayMs !== "function") {
+      issues.push({
+        severity: "error",
+        code: "INVALID_RETRY_DELAY",
+        field: "retry.delayMs",
+        message: "retry.delayMs must be a function.",
+        fix: "Provide a function like `(attempt) => 0`, or omit retry.delayMs to use the default backoff.",
+      });
+    }
+  }
+
   // --- idempotencyKeyTtlMs validation ---
   if (input.idempotencyKeyTtlMs !== undefined) {
     if (!Number.isFinite(input.idempotencyKeyTtlMs) || input.idempotencyKeyTtlMs <= 0) {
@@ -775,7 +887,7 @@ export function validateConfig(input: ValidateConfigInput): ValidationIssue[] {
   }
 
   // --- webhook secret warning ---
-  if (notifications.some((n) => n.channels.some((ch) => ch.type === "webhook"))) {
+  if (notifications.some((n) => notificationUsesChannelType(n, "webhook"))) {
     if (input.providers?.webhook && !input.providers.webhook.signed) {
       issues.push({
         severity: "warning",

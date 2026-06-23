@@ -24,6 +24,9 @@ export async function runCheck(options: CheckOptions): Promise<number> {
     providers: config.providers,
     unsubscribe: config.unsubscribe,
     defaults: config.defaults,
+    retry: config.retry,
+    idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
+    timelineRetentionMs: config.timelineRetentionMs,
   });
   const errors = issues.filter((i) => i.severity === "error");
   const warnings = issues.filter((i) => i.severity === "warning");

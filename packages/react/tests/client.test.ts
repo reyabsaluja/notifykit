@@ -56,6 +56,68 @@ describe("createNotifyKitClient", () => {
     expect(state.inbox.items).toHaveLength(1);
   });
 
+  test("public state and inbox results are defensive copies", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox": {
+          data: [
+            {
+              id: "inb_1",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Original",
+              readAt: null,
+              createdAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    });
+
+    const items = await client.inbox.list();
+    items[0]!.title = "mutated return";
+    items[0]!.createdAt.setFullYear(2000);
+
+    const snapshot = client.getState();
+    snapshot.inbox.items[0]!.title = "mutated snapshot";
+    snapshot.inbox.items[0]!.createdAt.setFullYear(2001);
+
+    const next = client.getState();
+    expect(next.inbox.items[0]!.title).toBe("Original");
+    expect(next.inbox.items[0]!.createdAt.getFullYear()).toBe(2026);
+  });
+
+  test("active inbox refresh does not retain recent archived items", async () => {
+    const archivedCreatedAt = new Date().toISOString();
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /inbox?archived=true": {
+          data: [
+            {
+              id: "inb_archived",
+              notificationRecordId: "ntf_1",
+              recipientId: "u1",
+              notificationId: "comment",
+              title: "Archived",
+              readAt: null,
+              archivedAt: new Date().toISOString(),
+              createdAt: archivedCreatedAt,
+            },
+          ],
+        },
+        "GET /inbox": { data: [] },
+      }),
+    });
+
+    await client.inbox.list({ archived: true });
+    expect(client.getState().inbox.items).toHaveLength(1);
+
+    const active = await client.inbox.list();
+    expect(active).toEqual([]);
+    expect(client.getState().inbox.items).toEqual([]);
+  });
+
   test("inbox.list sets error state on failure", async () => {
     const client = createNotifyKitClient({
       fetch: (async () =>
@@ -160,6 +222,35 @@ describe("createNotifyKitClient", () => {
     expect(prefs[0]!.channels).toEqual({ inbox: true, email: false });
     expect(prefs[0]!.updatedAt).toBeInstanceOf(Date);
     expect(client.getState().preferences.status).toBe("ready");
+  });
+
+  test("public state and preference results are defensive copies", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({
+        "GET /preferences": {
+          data: [
+            {
+              recipientId: "u1",
+              notificationId: "comment",
+              channels: { inbox: true, email: false },
+              updatedAt: "2026-04-30T12:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    });
+
+    const prefs = await client.preferences.list();
+    prefs[0]!.channels.email = true;
+    prefs[0]!.updatedAt.setFullYear(2000);
+
+    const snapshot = client.getState();
+    snapshot.preferences.items[0]!.channels.email = true;
+    snapshot.preferences.items[0]!.updatedAt.setFullYear(2001);
+
+    const next = client.getState();
+    expect(next.preferences.items[0]!.channels.email).toBe(false);
+    expect(next.preferences.items[0]!.updatedAt.getFullYear()).toBe(2026);
   });
 
   test("preferences.update applies optimistic state then confirms", async () => {
@@ -271,6 +362,34 @@ describe("createNotifyKitClient", () => {
     const before = callCount;
     await client.inbox.list();
     expect(callCount).toBe(before);
+  });
+
+  test("throwing subscribers do not block later listeners", async () => {
+    let callCount = 0;
+    const errors: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+    try {
+      const client = createNotifyKitClient({
+        fetch: mockFetch({
+          "GET /inbox": { data: [] },
+        }),
+      });
+
+      client.subscribe(() => {
+        throw new Error("listener failed");
+      });
+      client.subscribe(() => callCount++);
+
+      await client.inbox.list();
+
+      expect(callCount).toBeGreaterThanOrEqual(2);
+      expect(errors.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      console.error = originalError;
+    }
   });
 
   test("custom headers and baseUrl are used", async () => {

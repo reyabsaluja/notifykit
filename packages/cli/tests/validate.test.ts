@@ -124,6 +124,16 @@ describe("validateNotifications", () => {
     expect(issues.some((i) => i.code === "INVALID_CHANNEL_SHAPE")).toBe(true);
   });
 
+  test("flags unknown primary channel types", () => {
+    const def = notification({
+      id: "bad_channel",
+      payload: { x: "string" },
+      channels: [{ type: "push", title: "{{x}}" } as never],
+    });
+    const issues = validateNotifications([def]);
+    expect(issues.some((i) => i.code === "UNKNOWN_CHANNEL_TYPE")).toBe(true);
+  });
+
   test("flags invalid fallback from channel", () => {
     const def = notification({
       id: "bad_fb",
@@ -135,6 +145,25 @@ describe("validateNotifications", () => {
     });
     const issues = validateNotifications([def]);
     expect(issues.some((i) => i.code === "INVALID_FALLBACK_FROM")).toBe(true);
+  });
+
+  test("flags unknown fallback target channel types", () => {
+    const def = notification({
+      id: "bad_fb_target",
+      payload: { x: "string" },
+      channels: [inbox({ title: "{{x}}" })],
+      fallback: [
+        {
+          if: "channel.failed",
+          from: "email",
+          then: { type: "push", body: "{{x}}" } as never,
+        },
+      ],
+    });
+    const issues = validateNotifications([def]);
+    expect(
+      issues.some((i) => i.code === "UNKNOWN_FALLBACK_CHANNEL_TYPE"),
+    ).toBe(true);
   });
 
   test("flags unknown channel type in defaults.channels", () => {
@@ -357,6 +386,28 @@ describe("validateNotifications", () => {
     expect(issues.some((i) => i.code === "WEBHOOK_NO_SECRET")).toBe(true);
   });
 
+  test("warns when unsigned webhook provider is only used by fallback", () => {
+    const def = notification({
+      id: "fallback_webhook_nosign",
+      payload: { x: "string" },
+      channels: [email({ subject: "{{x}}", body: "{{x}}" })],
+      fallback: [
+        {
+          if: "channel.failed",
+          from: "email",
+          then: { type: "webhook", url: "https://example.com/hook" } as unknown as ChannelConfig,
+        },
+      ],
+    });
+    const issues = validateNotifications([def], {
+      providers: {
+        email: fakeEmailProvider(),
+        webhook: { id: "webhook", signed: false, send: async () => ({}) },
+      },
+    });
+    expect(issues.some((i) => i.code === "WEBHOOK_NO_SECRET")).toBe(true);
+  });
+
   test("no webhook warning when signed", () => {
     const def = notification({
       id: "webhook_signed",
@@ -367,5 +418,45 @@ describe("validateNotifications", () => {
       providers: { webhook: { id: "webhook", signed: true, send: async () => ({}) } },
     });
     expect(issues.filter((i) => i.code === "WEBHOOK_NO_SECRET")).toEqual([]);
+  });
+
+  test("flags reserved webhook Host headers", () => {
+    const def = notification({
+      id: "webhook_host",
+      payload: { x: "string" },
+      channels: [
+        {
+          type: "webhook",
+          url: "https://example.com/hook",
+          headers: { Host: "evil.example" },
+        } as unknown as ChannelConfig,
+      ],
+    });
+    const issues = validateNotifications([def], {
+      providers: { webhook: { id: "webhook", signed: true, send: async () => ({}) } },
+    });
+    expect(issues.some((i) => i.code === "RESERVED_WEBHOOK_HEADER")).toBe(true);
+  });
+
+  test("flags invalid webhook header names and values", () => {
+    const def = notification({
+      id: "webhook_bad_headers",
+      payload: { x: "string" },
+      channels: [
+        {
+          type: "webhook",
+          url: "https://example.com/hook",
+          headers: {
+            "x good": "{{x}}",
+            "x-number": 123,
+          },
+        } as unknown as ChannelConfig,
+      ],
+    });
+    const issues = validateNotifications([def], {
+      providers: { webhook: { id: "webhook", signed: true, send: async () => ({}) } },
+    });
+    expect(issues.some((i) => i.code === "INVALID_WEBHOOK_HEADER_NAME")).toBe(true);
+    expect(issues.some((i) => i.code === "INVALID_WEBHOOK_HEADER_VALUE")).toBe(true);
   });
 });

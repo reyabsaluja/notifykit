@@ -103,6 +103,23 @@ describe("memoryRealtimeAdapter", () => {
     expect(events2).toHaveLength(0);
   });
 
+  test("recipient ids containing delimiters do not collide", () => {
+    const adapter = memoryRealtimeAdapter();
+    const plain: RealtimeEvent[] = [];
+    const nulSeparated: RealtimeEvent[] = [];
+
+    adapter.subscribe("ab", {}, (e) => plain.push(e));
+    adapter.subscribe("a\0b", {}, (e) => nulSeparated.push(e));
+
+    adapter.publish("a\0b", {}, {
+      type: "inbox.deleted",
+      itemId: "inb_x",
+    });
+
+    expect(plain).toHaveLength(0);
+    expect(nulSeparated).toHaveLength(1);
+  });
+
   test("scope normalization: undefined vs absent fields match", () => {
     const adapter = memoryRealtimeAdapter();
     const events: RealtimeEvent[] = [];
@@ -144,6 +161,24 @@ describe("memoryRealtimeAdapter", () => {
 
     expect(events1).toHaveLength(1);
     expect(events2).toHaveLength(1);
+  });
+
+  test("throwing subscriber does not block other subscribers", () => {
+    const adapter = memoryRealtimeAdapter();
+    const events: RealtimeEvent[] = [];
+
+    adapter.subscribe("user_1", {}, () => {
+      throw new Error("listener failed");
+    });
+    adapter.subscribe("user_1", {}, (event) => events.push(event));
+
+    expect(() => {
+      adapter.publish("user_1", {}, {
+        type: "inbox.deleted",
+        itemId: "inb_1",
+      });
+    }).not.toThrow();
+    expect(events).toHaveLength(1);
   });
 
   test("publish to key with no subscribers is a no-op", () => {
@@ -295,6 +330,32 @@ describe("handler SSE stream", () => {
 
     controllerA.abort();
     controllerB.abort();
+  });
+
+  test("SSE connection limit is scoped by tenant for the same recipient id", async () => {
+    const controllers: AbortController[] = [];
+    try {
+      for (let i = 0; i < 10; i++) {
+        const controller = new AbortController();
+        controllers.push(controller);
+        const res = await handler(new Request(`${BASE}/inbox/stream?as=user_1&tenant=t_a`, {
+          signal: controller.signal,
+        }));
+        expect(res.status).toBe(200);
+      }
+
+      const blocked = await handler(new Request(`${BASE}/inbox/stream?as=user_1&tenant=t_a`));
+      expect(blocked.status).toBe(429);
+
+      const otherTenant = new AbortController();
+      controllers.push(otherTenant);
+      const allowed = await handler(new Request(`${BASE}/inbox/stream?as=user_1&tenant=t_b`, {
+        signal: otherTenant.signal,
+      }));
+      expect(allowed.status).toBe(200);
+    } finally {
+      for (const controller of controllers) controller.abort();
+    }
   });
 
   test("handler mutations publish realtime events", async () => {

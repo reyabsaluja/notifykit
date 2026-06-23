@@ -94,8 +94,8 @@ export default function FallbacksPage() {
 
       <h2>Fallback and retries</h2>
       <p>
-        Fallback only triggers after all retries are exhausted. The timeline
-        shows the full sequence:
+        Fallback triggers after all retries are exhausted, or after a provider
+        returns a permanent error. The timeline shows the full sequence:
       </p>
       <Code
         code={`// Timeline for a failed email with inbox fallback:

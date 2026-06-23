@@ -238,7 +238,12 @@ export type SafeWebhookResult = {
   hostHeader: string;
 };
 
-export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResult> {
+type WebhookDnsResolver = (hostname: string) => Promise<string[]>;
+
+export async function assertSafeWebhookUrl(
+  url: string,
+  options: { resolveHostname?: WebhookDnsResolver } = {},
+): Promise<SafeWebhookResult> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -280,16 +285,20 @@ export async function assertSafeWebhookUrl(url: string): Promise<SafeWebhookResu
   }
   if (typeof globalThis.process !== "undefined") {
     try {
-      const dns = await import("node:dns");
-      const resolve4 = dns.promises?.resolve4 ?? dns.resolve4;
-      const resolve6 = dns.promises?.resolve6 ?? dns.resolve6;
       const allAddresses: string[] = [];
-      const [v4, v6] = await Promise.allSettled([
-        (resolve4 as (h: string) => Promise<string[]>)(parsed.hostname),
-        (resolve6 as (h: string) => Promise<string[]>)(parsed.hostname),
-      ]);
-      if (v4.status === "fulfilled") allAddresses.push(...v4.value);
-      if (v6.status === "fulfilled") allAddresses.push(...v6.value);
+      if (options.resolveHostname) {
+        allAddresses.push(...await options.resolveHostname(parsed.hostname));
+      } else {
+        const dns = await import("node:dns");
+        const resolve4 = dns.promises?.resolve4 ?? dns.resolve4;
+        const resolve6 = dns.promises?.resolve6 ?? dns.resolve6;
+        const [v4, v6] = await Promise.allSettled([
+          (resolve4 as (h: string) => Promise<string[]>)(parsed.hostname),
+          (resolve6 as (h: string) => Promise<string[]>)(parsed.hostname),
+        ]);
+        if (v4.status === "fulfilled") allAddresses.push(...v4.value);
+        if (v6.status === "fulfilled") allAddresses.push(...v6.value);
+      }
       if (allAddresses.length === 0) {
         throw new NotifyKitError(
           `Webhook URL failed DNS resolution: ${url}`,

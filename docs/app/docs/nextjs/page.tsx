@@ -72,7 +72,7 @@ export const notifyActions = createServerActions({
         code={`import { notifyActions } from "@/lib/notifykit-actions"
 
 export default async function NotificationSettings() {
-  const preferences = await notifyActions.preferences.list()
+  const preferences = await notifyActions.getPreferences()
   // render preferences UI...
 }`}
       />

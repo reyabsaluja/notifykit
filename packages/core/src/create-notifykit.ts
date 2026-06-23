@@ -43,7 +43,7 @@ import type {
 } from "./types.js";
 import type { RealtimeAdapter } from "./realtime.js";
 import { defaultRetryPolicy, inlineQueue } from "./queues.js";
-import { isWithinQuietHours, nextQuietHoursEnd } from "./quiet-hours.js";
+import { isWithinQuietHours, nextQuietHoursEnd, validateQuietHours } from "./quiet-hours.js";
 import {
   GLOBAL_PREFERENCE_KEY,
   categoryPreferenceKey,
@@ -59,6 +59,34 @@ export const SKIP_PROVIDER = "skip" as const;
 
 function buildDedupeCompositeKey(notificationId: string, recipientId: string, dedupeKey: string): string {
   return JSON.stringify(["dedup", notificationId, recipientId, dedupeKey]);
+}
+
+function normalizeListLimit(limit: number | undefined, field: string): number | undefined {
+  if (limit === undefined) return undefined;
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw new NotifyKitError(
+      `${field} must be a positive integer.`,
+      {
+        code: "INVALID_LIMIT",
+        field,
+        fix: "Pass a positive integer limit, or omit the option to use the default.",
+      },
+    );
+  }
+  return limit;
+}
+
+function assertNonEmptyIdentifier(value: string, field: string): void {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new NotifyKitError(
+      `${field} must be a non-empty string.`,
+      {
+        code: "INVALID_INPUT",
+        field,
+        fix: `Pass a non-empty ${field}.`,
+      },
+    );
+  }
 }
 
 export type CreateNotifyKitInput<
@@ -417,6 +445,7 @@ export function createNotifyKit<
       digests: database.digests,
       rateLimits: database.rateLimits,
     },
+    retry: config.retry,
     idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
     timelineRetentionMs: config.timelineRetentionMs,
   });
@@ -469,10 +498,7 @@ export function createNotifyKit<
       // @ts-expect-error — dispatch to the user-provided hook with matching args
       await fn(...args);
     } catch (err) {
-      // Surface hook errors; userland can catch if needed
-      throw err instanceof Error
-        ? err
-        : new Error(`Hook "${String(name)}" threw a non-error value.`);
+      console.error(`[notifykit] hook "${String(name)}" error:`, err);
     }
   }
 
@@ -601,6 +627,15 @@ export function createNotifyKit<
   const fallbackDeliveryIds = new Set<string>();
 
   function normalizeOrgId(scope: SecurityScope): SecurityScope {
+    if (scope.tenantId !== undefined) {
+      assertNonEmptyIdentifier(scope.tenantId, "tenantId");
+    }
+    if (scope.organizationId !== undefined) {
+      assertNonEmptyIdentifier(scope.organizationId, "organizationId");
+    }
+    if (scope.workspaceId !== undefined) {
+      assertNonEmptyIdentifier(scope.workspaceId, "workspaceId");
+    }
     if (scope.organizationId && !scope.tenantId) {
       return { ...scope, tenantId: scope.organizationId, organizationId: undefined };
     }
@@ -921,16 +956,7 @@ export function createNotifyKit<
       dedupeKey?: string;
       dedupeWindowMs?: number;
     };
-    if (!input.recipientId) {
-      throw new NotifyKitError(
-        "Missing recipientId.",
-        {
-          code: "INVALID_INPUT",
-          field: "recipientId",
-          fix: "Pass a non-empty recipientId to send().",
-        },
-      );
-    }
+    assertNonEmptyIdentifier(input.recipientId, "recipientId");
     const def = byId.get(input.notificationId);
     if (!def) {
       const known = [...byId.keys()];
@@ -1277,12 +1303,7 @@ export function createNotifyKit<
       dedupeKey?: string;
       dedupeWindowMs?: number;
     };
-    if (!input.recipientId) {
-      throw new NotifyKitError(
-        "Missing recipientId.",
-        { code: "INVALID_INPUT", field: "recipientId", fix: "Pass a non-empty recipientId to send()." },
-      );
-    }
+    assertNonEmptyIdentifier(input.recipientId, "recipientId");
     const def = byId.get(input.notificationId);
     if (!def) {
       throw new NotifyKitError(
@@ -1809,6 +1830,7 @@ export function createNotifyKit<
       const headers: Record<string, string> = { host: hostHeader };
       if (ch.headers) {
         for (const [k, v] of Object.entries(ch.headers)) {
+          if (k.toLowerCase() === "host") continue;
           headers[k] = renderTemplate(v, ctx.payload, { escapeHtml: false }).replace(/[\r\n]/g, "");
         }
       }
@@ -2094,6 +2116,7 @@ export function createNotifyKit<
         const headers: Record<string, string> = { host: hostHeader };
         if (ch.headers) {
           for (const [k, v] of Object.entries(ch.headers)) {
+            if (k.toLowerCase() === "host") continue;
             headers[k] = renderTemplate(v, payload, { escapeHtml: false }).replace(/[\r\n]/g, "");
           }
         }
@@ -2257,9 +2280,38 @@ export function createNotifyKit<
     };
     try {
       let lastError: Error | null = null;
+      let attemptsMade = 0;
       for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
+        attemptsMade = attempt;
         if (attempt > 1) {
-          const wait = retry.delayMs(attempt);
+          let wait: number;
+          try {
+            wait = retry.delayMs(attempt);
+            if (!Number.isFinite(wait) || wait < 0) {
+              throw new NotifyKitError(
+                `retry.delayMs(${attempt}) must return a non-negative finite number, got ${wait}.`,
+                {
+                  code: "INVALID_RETRY_DELAY",
+                  field: "retry.delayMs",
+                  fix: "Return a non-negative millisecond delay for every retry attempt.",
+                },
+              );
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            lastError = err instanceof NotifyKitError
+              ? err
+              : new NotifyKitError(
+                `retry.delayMs(${attempt}) threw: ${message}`,
+                {
+                  code: "INVALID_RETRY_DELAY",
+                  field: "retry.delayMs",
+                  fix: "Ensure retry.delayMs returns a non-negative millisecond delay for every retry attempt.",
+                },
+              );
+            attemptsMade = attempt - 1;
+            break;
+          }
           recordTimeline(jobPending, jobTlCtx, "delivery.attempt", `Retry attempt ${attempt}/${retry.maxAttempts} (delay: ${wait}ms)`, {
             deliveryId: job.deliveryId,
             channel: job.channel,
@@ -2356,13 +2408,15 @@ export function createNotifyKit<
       }
       const failed = await database.deliveries.update(job.deliveryId, {
         status: "failed",
+        attempts: attemptsMade,
+        error: lastError?.message,
         failedAt: new Date(),
       });
-      recordTimeline(jobPending, jobTlCtx, "delivery.failed", `Delivery failed after ${retry.maxAttempts} attempt(s): ${lastError?.message ?? "unknown error"}`, {
+      recordTimeline(jobPending, jobTlCtx, "delivery.failed", `Delivery failed after ${attemptsMade} attempt(s): ${lastError?.message ?? "unknown error"}`, {
         deliveryId: job.deliveryId,
         channel: job.channel,
         provider: job.provider,
-        metadata: { attempts: retry.maxAttempts, error: lastError?.message },
+        metadata: { attempts: attemptsMade, error: lastError?.message },
       });
       const isFallbackDelivery = fallbackDeliveryIds.has(job.deliveryId);
       fallbackDeliveryIds.delete(job.deliveryId);
@@ -2540,8 +2594,23 @@ export function createNotifyKit<
 
   return {
     async upsertRecipient(input) {
+      assertNonEmptyIdentifier(input.id, "id");
+      if (input.quietHours != null) {
+        const quietHoursError = validateQuietHours(input.quietHours);
+        if (quietHoursError) {
+          throw new NotifyKitError(
+            `Invalid quietHours: ${quietHoursError}`,
+            {
+              code: "INVALID_QUIET_HOURS",
+              field: "quietHours",
+              fix: "Use { start: \"HH:MM\", end: \"HH:MM\", timezone?: \"Area/City\" }, or pass null to clear quiet hours.",
+            },
+          );
+        }
+      }
       const normalized = normalizeOrgId(input);
       const tenantId = normalized.tenantId;
+      const workspaceId = normalized.workspaceId;
       const existing = await database.recipients.findById(input.id);
       if (existing && existing.tenantId && tenantId && existing.tenantId !== tenantId) {
         throw new NotifyKitError(
@@ -2550,6 +2619,16 @@ export function createNotifyKit<
             code: "TENANT_REASSIGNMENT",
             recipientId: input.id,
             fix: "Create a new recipient for the target tenant instead of reassigning an existing one.",
+          },
+        );
+      }
+      if (existing && existing.workspaceId && workspaceId && existing.workspaceId !== workspaceId) {
+        throw new NotifyKitError(
+          `Recipient "${input.id}" already belongs to workspace "${existing.workspaceId}", cannot reassign to "${workspaceId}".`,
+          {
+            code: "WORKSPACE_REASSIGNMENT",
+            recipientId: input.id,
+            fix: "Create a new recipient for the target workspace instead of reassigning an existing one.",
           },
         );
       }
@@ -2570,7 +2649,7 @@ export function createNotifyKit<
     inbox: {
       list(recipientId, scope, filter, limit?) {
         const s = scope ? normalizeOrgId(scope) : scope;
-        return database.inbox.listByRecipient(recipientId, s, filter, limit);
+        return database.inbox.listByRecipient(recipientId, s, filter, normalizeListLimit(limit, "inbox.limit"));
       },
       async markReadForRecipient(inboxItemId, recipientId, scope) {
         const s = scope ? normalizeOrgId(scope) : scope;
@@ -2644,7 +2723,7 @@ export function createNotifyKit<
     deliveries: {
       list(recipientId, scope, limit?) {
         const s = scope ? normalizeOrgId(scope) : scope;
-        return database.deliveries.list(recipientId, s, limit);
+        return database.deliveries.list(recipientId, s, normalizeListLimit(limit, "deliveries.limit"));
       },
     },
     preferences: {
@@ -2863,7 +2942,7 @@ export function createNotifyKit<
       return redactPayload(payload, def.redact);
     },
     async timeline(notificationRecordId, options) {
-      const cap = options?.limit ?? 1000;
+      const cap = normalizeListLimit(options?.limit, "timeline.limit") ?? 1000;
       if (options?.deliveryId) {
         return timelineAdapter.listByDeliveryId(options.deliveryId, notificationRecordId, cap);
       }

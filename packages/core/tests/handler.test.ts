@@ -142,6 +142,13 @@ describe("createHandler", () => {
     expect(body.data[0]!.title).toBe("Rey mentioned you");
   });
 
+  test("GET /inbox rejects invalid limit query", async () => {
+    const res = await ctx.handler(new Request(`${BASE}/inbox?limit=1.5`));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/limit/);
+  });
+
   test("POST /inbox/:id/read marks the item read", async () => {
     const result = await ctx.notify.send({
       recipientId: "user_1",
@@ -367,6 +374,19 @@ describe("createHandler", () => {
     expect(body.data[0]!.tenantId).toBe("tenant_a");
   });
 
+  test("GET /deliveries rejects invalid limit query", async () => {
+    const handler = createHandler(ctx.notify, {
+      identify: () => ({
+        recipientId: "user_1",
+        permissions: ["deliveries.list"],
+      }),
+    });
+    const res = await handler(new Request(`${BASE}/deliveries?limit=abc`));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/limit/);
+  });
+
   test("GET /deliveries can be allowed through the authorize hook", async () => {
     const sawPermissions: string[] = [];
     const handler = createHandler(ctx.notify, {
@@ -444,6 +464,24 @@ describe("createHandler", () => {
     const miss = await handler(
       new Request("http://localhost/api/notifykit/inbox"),
     );
+    expect(miss.status).toBe(404);
+  });
+
+  test("root basePath routes correctly", async () => {
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => "u",
+      basePath: "/",
+    });
+
+    const ok = await handler(new Request("http://localhost/notifications"));
+    expect(ok.status).toBe(200);
+
+    const miss = await handler(new Request("http://localhost/api/notifykit/notifications"));
     expect(miss.status).toBe(404);
   });
 

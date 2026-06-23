@@ -5,6 +5,7 @@ import {
   createNotifyKit,
   fakeEmailProvider,
   notification,
+  type SendResult,
 } from "@notifykitjs/core";
 import {
   createSqliteTables,
@@ -13,6 +14,10 @@ import {
 
 const inbox = channel.inbox();
 const email = channel.email();
+
+function skippedSummary(result: SendResult): string {
+  return result.skipped.map((s) => `${s.channel}:${s.reason}`).join(", ") || "(none)";
+}
 
 const commentMentioned = notification({
   id: "comment_mentioned",
@@ -86,7 +91,7 @@ async function main() {
   });
 
   console.log(
-    `\nSecond send — skipped: ${second.skippedChannels.join(", ") || "(none)"}`,
+    `\nSecond send — skipped: ${skippedSummary(second)}`,
   );
   console.log(`Total emails sent: ${provider.sent.length}`);
 

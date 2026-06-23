@@ -3,20 +3,42 @@ import { assertSafeWebhookUrl, isSafeUrl, renderTemplate } from "../src/utils.js
 
 describe("assertSafeWebhookUrl", () => {
   test("accepts valid https URL", async () => {
-    const result = await assertSafeWebhookUrl("https://hooks.slack.com/services/abc");
+    const result = await assertSafeWebhookUrl("https://hooks.slack.com/services/abc", {
+      resolveHostname: async () => ["44.44.44.44"],
+    });
     expect(result.pinnedUrl).toBeTruthy();
     expect(result.hostHeader).toContain("hooks.slack.com");
   });
 
   test("keeps https hostname after DNS validation so TLS still verifies", async () => {
-    const result = await assertSafeWebhookUrl("https://example.com/hook");
+    const result = await assertSafeWebhookUrl("https://example.com/hook", {
+      resolveHostname: async () => ["93.184.216.34"],
+    });
     expect(result.pinnedUrl).toBe("https://example.com/hook");
     expect(result.hostHeader).toBe("example.com");
   });
 
   test("preserves custom port once in Host header", async () => {
-    const result = await assertSafeWebhookUrl("https://example.com:8443/hook");
+    const result = await assertSafeWebhookUrl("https://example.com:8443/hook", {
+      resolveHostname: async () => ["93.184.216.34"],
+    });
     expect(result.hostHeader).toBe("example.com:8443");
+  });
+
+  test("rejects hostnames that resolve to private addresses", async () => {
+    await expect(
+      assertSafeWebhookUrl("https://example.com/hook", {
+        resolveHostname: async () => ["10.0.0.1"],
+      }),
+    ).rejects.toThrow(/blocked/);
+  });
+
+  test("rejects hostname validation when DNS is unavailable", async () => {
+    await expect(
+      assertSafeWebhookUrl("https://notifykit.invalid/hook", {
+        resolveHostname: async () => [],
+      }),
+    ).rejects.toThrow(/DNS resolution/);
   });
 
   test("rejects non-http protocols", async () => {

@@ -52,7 +52,7 @@ export default function DemoPage() {
         Turning off email doesn&apos;t change what you see here (the docs
         demo doesn&apos;t send real email), but on subsequent sends the
         delivery row will be skipped and reported in{" "}
-        <code>result.skippedChannels</code>.
+        <code>result.skipped</code>.
       </p>
       <DemoPreferences />
 

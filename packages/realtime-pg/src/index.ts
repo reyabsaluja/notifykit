@@ -25,10 +25,39 @@ export type PgRealtimeAdapterOptions = {
 
 function scopeKey(recipientId: string, scope: SecurityScope): string {
   const s = normalizeScope(scope);
-  const r = recipientId.replace(/\0/g, "");
-  const t = (s.tenantId ?? "").replace(/\0/g, "");
-  const w = (s.workspaceId ?? "").replace(/\0/g, "");
-  return `${r}\0${t}\0${w}`;
+  return JSON.stringify([recipientId, s.tenantId ?? "", s.workspaceId ?? ""]);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isRealtimeEvent(value: unknown): value is RealtimeEvent {
+  if (!isRecord(value) || typeof value.type !== "string") return false;
+  switch (value.type) {
+    case "inbox.created":
+    case "inbox.updated":
+    case "inbox.archived":
+    case "inbox.unarchived":
+      return isRecord(value.item) && typeof value.item.id === "string";
+    case "inbox.deleted":
+      return typeof value.itemId === "string";
+    case "inbox.all_read":
+      return (
+        typeof value.count === "number" &&
+        Number.isSafeInteger(value.count) &&
+        value.count >= 0
+      );
+    case "inbox.refetch":
+      return (
+        value.dropped === undefined ||
+        (typeof value.dropped === "number" &&
+          Number.isSafeInteger(value.dropped) &&
+          value.dropped >= 0)
+      );
+    default:
+      return false;
+  }
 }
 
 export type PgRealtimeAdapter = RealtimeAdapter & {
@@ -43,6 +72,12 @@ export function pgRealtimeAdapter(
   const pgChannel = options.channel ?? DEFAULT_CHANNEL;
   const reconnectMs = options.reconnectMs ?? 5_000;
   const heartbeatMs = options.heartbeatMs ?? 60_000;
+  if (!Number.isFinite(reconnectMs) || reconnectMs <= 0) {
+    throw new Error("pgRealtimeAdapter: reconnectMs must be a positive number.");
+  }
+  if (!Number.isFinite(heartbeatMs) || heartbeatMs < 0) {
+    throw new Error("pgRealtimeAdapter: heartbeatMs must be a non-negative number.");
+  }
   const subs = new Map<string, Set<RealtimeListener>>();
   let listening = false;
   let stopped = false;
@@ -57,18 +92,24 @@ export function pgRealtimeAdapter(
       lastHeartbeatAt = Date.now();
       return;
     }
-    let parsed: {
-      key: string;
-      event: RealtimeEvent;
-    };
+    let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
       return;
     }
+    if (!isRecord(parsed)) return;
+    if (typeof parsed.key !== "string") return;
+    if (!isRealtimeEvent(parsed.event)) return;
     const set = subs.get(parsed.key);
     if (!set) return;
-    for (const fn of set) fn(parsed.event);
+    for (const fn of [...set]) {
+      try {
+        fn(parsed.event);
+      } catch (err) {
+        options.onError?.(err);
+      }
+    }
   }
 
   function startHeartbeat() {
@@ -105,6 +146,10 @@ export function pgRealtimeAdapter(
     try {
       await conn.listen(pgChannel, handleNotification);
       listening = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       startHeartbeat();
     } catch (err) {
       listening = false;

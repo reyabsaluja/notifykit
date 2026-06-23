@@ -2,6 +2,7 @@ import {
   channel,
   createNotifyKit,
   fakeEmailProvider,
+  fakeSmsProvider,
   memoryAdapter,
   notification,
 } from "@notifykitjs/core";
@@ -68,7 +69,7 @@ const taskAssigned = notification({
     }),
     email({
       subject: "New task: {{taskTitle}}",
-      body: "{{assignerName}} assigned you "{{taskTitle}}".",
+      body: '{{assignerName}} assigned you "{{taskTitle}}".',
     }),
     sms({ body: "New task from {{assignerName}}: {{taskTitle}}" }),
   ],
@@ -123,7 +124,7 @@ const securityAlert = notification({
 export const notify = createNotifyKit({
   notifications: [commentMentioned, newFollower, taskAssigned, invoicePaid, securityAlert] as const,
   database: memoryAdapter(),
-  providers: { email: fakeEmailProvider() },
+  providers: { email: fakeEmailProvider(), sms: fakeSmsProvider() },
   defaults: {
     channels: { inbox: true, email: true },
   },

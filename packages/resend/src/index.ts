@@ -42,6 +42,9 @@ export function resendProvider(options: ResendProviderOptions): EmailProvider {
     "",
   );
   const timeoutMs = options.timeoutMs ?? 10_000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("resendProvider: `timeoutMs` must be a positive number.");
+  }
   const fetchImpl = options.fetch ?? globalThis.fetch;
   if (!fetchImpl) {
     throw new Error(
