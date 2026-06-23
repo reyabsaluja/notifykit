@@ -93,6 +93,7 @@ export type DevModeConfig = {
   allowlist?: string[];
   subjectPrefix?: string;
   logPreviews?: boolean;
+  maxCaptured?: number;
 };
 
 export type CreateNotifyKitInput<
@@ -430,9 +431,15 @@ function applyDevProviders(
   allowlist: string[],
   subjectPrefix: string,
   logPreviews: boolean,
+  maxCaptured: number,
 ): { email?: EmailProvider; webhook?: WebhookProvider; sms?: SmsProvider } {
   const captured: CapturedSend[] = [];
   let idCounter = 0;
+
+  function capture(entry: CapturedSend) {
+    if (captured.length >= maxCaptured) captured.shift();
+    captured.push(entry);
+  }
 
   function isAllowed(to: string): boolean {
     if (allowlist.length === 0) return false;
@@ -458,7 +465,7 @@ function applyDevProviders(
       async send(input: { to: string; subject: string; body: string }) {
         const blocked = !isAllowed(input.to);
         const subject = `${subjectPrefix}${input.subject}`;
-        captured.push({ channel: "email", to: input.to, subject, body: input.body, blocked, timestamp: new Date() });
+        capture({ channel: "email", to: input.to, subject, body: input.body, blocked, timestamp: new Date() });
         logPreview("email", input.to, subject, input.body, blocked);
         if (blocked) return { providerMessageId: `dev-blocked-${++idCounter}` };
         if (real) return real.send({ ...input, subject });
@@ -474,7 +481,7 @@ function applyDevProviders(
         async send(input) {
           const blocked = !isAllowed(input.url);
           const body = JSON.stringify(input.payload);
-          captured.push({ channel: "webhook", to: input.url, body, blocked, timestamp: new Date() });
+          capture({ channel: "webhook", to: input.url, body, blocked, timestamp: new Date() });
           logPreview("webhook", input.url, undefined, body, blocked);
           if (blocked) return { providerMessageId: `dev-blocked-${++idCounter}` };
           return providers!.webhook!.send(input);
@@ -489,7 +496,7 @@ function applyDevProviders(
       id: real.id,
       async send(input: { to: string; body: string }) {
         const blocked = !isAllowed(input.to);
-        captured.push({ channel: "sms", to: input.to, body: input.body, blocked, timestamp: new Date() });
+        capture({ channel: "sms", to: input.to, body: input.body, blocked, timestamp: new Date() });
         logPreview("sms", input.to, undefined, input.body, blocked);
         if (blocked) return { providerMessageId: `dev-blocked-${++idCounter}` };
         return real.send(input);
@@ -514,9 +521,10 @@ export function createNotifyKit<
   const devAllowlist = devConfig.allowlist ?? [];
   const devSubjectPrefix = devConfig.subjectPrefix ?? "[DEV] ";
   const devLogPreviews = devConfig.logPreviews ?? isDev;
+  const devMaxCaptured = devConfig.maxCaptured ?? 1000;
 
   const providers = isDev
-    ? applyDevProviders(config.providers, devAllowlist, devSubjectPrefix, devLogPreviews)
+    ? applyDevProviders(config.providers, devAllowlist, devSubjectPrefix, devLogPreviews, devMaxCaptured)
     : config.providers;
 
   const { notifications, database, on } = config;

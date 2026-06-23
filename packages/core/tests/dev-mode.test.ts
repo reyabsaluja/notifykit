@@ -227,4 +227,27 @@ describe("dev mode", () => {
     expect(items).toHaveLength(1);
     expect(items[0]!.title).toBe("Welcome Test");
   });
+
+  test("captured array respects maxCaptured limit", async () => {
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [alertNotification, welcomeNotification] as const,
+      database: db,
+      mode: "development",
+      dev: { maxCaptured: 3 },
+    });
+
+    await notify.upsertRecipient({ id: "u1", email: "a@test.com" });
+    for (let i = 0; i < 5; i++) {
+      await notify.send({
+        recipientId: "u1",
+        notificationId: "welcome",
+        payload: { name: `User${i}` },
+      });
+    }
+
+    expect(notify.captured).toHaveLength(3);
+    expect(notify.captured[0]!.subject).toContain("User2");
+    expect(notify.captured[2]!.subject).toContain("User4");
+  });
 });
