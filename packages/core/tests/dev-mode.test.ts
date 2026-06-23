@@ -251,6 +251,53 @@ describe("dev mode", () => {
     expect(notify.captured[2]!.subject).toContain("User4");
   });
 
+  test("maxCaptured clamps invalid values to 1", async () => {
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [welcomeNotification] as const,
+      database: db,
+      mode: "development",
+      dev: { maxCaptured: 0 },
+    });
+
+    await notify.upsertRecipient({ id: "u1", email: "a@test.com" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "welcome",
+      payload: { name: "First" },
+    });
+
+    expect(notify.captured).toHaveLength(1);
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "welcome",
+      payload: { name: "Second" },
+    });
+
+    expect(notify.captured).toHaveLength(1);
+    expect(notify.captured[0]!.subject).toContain("Second");
+  });
+
+  test("maxCaptured clamps negative values to 1", async () => {
+    const db = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [welcomeNotification] as const,
+      database: db,
+      mode: "development",
+      dev: { maxCaptured: -5 },
+    });
+
+    await notify.upsertRecipient({ id: "u1", email: "a@test.com" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "welcome",
+      payload: { name: "Test" },
+    });
+
+    expect(notify.captured).toHaveLength(1);
+  });
+
   test("logPreviews: false suppresses console output", async () => {
     const consoleSpy = mock(() => {});
     const originalLog = console.log;
