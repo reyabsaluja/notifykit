@@ -35,6 +35,12 @@ describe("resendProvider", () => {
     expect(() =>
       resendProvider({ apiKey: "k", from: "" } as never),
     ).toThrow(/from/);
+    expect(() =>
+      resendProvider({ apiKey: "k", from: "a@b.c", timeoutMs: 0 }),
+    ).toThrow(/timeoutMs/);
+    expect(() =>
+      resendProvider({ apiKey: "k", from: "a@b.c", timeoutMs: Number.NaN }),
+    ).toThrow(/timeoutMs/);
   });
 
   test("POSTs to /emails with correct shape and auth header", async () => {
@@ -216,5 +222,42 @@ describe("resendProvider", () => {
     const items = await notify.inbox.list("u1");
     expect(items).toHaveLength(1);
     expect(items[0]!.title).toBe("Fallback for /r/1");
+  });
+
+  test("permanent API failures do not retry", async () => {
+    let attempts = 0;
+    const { fetch } = makeFakeFetch(() => {
+      attempts++;
+      return new Response(
+        JSON.stringify({ message: "Invalid `to` field" }),
+        { status: 422, headers: { "content-type": "application/json" } },
+      );
+    });
+    const emailCh = channel.email();
+    const def = notification({
+      id: "welcome",
+      payload: { name: "string" },
+      channels: [emailCh({ subject: "Hello", body: "{{name}}" })],
+    });
+    const notify = createNotifyKit({
+      notifications: [def] as const,
+      database: memoryAdapter(),
+      providers: {
+        email: resendProvider({ apiKey: "k", from: "a@b.c", fetch }),
+      },
+      retry: { maxAttempts: 3, delayMs: () => 0 },
+    });
+
+    await notify.upsertRecipient({ id: "u1", email: "bad" });
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "welcome",
+      payload: { name: "Jane" },
+    });
+
+    expect(attempts).toBe(1);
+    expect(result.deliveries[0]!.status).toBe("failed");
+    expect(result.deliveries[0]!.attempts).toBe(1);
+    expect(result.deliveries[0]!.error).toMatch(/Invalid `to` field/);
   });
 });

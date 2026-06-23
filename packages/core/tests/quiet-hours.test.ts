@@ -9,6 +9,7 @@ import {
 import {
   isWithinQuietHours,
   nextQuietHoursEnd,
+  validateQuietHours,
 } from "../src/quiet-hours.js";
 
 const inbox = channel.inbox();
@@ -106,9 +107,36 @@ describe("quiet-hours helpers", () => {
     );
     expect(endAt.getTime()).toBe(d.getTime());
   });
+
+  test("validateQuietHours rejects malformed windows and timezones", () => {
+    expect(validateQuietHours({ start: "25:00", end: "08:00" })).toMatch(/out of range/);
+    expect(validateQuietHours({ start: "22:00", end: "8am" })).toMatch(/HH:MM/);
+    expect(validateQuietHours({ start: "22:00", end: "08:00", timezone: "Mars/Base" })).toMatch(/Invalid timezone/);
+    expect(validateQuietHours({ start: "22:00", end: "08:00", timezone: "UTC" })).toBeNull();
+  });
 });
 
 describe("quiet hours in send()", () => {
+  test("upsertRecipient rejects invalid quiet hours before persisting", async () => {
+    const { notify, db } = kitWithQuietSelf("out");
+
+    await expect(
+      notify.upsertRecipient({
+        id: "u1",
+        quietHours: { start: "22:00", end: "99:00" },
+      }),
+    ).rejects.toThrow(/Invalid quietHours/);
+
+    await expect(
+      notify.upsertRecipient({
+        id: "u2",
+        quietHours: { start: "22:00", end: "08:00", timezone: "Not/AZone" },
+      }),
+    ).rejects.toThrow(/Invalid quietHours/);
+
+    expect(db._state.recipients).toHaveLength(0);
+  });
+
   test("without quiet hours, email delivers immediately", async () => {
     const { notify, db, provider } = kitWithQuietSelf("out");
     await notify.upsertRecipient({ id: "u1", email: "u@x.com" });

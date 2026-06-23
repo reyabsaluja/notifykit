@@ -147,6 +147,18 @@ describe("createRouteHandler", () => {
     expect(missRes.status).toBe(404);
   });
 
+  test("root basePath works", async () => {
+    const { notifykit } = buildKit();
+    const handlers = createRouteHandler({
+      notifykit,
+      identify: () => "user-1",
+      basePath: "/",
+    });
+
+    const response = await handlers.GET(new Request("http://localhost/notifications"));
+    expect(response.status).toBe(200);
+  });
+
   test("all methods route to the same handler", async () => {
     const { notifykit } = buildKit();
     const handlers = createRouteHandler({

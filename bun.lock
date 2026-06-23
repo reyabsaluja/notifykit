@@ -105,7 +105,7 @@
         "@notifykitjs/next": "workspace:*",
         "@notifykitjs/react": "workspace:*",
         "@notifykitjs/resend": "workspace:*",
-        "better-auth": "^1.2.0",
+        "better-auth": "~1.6.10",
         "drizzle-orm": "^0.45.2",
         "next": "^15.1.0",
         "react": "^19.0.0",
@@ -265,6 +265,17 @@
       "version": "0.0.1",
       "devDependencies": {
         "@notifykitjs/core": "^0.0.1",
+        "typescript": "^5.6.3",
+      },
+      "peerDependencies": {
+        "@notifykitjs/core": "^0.0.1",
+      },
+    },
+    "packages/testing": {
+      "name": "@notifykitjs/testing",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@notifykitjs/core": "workspace:*",
         "typescript": "^5.6.3",
       },
       "peerDependencies": {
@@ -438,6 +449,8 @@
     "@notifykitjs/realtime-ws": ["@notifykitjs/realtime-ws@workspace:packages/realtime-ws"],
 
     "@notifykitjs/resend": ["@notifykitjs/resend@workspace:packages/resend"],
+
+    "@notifykitjs/testing": ["@notifykitjs/testing@workspace:packages/testing"],
 
     "@opentelemetry/semantic-conventions": ["@opentelemetry/semantic-conventions@1.40.0", "", {}, "sha512-cifvXDhcqMwwTlTK04GBNeIe7yyo28Mfby85QXFe1Yk8nmi36Ab/5UQwptOx84SsoGNRg+EVSjwzfSZMy6pmlw=="],
 

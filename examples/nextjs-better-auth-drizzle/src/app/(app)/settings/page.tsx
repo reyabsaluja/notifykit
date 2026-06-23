@@ -1,14 +1,44 @@
 "use client";
 
-import { usePreferences } from "@notifykitjs/react";
+import { useEffect, useState } from "react";
+import {
+  useNotifyKitClient,
+  usePreferences,
+  type NotificationMetadata,
+} from "@notifykitjs/react";
 
-const CHANNEL_LABELS: Record<string, string> = {
+const CHANNEL_KEYS = ["inbox", "email"] as const;
+
+const CHANNEL_LABELS: Record<(typeof CHANNEL_KEYS)[number], string> = {
   inbox: "In-app",
   email: "Email",
 };
 
 export default function SettingsPage() {
+  const client = useNotifyKitClient();
   const { items, status, update } = usePreferences();
+  const [definitions, setDefinitions] = useState<NotificationMetadata[]>([]);
+  const [definitionsLoaded, setDefinitionsLoaded] = useState(false);
+
+  useEffect(() => {
+    client.notifications
+      .list()
+      .then((defs) => {
+        setDefinitions(defs);
+        setDefinitionsLoaded(true);
+      })
+      .catch(() => setDefinitionsLoaded(true));
+  }, [client]);
+
+  const merged = definitions.map((def) => {
+    const saved = items.find((pref) => pref.notificationId === def.id);
+    return {
+      notificationId: def.id,
+      description: def.description,
+      required: def.required ?? false,
+      channels: saved?.channels ?? {},
+    };
+  });
 
   return (
     <div className="settings">
@@ -17,27 +47,27 @@ export default function SettingsPage() {
         Choose which channels to receive notifications on.
       </p>
 
-      {status === "loading" && <p>Loading...</p>}
+      {(status === "loading" || !definitionsLoaded) && <p>Loading...</p>}
 
-      {status === "ready" && (
+      {status === "ready" && definitionsLoaded && (
         <table className="prefs-table">
           <thead>
             <tr>
               <th>Notification</th>
-              {Object.entries(CHANNEL_LABELS).map(([key, label]) => (
-                <th key={key}>{label}</th>
+              {CHANNEL_KEYS.map((key) => (
+                <th key={key}>{CHANNEL_LABELS[key]}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {items.map((pref) => (
+            {merged.map((pref) => (
               <tr key={pref.notificationId}>
                 <td>
                   <strong>{formatId(pref.notificationId)}</strong>
                   {pref.description && <span className="pref-desc">{pref.description}</span>}
                   {pref.required && <span className="badge">Required</span>}
                 </td>
-                {Object.keys(CHANNEL_LABELS).map((ch) => {
+                {CHANNEL_KEYS.map((ch) => {
                   const enabled = pref.channels?.[ch] !== false;
                   return (
                     <td key={ch}>

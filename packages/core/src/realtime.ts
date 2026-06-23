@@ -30,10 +30,7 @@ export function normalizeScope(scope: SecurityScope): SecurityScope {
 
 function scopeKey(recipientId: string, scope: SecurityScope): string {
   const s = normalizeScope(scope);
-  const r = recipientId.replace(/\0/g, "");
-  const t = (s.tenantId ?? "").replace(/\0/g, "");
-  const w = (s.workspaceId ?? "").replace(/\0/g, "");
-  return `${r}\0${t}\0${w}`;
+  return JSON.stringify([recipientId, s.tenantId ?? "", s.workspaceId ?? ""]);
 }
 
 export function memoryRealtimeAdapter(): RealtimeAdapter {
@@ -44,7 +41,14 @@ export function memoryRealtimeAdapter(): RealtimeAdapter {
       const k = scopeKey(recipientId, scope);
       const set = subs.get(k);
       if (!set) return;
-      for (const fn of set) fn(event);
+      for (const fn of [...set]) {
+        try {
+          fn(event);
+        } catch {
+          // Realtime listeners are fan-out sinks; one failing sink should not
+          // prevent delivery to the rest.
+        }
+      }
     },
     subscribe(recipientId, scope, listener) {
       const k = scopeKey(recipientId, scope);

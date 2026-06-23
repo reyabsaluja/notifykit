@@ -28,10 +28,10 @@ export default function TimelinePage() {
       <h2>Reading the timeline</h2>
       <Code
         code={`// Get timeline for a specific notification send
-const events = await notify.timeline.list(notificationRecordId)
+const events = await notify.timeline(notificationRecordId)
 
 // Get timeline for a specific delivery
-const deliveryEvents = await notify.timeline.listByDelivery(deliveryId)
+const deliveryEvents = await notify.timeline(notificationRecordId, { deliveryId })
 
 // Example output:
 // [
@@ -100,7 +100,7 @@ const deliveryEvents = await notify.timeline.listByDelivery(deliveryId)
           </tr>
           <tr>
             <td><code>delivery.failed</code></td>
-            <td>All retries exhausted</td>
+            <td>Delivery failed after retries or a permanent error</td>
           </tr>
           <tr>
             <td><code>provider.message_id_stored</code></td>
@@ -152,7 +152,7 @@ const deliveryEvents = await notify.timeline.listByDelivery(deliveryId)
       <Code
         code={`// Delete events older than 30 days
 const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60_000)
-const deleted = await notify.timeline.prune(thirtyDaysAgo)
+const deleted = await notify.pruneTimeline(thirtyDaysAgo)
 console.log(\`Pruned \${deleted} timeline events\`)`}
       />
 

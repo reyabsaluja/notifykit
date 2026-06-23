@@ -29,6 +29,10 @@ export async function runSend(options: SendOptions): Promise<number> {
       sms: config.providers?.sms,
     },
     unsubscribe: config.unsubscribe,
+    defaults: config.defaults,
+    retry: config.retry,
+    idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
+    timelineRetentionMs: config.timelineRetentionMs,
   });
 
   await notify.upsertRecipient({
@@ -68,6 +72,9 @@ export async function runSend(options: SendOptions): Promise<number> {
   }
   if (result.skippedChannels.length > 0) {
     console.log(`  skipped: ${result.skippedChannels.join(", ")}`);
+  }
+  if (result.deliveries.some((delivery) => delivery.status === "failed")) {
+    return 1;
   }
   return 0;
 }

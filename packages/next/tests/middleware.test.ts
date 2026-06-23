@@ -70,6 +70,42 @@ describe("createNotifyKitMiddleware", () => {
     expect(middleware(noMatch)).toBeNull();
   });
 
+  test("normalizes custom basePath for matching", () => {
+    const middleware = createNotifyKitMiddleware({
+      basePath: "custom/api/",
+      cors: { origin: "*" },
+    });
+
+    const match = mockNextRequest(
+      "http://localhost/custom/api/inbox",
+      "GET",
+      { origin: "http://app.com" },
+    );
+    const sibling = mockNextRequest(
+      "http://localhost/custom/api-extra/inbox",
+      "GET",
+      { origin: "http://app.com" },
+    );
+
+    expect(middleware(match)).not.toBeNull();
+    expect(middleware(sibling)).toBeNull();
+  });
+
+  test("root basePath matches root-mounted routes", () => {
+    const middleware = createNotifyKitMiddleware({
+      basePath: "/",
+      cors: { origin: "*" },
+    });
+
+    const match = mockNextRequest(
+      "http://localhost/notifications",
+      "GET",
+      { origin: "http://app.com" },
+    );
+
+    expect(middleware(match)).not.toBeNull();
+  });
+
   test("handles OPTIONS preflight with cors", () => {
     const middleware = createNotifyKitMiddleware({
       cors: { origin: "http://app.example.com" },
@@ -190,5 +226,15 @@ describe("withNotifyKitHeaders", () => {
   test("respects custom basePath", () => {
     const config = withNotifyKitHeaders("/custom");
     expect(config.source).toBe("/custom/:path*");
+  });
+
+  test("normalizes custom basePath", () => {
+    const config = withNotifyKitHeaders("custom/");
+    expect(config.source).toBe("/custom/:path*");
+  });
+
+  test("handles root basePath", () => {
+    const config = withNotifyKitHeaders("/");
+    expect(config.source).toBe("/:path*");
   });
 });

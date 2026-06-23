@@ -262,8 +262,9 @@ describe("deduplication keys", () => {
       dedupeWindowMs: 60_000,
     });
 
-    // Same key, same recipient, different tenant — NOT deduped (key is scoped
-    // to notificationId + recipientId, tenant is excluded like idempotency)
+    // Same key, same recipient, different tenant is still deduped because the
+    // key is scoped to notificationId + recipientId; tenant is excluded like
+    // idempotency.
     const result = await notify.send({
       recipientId: "u1",
       tenantId: "t2",
@@ -273,8 +274,8 @@ describe("deduplication keys", () => {
       dedupeWindowMs: 60_000,
     });
 
-    // dedup key composite includes (notificationId, recipientId, dedupeKey)
-    // tenantId is excluded — so this IS a duplicate
+    // dedupe key composite includes (notificationId, recipientId, dedupeKey)
+    // and excludes tenantId, so this is a duplicate.
     expect(result.skipped.length).toBeGreaterThan(0);
     expect(result.skipped[0].reason).toBe("duplicate");
     expect(emailProvider.sent).toHaveLength(1);

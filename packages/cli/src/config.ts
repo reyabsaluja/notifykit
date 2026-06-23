@@ -7,6 +7,7 @@ import type {
   EmailProvider,
   NotificationDefinition,
   PayloadSchema,
+  RetryPolicy,
   SmsProvider,
   WebhookProvider,
 } from "@notifykitjs/core";
@@ -23,6 +24,9 @@ export type NotifyKitConfig = {
     channels?: ChannelPreferenceMap;
     categories?: CategoryDefaults;
   };
+  retry?: Partial<RetryPolicy>;
+  idempotencyKeyTtlMs?: number;
+  timelineRetentionMs?: number;
 };
 
 export function defineConfig(config: NotifyKitConfig): NotifyKitConfig {

@@ -12,7 +12,7 @@ export default function PreferencesPage() {
         Every send checks a <code>(recipientId, notificationId)</code>{" "}
         preference row before it writes to a channel. If the recipient has
         opted out, the channel is skipped and reported in{" "}
-        <code>result.skippedChannels</code>.
+        <code>result.skipped</code> with a reason.
       </p>
 
       <h2>Reading &amp; writing preferences</h2>

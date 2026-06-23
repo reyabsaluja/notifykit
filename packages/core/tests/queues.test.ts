@@ -104,6 +104,39 @@ describe("retries", () => {
     expect(result.deliveries[0]!.error).toMatch(/flaky attempt 2/);
   });
 
+  test("permanent provider errors stop retries and record actual attempts", async () => {
+    let attempts = 0;
+    const provider: EmailProvider = {
+      id: "permanent",
+      async send() {
+        attempts++;
+        const err = new Error("bad request") as Error & { permanent: boolean };
+        err.permanent = true;
+        throw err;
+      },
+    };
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+      retry: { maxAttempts: 3, delayMs: () => 0 },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: basePayload,
+    });
+    const timeline = await notify.timeline(result.notification!.id);
+    const failed = timeline.find((event) => event.event === "delivery.failed");
+
+    expect(attempts).toBe(1);
+    expect(result.deliveries[0]!.attempts).toBe(1);
+    expect(failed?.message).toContain("after 1 attempt");
+    expect(failed?.metadata?.attempts).toBe(1);
+  });
+
   test("delayMs receives the 1-indexed attempt number (skipped for first attempt)", async () => {
     const calls: number[] = [];
     const provider = makeFlakyProvider(99);
@@ -126,6 +159,58 @@ describe("retries", () => {
       payload: basePayload,
     });
     expect(calls).toEqual([2, 3]);
+  });
+
+  test("invalid retry delays fail the delivery without extra provider attempts", async () => {
+    const provider = makeFlakyProvider(99);
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+      retry: {
+        maxAttempts: 3,
+        delayMs: () => Number.NaN,
+      },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: basePayload,
+    });
+
+    expect(provider.attempts).toBe(1);
+    expect(result.deliveries[0]!.status).toBe("failed");
+    expect(result.deliveries[0]!.attempts).toBe(1);
+    expect(result.deliveries[0]!.error).toMatch(/retry\.delayMs\(2\).*non-negative finite number/);
+  });
+
+  test("throwing retry delay functions fail the delivery without extra provider attempts", async () => {
+    const provider = makeFlakyProvider(99);
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+      retry: {
+        maxAttempts: 3,
+        delayMs: () => {
+          throw new Error("bad delay");
+        },
+      },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: basePayload,
+    });
+
+    expect(provider.attempts).toBe(1);
+    expect(result.deliveries[0]!.status).toBe("failed");
+    expect(result.deliveries[0]!.attempts).toBe(1);
+    expect(result.deliveries[0]!.error).toMatch(/retry\.delayMs\(2\) threw: bad delay/);
   });
 
   test("delivery.failed hook fires exactly once", async () => {

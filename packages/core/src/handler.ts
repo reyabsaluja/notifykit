@@ -179,6 +179,28 @@ export function createHandler<
   const unsubscribeSecret = options.unsubscribeSecret;
   const corsOrigin = options.cors ?? null;
   const requestRateLimit = options.requestRateLimit ?? null;
+  if (requestRateLimit) {
+    if (!Number.isSafeInteger(requestRateLimit.max) || requestRateLimit.max <= 0) {
+      throw new NotifyKitError(
+        "requestRateLimit.max must be a positive integer.",
+        {
+          code: "INVALID_HANDLER_CONFIG",
+          field: "requestRateLimit.max",
+          fix: "Set requestRateLimit.max to a positive integer, or omit requestRateLimit.",
+        },
+      );
+    }
+    if (!Number.isFinite(requestRateLimit.windowMs) || requestRateLimit.windowMs <= 0) {
+      throw new NotifyKitError(
+        "requestRateLimit.windowMs must be a positive number.",
+        {
+          code: "INVALID_HANDLER_CONFIG",
+          field: "requestRateLimit.windowMs",
+          fix: "Set requestRateLimit.windowMs to a positive millisecond value, or omit requestRateLimit.",
+        },
+      );
+    }
+  }
   const debug = options.debug ?? false;
   const rateLimitBuckets = new Map<string, number[]>();
   let lastSweep = Date.now();
@@ -194,8 +216,13 @@ export function createHandler<
   }
 
   /** Returns 0 when allowed, or the number of seconds until the next slot opens (for Retry-After). */
-  function checkRateLimit(recipientId: string): number {
+  function identityBucketKey(identity: Pick<HandlerIdentity, "recipientId" | "tenantId" | "workspaceId">): string {
+    return JSON.stringify([identity.recipientId, identity.tenantId ?? "", identity.workspaceId ?? ""]);
+  }
+
+  function checkRateLimit(identity: HandlerIdentity): number {
     if (!requestRateLimit) return 0;
+    const bucketKey = identityBucketKey(identity);
     const now = Date.now();
     const cutoff = now - requestRateLimit.windowMs;
 
@@ -208,7 +235,7 @@ export function createHandler<
       }
     }
 
-    let timestamps = rateLimitBuckets.get(recipientId);
+    let timestamps = rateLimitBuckets.get(bucketKey);
     if (timestamps) {
       let pruneCount = 0;
       while (pruneCount < timestamps.length && timestamps[pruneCount]! < cutoff) {
@@ -217,10 +244,10 @@ export function createHandler<
       if (pruneCount > 0) {
         timestamps = timestamps.slice(pruneCount);
         if (timestamps.length === 0) {
-          rateLimitBuckets.delete(recipientId);
+          rateLimitBuckets.delete(bucketKey);
           timestamps = undefined;
         } else {
-          rateLimitBuckets.set(recipientId, timestamps);
+          rateLimitBuckets.set(bucketKey, timestamps);
         }
       }
     }
@@ -228,7 +255,7 @@ export function createHandler<
       const oldest = timestamps[0]!;
       return Math.max(1, Math.ceil((oldest + requestRateLimit.windowMs - now) / 1000));
     }
-    if (rateLimitBuckets.size >= MAX_BUCKETS && !rateLimitBuckets.has(recipientId)) {
+    if (rateLimitBuckets.size >= MAX_BUCKETS && !rateLimitBuckets.has(bucketKey)) {
       let oldestKey: string | null = null;
       let oldestTime = Infinity;
       for (const [key, ts] of rateLimitBuckets) {
@@ -242,7 +269,7 @@ export function createHandler<
     }
     if (!timestamps) {
       timestamps = [];
-      rateLimitBuckets.set(recipientId, timestamps);
+      rateLimitBuckets.set(bucketKey, timestamps);
     }
     timestamps.push(now);
     return 0;
@@ -281,7 +308,7 @@ export function createHandler<
       return withCors(new Response(null, { status: 204 }), request);
     }
 
-    const sub = path.slice(basePath.length) || "/";
+    const sub = basePath === "/" ? path : path.slice(basePath.length) || "/";
 
     const route = matchRoute(request.method, sub);
     if (route.kind === "not_found") {
@@ -304,7 +331,7 @@ export function createHandler<
           }, 401));
         }
         if (requestRateLimit) {
-          const retryAfter = checkRateLimit(identity.recipientId);
+          const retryAfter = checkRateLimit(identity);
           if (retryAfter > 0) {
             const res = errorJson({
               error: "Too many requests",
@@ -433,7 +460,7 @@ export function createHandler<
     }
 
     if (requestRateLimit) {
-      const retryAfter = checkRateLimit(identity.recipientId);
+      const retryAfter = checkRateLimit(identity);
       if (retryAfter > 0) {
         const res = errorJson({
           error: "Too many requests",
@@ -457,11 +484,12 @@ export function createHandler<
       if (!notify.realtime) {
         return withCors(json({ error: "Realtime not configured" }, 404));
       }
-      const currentConns = sseConnections.get(context.recipientId) ?? 0;
+      const sseKey = identityBucketKey(context);
+      const currentConns = sseConnections.get(sseKey) ?? 0;
       if (currentConns >= MAX_SSE_PER_RECIPIENT) {
         return withCors(errorJson({ error: "Too many concurrent connections", code: "SSE_LIMIT" }, 429));
       }
-      sseConnections.set(context.recipientId, currentConns + 1);
+      sseConnections.set(sseKey, currentConns + 1);
       const scope = normalizeScope(context);
       let cleanup: (() => void) | null = null;
       const stream = new ReadableStream({
@@ -501,10 +529,10 @@ export function createHandler<
             unsub();
             clearInterval(heartbeat);
             clearTimeout(maxLifetime);
-            const count = sseConnections.get(context.recipientId);
+            const count = sseConnections.get(sseKey);
             if (count !== undefined) {
-              if (count <= 1) sseConnections.delete(context.recipientId);
-              else sseConnections.set(context.recipientId, count - 1);
+              if (count <= 1) sseConnections.delete(sseKey);
+              else sseConnections.set(sseKey, count - 1);
             }
             try { controller.close(); } catch {}
           };
@@ -536,6 +564,9 @@ export function createHandler<
             ? { archived: true as const }
             : undefined;
           const limit = parseLimit(url.searchParams.get("limit"));
+          if (limit === INVALID_LIMIT) {
+            return withCors(json({ error: "Invalid 'limit' query parameter" }, 400));
+          }
           const items = await notify.inbox.list(
             context.recipientId,
             context,
@@ -801,6 +832,9 @@ export function createHandler<
             ? (url.searchParams.get("recipientId") ?? undefined)
             : context.recipientId;
           const dlvLimit = parseLimit(url.searchParams.get("limit"));
+          if (dlvLimit === INVALID_LIMIT) {
+            return withCors(json({ error: "Invalid 'limit' query parameter" }, 400));
+          }
           const deliveries = await notify.deliveries.list(recipientId, context, dlvLimit);
           return withCors(json({ data: deliveries.map(redactDelivery) }));
         }
@@ -996,17 +1030,27 @@ function normalizeIdentity(
 ): HandlerIdentity | null {
   if (!value) return null;
   if (typeof value === "string") {
-    if (!value || value.length > MAX_ID_LENGTH) return null;
+    if (!isValidIdentityId(value)) return null;
     return { recipientId: value };
   }
-  if (!value.recipientId || value.recipientId.length > MAX_ID_LENGTH) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  if (!isValidIdentityId(value.recipientId)) return null;
+  if (value.tenantId !== undefined && !isValidOptionalIdentityId(value.tenantId)) return null;
+  if (value.organizationId !== undefined && !isValidOptionalIdentityId(value.organizationId)) return null;
+  if (value.workspaceId !== undefined && !isValidOptionalIdentityId(value.workspaceId)) return null;
   const tenantId = value.tenantId ?? value.organizationId;
-  if (tenantId && tenantId.length > MAX_ID_LENGTH) return null;
-  if (value.workspaceId && value.workspaceId.length > MAX_ID_LENGTH) return null;
   if (value.organizationId && !value.tenantId) {
     return { ...value, tenantId, organizationId: undefined };
   }
   return value;
+}
+
+function isValidIdentityId(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "" && value.length <= MAX_ID_LENGTH;
+}
+
+function isValidOptionalIdentityId(value: unknown): value is string {
+  return isValidIdentityId(value);
 }
 
 async function isAuthorized(
@@ -1044,10 +1088,13 @@ function coerceQueryParam(value: string, schemaType?: string): unknown {
   return value;
 }
 
-function parseLimit(value: string | null): number | undefined {
-  if (!value) return undefined;
-  const n = parseInt(value, 10);
-  if (!Number.isFinite(n) || n < 1) return undefined;
+const INVALID_LIMIT = Symbol("invalid_limit");
+
+function parseLimit(value: string | null): number | undefined | typeof INVALID_LIMIT {
+  if (value === null || value === "") return undefined;
+  if (!/^[1-9]\d*$/.test(value)) return INVALID_LIMIT;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return INVALID_LIMIT;
   return Math.min(n, 200);
 }
 

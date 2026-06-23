@@ -12,11 +12,15 @@ export type NotifyKitMiddlewareOptions = {
 export function createNotifyKitMiddleware(
   options: NotifyKitMiddlewareOptions = {},
 ) {
-  const basePath = options.basePath ?? "/api/notifykit";
+  const basePath = normalizeBasePath(options.basePath ?? "/api/notifykit");
 
   return function notifyKitMiddleware(request: NextRequest): NextResponse | null {
     const { pathname } = request.nextUrl;
-    if (pathname !== basePath && !pathname.startsWith(basePath + "/")) {
+    if (
+      basePath !== "/" &&
+      pathname !== basePath &&
+      !pathname.startsWith(basePath + "/")
+    ) {
       return null;
     }
 
@@ -74,12 +78,19 @@ export function createNotifyKitMiddleware(
 }
 
 export function withNotifyKitHeaders(basePath = "/api/notifykit") {
+  const normalizedBasePath = normalizeBasePath(basePath);
   return {
-    source: `${basePath}/:path*`,
+    source: normalizedBasePath === "/" ? "/:path*" : `${normalizedBasePath}/:path*`,
     headers: [
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "X-Frame-Options", value: "DENY" },
       { key: "Cache-Control", value: "no-store" },
     ],
   };
+}
+
+function normalizeBasePath(input: string): string {
+  let path = input.startsWith("/") ? input : `/${input}`;
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+  return path;
 }

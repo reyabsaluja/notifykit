@@ -29,6 +29,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
       sms: config.providers?.sms,
     },
     unsubscribe: config.unsubscribe,
+    defaults: config.defaults,
+    retry: config.retry,
+    idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
+    timelineRetentionMs: config.timelineRetentionMs,
     on: {
       "notification.created": ({ notification }) => {
         console.log(
@@ -66,9 +70,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
   });
 
   const basePath = options.basePath ?? "/api/notifykit";
+  let serverPort = options.port;
   const server = createServer(async (req, res) => {
     try {
-      const request = toRequest(req, options.port);
+      const request = toRequest(req, serverPort);
       const response = await handler(request);
       await writeResponse(res, response);
     } catch (err) {
@@ -81,24 +86,14 @@ export async function runServe(options: ServeOptions): Promise<number> {
     }
   });
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.port, "127.0.0.1", () => {
-      server.removeListener("error", reject);
-      resolve();
-    });
-  }).catch((err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE") {
-      console.error(`Port ${options.port} is already in use. Try a different port with --port.`);
-      process.exit(1);
-    }
-    throw err;
-  });
+  const actualPort = await listen(server, options.port);
+  if (actualPort === null) return 1;
+  serverPort = actualPort;
   const address = server.address();
-  const actualPort =
-    typeof address === "object" && address ? address.port : options.port;
+  const displayPort =
+    typeof address === "object" && address ? address.port : actualPort;
 
-  console.log(`\nNotifyKit dev server: http://localhost:${actualPort}${basePath}`);
+  console.log(`\nNotifyKit dev server: http://localhost:${displayPort}${basePath}`);
   console.log(
     `⚠ Dev-only auth: identity comes from x-user-id header. Do NOT use this in production.`,
   );
@@ -118,6 +113,43 @@ export async function runServe(options: ServeOptions): Promise<number> {
     process.on("SIGINT", onSignal);
     process.on("SIGTERM", onSignal);
   });
+}
+
+async function listen(
+  server: ReturnType<typeof createServer>,
+  requestedPort: number,
+): Promise<number | null> {
+  const maxAttempts = requestedPort === 0 ? 20 : 1;
+  const firstFallback = 49_152 + ((Date.now() + process.pid) % 16_000);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const port =
+      attempt === 0
+        ? requestedPort
+        : 49_152 + ((firstFallback + attempt - 49_152) % 16_000);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", () => {
+          server.removeListener("error", reject);
+          resolve();
+        });
+      });
+      const address = server.address();
+      return typeof address === "object" && address ? address.port : port;
+    } catch (err) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === "EADDRINUSE" && requestedPort === 0) continue;
+      if (error.code === "EADDRINUSE") {
+        console.error(`Port ${requestedPort} is already in use. Try a different port with --port.`);
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  console.error("No available port found. Try a specific port with --port.");
+  return null;
 }
 
 function toRequest(req: IncomingMessage, port: number): Request {

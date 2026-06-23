@@ -110,6 +110,52 @@ export type NotifyKitClient = {
   };
 };
 
+function cloneOptionalDate<T extends Date | null | undefined>(value: T): T {
+  return (value instanceof Date ? new Date(value.getTime()) : value) as T;
+}
+
+function cloneInboxItem(item: InboxItem): InboxItem {
+  return {
+    ...item,
+    readAt: cloneOptionalDate(item.readAt),
+    archivedAt: cloneOptionalDate(item.archivedAt),
+    createdAt: new Date(item.createdAt.getTime()),
+  };
+}
+
+function clonePreference(preference: RecipientPreference): RecipientPreference {
+  return {
+    ...preference,
+    channels: { ...preference.channels },
+    updatedAt: new Date(preference.updatedAt.getTime()),
+  };
+}
+
+function cloneState(state: ClientState): ClientState {
+  return {
+    inbox: {
+      ...state.inbox,
+      items: state.inbox.items.map(cloneInboxItem),
+    },
+    preferences: {
+      ...state.preferences,
+      items: state.preferences.items.map(clonePreference),
+    },
+  };
+}
+
+function cloneMetadata(item: NotificationMetadata): NotificationMetadata {
+  const cloned: NotificationMetadata = {
+    ...item,
+    channels: item.channels.slice(),
+    payload: { ...item.payload },
+  };
+  if (item.defaultChannels !== undefined) {
+    cloned.defaultChannels = { ...item.defaultChannels };
+  }
+  return cloned;
+}
+
 export function createNotifyKitClient(
   options: CreateNotifyKitClientOptions = {},
 ): NotifyKitClient {
@@ -133,7 +179,13 @@ export function createNotifyKitClient(
 
   function setState(next: ClientState) {
     state = next;
-    for (const l of listeners) l();
+    for (const l of listeners) {
+      try {
+        l();
+      } catch (err) {
+        console.error("[notifykit] client listener error:", err);
+      }
+    }
   }
 
   let sseAbort: AbortController | null = null;
@@ -250,10 +302,7 @@ export function createNotifyKitClient(
           const fetched = reviveInbox(raw);
           const fetchedIds = new Set(fetched.map((it) => it.id));
           const current = state.inbox.items;
-          const now = Date.now();
-          const extras = current.filter(
-            (it) => !fetchedIds.has(it.id) && now - it.createdAt.getTime() < 10_000,
-          );
+          const extras = recentUnfetchedExtras(current, fetchedIds, false);
           const items = [...extras, ...fetched];
           const unreadCount = items.filter(isActiveUnread).length;
           setState({
@@ -280,7 +329,7 @@ export function createNotifyKitClient(
     for (const l of listeners) l();
   }
 
-  async function readSSEStream(signal: AbortSignal) {
+  async function readSSEStream(signal: AbortSignal, onOpen?: () => void) {
     const url = `${baseUrl}/inbox/stream`;
     const sseHeaders: Record<string, string> = {
       accept: "text/event-stream",
@@ -301,12 +350,13 @@ export function createNotifyKitClient(
       throw err;
     }
     setRtStatus("connected");
+    onOpen?.();
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     function processSSEPart(part: string) {
       const dataLines: string[] = [];
-      for (const line of part.split("\n")) {
+      for (const line of part.split(/\r\n|\n|\r/)) {
         if (line.startsWith("data: ")) {
           dataLines.push(line.slice(6));
         } else if (line === "data:") {
@@ -326,7 +376,7 @@ export function createNotifyKitClient(
         break;
       }
       buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
+      const parts = buffer.split(/\r\n\r\n|\n\n|\r\r/);
       buffer = parts.pop()!;
       for (const part of parts) {
         processSSEPart(part);
@@ -353,8 +403,9 @@ export function createNotifyKitClient(
         }
         const connStart = Date.now();
         try {
-          await readSSEStream(controller.signal);
-          hasConnectedBefore = true;
+          await readSSEStream(controller.signal, () => {
+            hasConnectedBefore = true;
+          });
           const streamDuration = Date.now() - connStart;
           if (streamDuration > 5000) {
             retries = 0;
@@ -446,6 +497,20 @@ export function createNotifyKitClient(
     return !item.readAt && !item.archivedAt;
   }
 
+  function recentUnfetchedExtras(
+    current: InboxItem[],
+    fetchedIds: Set<string>,
+    archived: boolean,
+  ): InboxItem[] {
+    const now = Date.now();
+    return current.filter(
+      (it) =>
+        !fetchedIds.has(it.id) &&
+        now - it.createdAt.getTime() < 10_000 &&
+        (it.archivedAt != null) === archived,
+    );
+  }
+
   function reviveInbox(raw: unknown): InboxItem[] {
     if (!Array.isArray(raw)) return [];
     return raw.filter((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).id === "string").map(reviveInboxItem);
@@ -516,7 +581,7 @@ export function createNotifyKitClient(
 
   return {
     getState() {
-      return state;
+      return cloneState(state);
     },
 
     subscribe(listener) {
@@ -541,10 +606,8 @@ export function createNotifyKitClient(
           const fetched = reviveInbox(await request("GET", `/inbox${qs}`));
           const fetchedIds = new Set(fetched.map((it) => it.id));
           const current = state.inbox.items;
-          const now = Date.now();
-          const extras = current.filter(
-            (it) => !fetchedIds.has(it.id) && now - it.createdAt.getTime() < 10_000,
-          );
+          const archived = options?.archived === true;
+          const extras = recentUnfetchedExtras(current, fetchedIds, archived);
           const items = [...extras, ...fetched];
           const unreadCount = options?.archived
             ? state.inbox.unreadCount
@@ -553,7 +616,7 @@ export function createNotifyKitClient(
             ...state,
             inbox: { items, unreadCount, status: "ready", error: null },
           });
-          return items;
+          return items.map(cloneInboxItem);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           setState({
@@ -598,7 +661,7 @@ export function createNotifyKitClient(
               },
             });
           }
-          return updated;
+          return updated ? cloneInboxItem(updated) : null;
         } catch (err) {
           const originalReadAt = prevItems.find((it) => it.id === inboxItemId)?.readAt ?? null;
           setState({
@@ -690,7 +753,8 @@ export function createNotifyKitClient(
             "POST",
             `/inbox/${encodeURIComponent(inboxItemId)}/archive`,
           );
-          return raw ? reviveInboxItem(raw) : null;
+          const updated = raw ? reviveInboxItem(raw) : null;
+          return updated ? cloneInboxItem(updated) : null;
         } catch (err) {
           if (target && !alreadyArchived) {
             const current = state.inbox.items;
@@ -733,7 +797,8 @@ export function createNotifyKitClient(
             "POST",
             `/inbox/${encodeURIComponent(inboxItemId)}/unarchive`,
           );
-          return raw ? reviveInboxItem(raw) : null;
+          const updated = raw ? reviveInboxItem(raw) : null;
+          return updated ? cloneInboxItem(updated) : null;
         } catch (err) {
           if (target && !alreadyUnarchived) {
             const current = state.inbox.items;
@@ -801,7 +866,7 @@ export function createNotifyKitClient(
             ...state,
             preferences: { items, status: "ready", error: null },
           });
-          return items;
+          return items.map(clonePreference);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           setState({
@@ -854,7 +919,7 @@ export function createNotifyKitClient(
               error: null,
             },
           });
-          return updated;
+          return clonePreference(updated);
         } catch (err) {
           setState({
             ...state,
@@ -878,12 +943,13 @@ export function createNotifyKitClient(
 
       async getGlobal(): Promise<RecipientPreference | null> {
         const raw = await request("GET", "/preferences/global");
-        return raw ? revivePreference(raw) : null;
+        const preference = raw ? revivePreference(raw) : null;
+        return preference ? clonePreference(preference) : null;
       },
 
       async updateGlobal(input): Promise<RecipientPreference> {
         const raw = await request("POST", "/preferences/global", input);
-        return revivePreference(raw);
+        return clonePreference(revivePreference(raw));
       },
 
       async getCategory(category): Promise<RecipientPreference | null> {
@@ -891,16 +957,18 @@ export function createNotifyKitClient(
           "GET",
           `/preferences/category?category=${encodeURIComponent(category)}`,
         );
-        return raw ? revivePreference(raw) : null;
+        const preference = raw ? revivePreference(raw) : null;
+        return preference ? clonePreference(preference) : null;
       },
 
       async listCategories(): Promise<RecipientPreference[]> {
-        return revivePreferences(await request("GET", "/preferences/categories"));
+        return revivePreferences(await request("GET", "/preferences/categories"))
+          .map(clonePreference);
       },
 
       async updateCategory(input): Promise<RecipientPreference> {
         const raw = await request("POST", "/preferences/category", input);
-        return revivePreference(raw);
+        return clonePreference(revivePreference(raw));
       },
     },
 
@@ -914,7 +982,7 @@ export function createNotifyKitClient(
             typeof item === "object" &&
             typeof (item as Record<string, unknown>).id === "string" &&
             Array.isArray((item as Record<string, unknown>).channels),
-        );
+        ).map(cloneMetadata);
       },
     },
   };

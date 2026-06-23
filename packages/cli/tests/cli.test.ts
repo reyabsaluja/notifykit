@@ -73,6 +73,15 @@ describe("notifykit CLI", () => {
     expect(combined).toMatch(/nmae/);
   });
 
+  test("check validates runtime options from config", async () => {
+    const result = await runCli(["check", "--config", "runtime-options.config.ts"]);
+    expect(result.code).toBe(1);
+    const combined = result.stdout + result.stderr;
+    expect(combined).toMatch(/retry\.maxAttempts/);
+    expect(combined).toMatch(/idempotencyKeyTtlMs/);
+    expect(combined).toMatch(/timelineRetentionMs/);
+  });
+
   test("check with missing config exits 2", async () => {
     const result = await runCli(["check", "--config", "nope.config.ts"]);
     expect(result.code).toBe(2);
@@ -101,6 +110,30 @@ describe("notifykit CLI", () => {
     expect(result.stdout).toContain('Sent "comment_mentioned"');
     expect(result.stdout).toContain("inbox:");
     expect(result.stdout).toContain("email: sent");
+  });
+
+  test("send honors app-level channel defaults from config", async () => {
+    const result = await runCli([
+      "send",
+      "--config",
+      "defaults.config.ts",
+      "--to",
+      "user_1",
+      "--id",
+      "comment_mentioned",
+      "--email",
+      "u@example.com",
+      "--payload",
+      JSON.stringify({
+        actorName: "Rey",
+        postTitle: "Plan",
+        postUrl: "/p",
+      }),
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("inbox:");
+    expect(result.stdout).toContain("email: skipped");
+    expect(result.stdout).not.toContain("email: sent");
   });
 
   test("send supports SMS configs with a phone number", async () => {
@@ -150,6 +183,18 @@ describe("notifykit CLI", () => {
     expect(result.stderr).toBe("");
   });
 
+  test("serve rejects non-integer ports", async () => {
+    const result = await runCli([
+      "serve",
+      "--config",
+      "good.config.ts",
+      "--port",
+      "1.5",
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Invalid --port: 1.5");
+  });
+
   test("send with missing required payload key exits 1", async () => {
     const result = await runCli([
       "send",
@@ -166,6 +211,25 @@ describe("notifykit CLI", () => {
     ]);
     expect(result.code).toBe(1);
     expect(result.stderr).toMatch(/postTitle/);
+  });
+
+  test("send exits 1 when provider delivery fails", async () => {
+    const result = await runCli([
+      "send",
+      "--config",
+      "failing-provider.config.ts",
+      "--to",
+      "user_1",
+      "--id",
+      "provider_fails",
+      "--email",
+      "u@example.com",
+      "--payload",
+      JSON.stringify({ msg: "Hello" }),
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("email: failed");
+    expect(result.stdout).toContain("provider unavailable");
   });
 
   test("unknown command prints usage and exits 1", async () => {

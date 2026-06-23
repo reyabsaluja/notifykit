@@ -4,6 +4,7 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
+  type SendResult,
 } from "@notifykitjs/core";
 
 const inbox = channel.inbox();
@@ -30,6 +31,10 @@ const commentMentioned = notification({
 });
 
 const provider = fakeEmailProvider();
+
+function skippedSummary(result: SendResult): string {
+  return result.skipped.map((s) => `${s.channel}:${s.reason}`).join(", ") || "(none)";
+}
 
 const notify = createNotifyKit({
   notifications: [commentMentioned] as const,
@@ -112,7 +117,7 @@ async function main() {
   });
 
   console.log(
-    `Second send — skipped channels: ${second.skippedChannels.join(", ") || "(none)"}`,
+    `Second send — skipped: ${skippedSummary(second)}`,
   );
   console.log(`Inbox items created: ${second.inboxItems.length}`);
   console.log(`Deliveries created: ${second.deliveries.length}`);

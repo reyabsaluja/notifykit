@@ -69,6 +69,17 @@ export function webhookProvider(
   options: WebhookProviderOptions = {},
 ): WebhookProvider {
   const timeoutMs = options.timeoutMs ?? 10_000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new NotifyKitError(
+      "webhookProvider timeoutMs must be a positive number.",
+      {
+        code: "INVALID_PROVIDER_CONFIG",
+        channel: "webhook",
+        field: "timeoutMs",
+        fix: "Set timeoutMs to a positive millisecond value, or omit it to use the default.",
+      },
+    );
+  }
   const fetchImpl = options.fetch ?? globalThis.fetch;
   if (!fetchImpl) {
     throw new NotifyKitError(

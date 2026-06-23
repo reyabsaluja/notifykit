@@ -67,15 +67,17 @@ export const commentMentioned = notification({
       </p>
       <Code
         code={`import { z } from "zod"
-import { withZod } from "@notifykitjs/core/zod"
+import { zodPayload } from "@notifykitjs/core/zod"
+
+const invoicePayload = zodPayload(z.object({
+  invoiceId: z.string().uuid(),
+  amount: z.number().positive(),
+}))
 
 notification({
   id: "invoice_created",
-  payload: { invoiceId: "string", amount: "number" },
-  validate: withZod(z.object({
-    invoiceId: z.string().uuid(),
-    amount: z.number().positive(),
-  })),
+  payload: invoicePayload.payload,
+  validate: invoicePayload.validate,
   channels: [...],
 })`}
       />

@@ -41,12 +41,12 @@ export default function ApiPage() {
   notification: NotificationRecord | null
   inboxItems: InboxItem[]
   deliveries: DeliveryRecord[]
-  skippedChannels: SkippedDelivery[]
-  deferredChannels: Array<{ channel: ChannelType; resumesAt: Date }>
+  skippedChannels: ChannelType[] // deprecated; use skipped[]
+  skipped: SkippedDelivery[]
+  deferredChannels: ChannelType[]
   digested: boolean
   rateLimited: boolean
-  deduplicated: boolean
-  idempotentReplay: boolean
+  idempotent: boolean
 }`}
       />
 

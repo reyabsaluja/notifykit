@@ -1100,6 +1100,19 @@ describe("empty-string recipientId rejection", () => {
     expect(res.status).toBe(401);
   });
 
+  test("identify returning whitespace is treated as unauthenticated", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, { identify: () => "   " });
+
+    const res = await handler(new Request(`${BASE}/inbox`));
+    expect(res.status).toBe(401);
+  });
+
   test("identify returning object with empty recipientId is treated as unauthenticated", async () => {
     const database = memoryAdapter();
     const notify = createNotifyKit({
@@ -1109,6 +1122,69 @@ describe("empty-string recipientId rejection", () => {
     });
     const handler = createHandler(notify, {
       identify: () => ({ recipientId: "" }),
+    });
+
+    const res = await handler(new Request(`${BASE}/inbox`));
+    expect(res.status).toBe(401);
+  });
+
+  test("identify returning malformed recipientId is treated as unauthenticated", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+
+    for (const identity of [{}, { recipientId: 123 }, { recipientId: "user_1", tenantId: null }, []]) {
+      const handler = createHandler(notify, {
+        identify: () => identity as never,
+      });
+
+      const res = await handler(new Request(`${BASE}/inbox`));
+      expect(res.status).toBe(401);
+    }
+  });
+
+  test("identify returning object with whitespace recipientId is treated as unauthenticated", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "\t" }),
+    });
+
+    const res = await handler(new Request(`${BASE}/inbox`));
+    expect(res.status).toBe(401);
+  });
+
+  test("identify returning empty scope fields is treated as unauthenticated", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "user_1", organizationId: "" }),
+    });
+
+    const res = await handler(new Request(`${BASE}/inbox`));
+    expect(res.status).toBe(401);
+  });
+
+  test("identify returning whitespace scope fields is treated as unauthenticated", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "user_1", tenantId: " " }),
     });
 
     const res = await handler(new Request(`${BASE}/inbox`));
@@ -1246,6 +1322,29 @@ describe("deliveries.list admin vs non-admin scoping", () => {
 });
 
 describe("request rate limiting", () => {
+  test("rejects invalid request rate limit options at handler creation", () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+
+    expect(() =>
+      createHandler(notify, {
+        identify: () => ({ recipientId: "alice" }),
+        requestRateLimit: { max: 0, windowMs: 1000 },
+      }),
+    ).toThrow(/requestRateLimit\.max/);
+
+    expect(() =>
+      createHandler(notify, {
+        identify: () => ({ recipientId: "alice" }),
+        requestRateLimit: { max: 1, windowMs: 0 },
+      }),
+    ).toThrow(/requestRateLimit\.windowMs/);
+  });
+
   test("returns 429 when request limit is exceeded", async () => {
     const database = memoryAdapter();
     const notify = createNotifyKit({
@@ -1298,6 +1397,31 @@ describe("request rate limiting", () => {
     currentUser = "bob";
     const bobOk = await handler(new Request(`${BASE}/inbox`));
     expect(bobOk.status).toBe(200);
+  });
+
+  test("rate limit is scoped by tenant for the same recipient id", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", tenantId: "tenant-a" });
+
+    let tenantId = "tenant-a";
+    const handler = createHandler(notify, {
+      identify: () => ({ recipientId: "alice", tenantId }),
+      requestRateLimit: { max: 1, windowMs: 60_000 },
+    });
+
+    const first = await handler(new Request(`${BASE}/inbox`));
+    expect(first.status).toBe(200);
+    const blocked = await handler(new Request(`${BASE}/inbox`));
+    expect(blocked.status).toBe(429);
+
+    tenantId = "tenant-b";
+    const otherTenant = await handler(new Request(`${BASE}/inbox`));
+    expect(otherTenant.status).toBe(200);
   });
 
   test("rate limit does not apply to unauthenticated routes", async () => {
@@ -1836,6 +1960,16 @@ describe("organizationId alias", () => {
       payload: makePayload(),
     });
     expect(result.notification!.tenantId).toBe("t_explicit");
+
+    await expect(
+      notify.send({
+        recipientId: "bob",
+        tenantId: "t_explicit",
+        organizationId: " ",
+        notificationId: "comment_mentioned",
+        payload: makePayload(),
+      }),
+    ).rejects.toThrow(/organizationId must be a non-empty string/);
   });
 });
 
@@ -2049,6 +2183,37 @@ describe("organizationId normalization in scope-taking APIs", () => {
 });
 
 describe("recipient tenant immutability", () => {
+  test("upsertRecipient rejects empty ids", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+
+    await expect(notify.upsertRecipient({ id: "" })).rejects.toThrow(/non-empty/);
+    await expect(notify.upsertRecipient({ id: "   " })).rejects.toThrow(/non-empty/);
+  });
+
+  test("upsertRecipient rejects whitespace-only scope ids", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+
+    await expect(
+      notify.upsertRecipient({ id: "alice", tenantId: " " }),
+    ).rejects.toThrow(/tenantId must be a non-empty string/);
+    await expect(
+      notify.upsertRecipient({ id: "alice", organizationId: "\t" }),
+    ).rejects.toThrow(/organizationId must be a non-empty string/);
+    await expect(
+      notify.upsertRecipient({ id: "alice", workspaceId: " " }),
+    ).rejects.toThrow(/workspaceId must be a non-empty string/);
+  });
+
   test("upsertRecipient rejects tenant reassignment", async () => {
     const database = memoryAdapter();
     const notify = createNotifyKit({
@@ -2090,9 +2255,56 @@ describe("recipient tenant immutability", () => {
     expect(updated.email).toBe("new@x.com");
     expect(updated.tenantId).toBe("orgA");
   });
+
+  test("upsertRecipient rejects workspace reassignment", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", workspaceId: "wsA" });
+
+    await expect(
+      notify.upsertRecipient({ id: "alice", workspaceId: "wsB" }),
+    ).rejects.toThrow(/cannot reassign/);
+  });
+
+  test("upsertRecipient allows re-upserting same workspace", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", workspaceId: "wsA", email: "old@x.com" });
+
+    const updated = await notify.upsertRecipient({ id: "alice", workspaceId: "wsA", email: "new@x.com" });
+    expect(updated.email).toBe("new@x.com");
+    expect(updated.workspaceId).toBe("wsA");
+  });
 });
 
 describe("tenant-scoped explain()", () => {
+  test("send rejects whitespace-only scope ids", async () => {
+    const database = memoryAdapter();
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database,
+      providers: { email: fakeEmailProvider() },
+    });
+    await notify.upsertRecipient({ id: "alice", email: "a@x.com" });
+
+    await expect(
+      notify.send({
+        recipientId: "alice",
+        tenantId: " ",
+        notificationId: "comment_mentioned",
+        payload: makePayload(),
+      }),
+    ).rejects.toThrow(/tenantId must be a non-empty string/);
+  });
+
   test("explain uses the recipient's tenant scope for preference resolution", async () => {
     const database = memoryAdapter();
     const notify = createNotifyKit({

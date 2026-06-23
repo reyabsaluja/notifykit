@@ -42,6 +42,11 @@ export async function run(argv: string[]): Promise<number> {
     console.error(USAGE);
     return 1;
   }
+  if (positionals.length > 1) {
+    console.error(`Error: unexpected extra argument: ${positionals[1]}`);
+    console.error(USAGE);
+    return 1;
+  }
 
   try {
     const result = await scaffold({

@@ -78,6 +78,21 @@ describe("drizzlePostgresAdapter", () => {
     await ctx.notify.upsertRecipient({ id: "user_1" });
   });
 
+  test("list methods reject invalid limits", async () => {
+    await expect(
+      ctx.adapter.inbox.listByRecipient("user_1", undefined, undefined, -1),
+    ).rejects.toThrow(/positive integer/);
+    await expect(
+      ctx.adapter.deliveries.list("user_1", undefined, 1.5),
+    ).rejects.toThrow(/positive integer/);
+    await expect(
+      ctx.adapter.timeline!.listByNotificationRecordId("ntf_1", 0),
+    ).rejects.toThrow(/positive integer/);
+    await expect(
+      ctx.adapter.timeline!.listByDeliveryId("dlv_1", undefined, Number.NaN),
+    ).rejects.toThrow(/positive integer/);
+  });
+
   test("upsertRecipient creates then updates without clobbering", async () => {
     const created = await ctx.notify.upsertRecipient({
       id: "user_1",
@@ -286,6 +301,40 @@ describe("drizzlePostgresAdapter", () => {
     }
     const all = await ctx.notify.deliveries.list();
     expect(all).toHaveLength(2);
+  });
+
+  test("list methods do not truncate when limit is omitted", async () => {
+    await ctx.notify.upsertRecipient({ id: "user_1", email: "a@example.com" });
+    for (let i = 0; i < 205; i++) {
+      const notificationRecord = await ctx.adapter.notifications.create({
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        payload: { name: `User ${i}` },
+        payloadSchema: { name: "string" },
+      });
+      await ctx.adapter.inbox.create({
+        notificationRecordId: notificationRecord.id,
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        title: `Welcome ${i}`,
+      });
+      await ctx.adapter.deliveries.create({
+        notificationRecordId: notificationRecord.id,
+        recipientId: "user_1",
+        notificationId: "user_welcome",
+        channel: "email",
+        provider: "fake",
+        status: "sent",
+        to: "a@example.com",
+        subject: `Welcome ${i}`,
+        body: `Welcome ${i}`,
+      });
+    }
+
+    expect(await ctx.adapter.inbox.listByRecipient("user_1")).toHaveLength(205);
+    expect(await ctx.adapter.inbox.listByRecipient("user_1", undefined, undefined, 10)).toHaveLength(10);
+    expect(await ctx.adapter.deliveries.list()).toHaveLength(205);
+    expect(await ctx.adapter.deliveries.list(undefined, undefined, 10)).toHaveLength(10);
   });
 
   test("quietHours persists as jsonb on the recipient row", async () => {

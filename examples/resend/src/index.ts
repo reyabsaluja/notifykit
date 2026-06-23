@@ -3,6 +3,7 @@ import {
   createNotifyKit,
   memoryAdapter,
   notification,
+  type SendResult,
 } from "@notifykitjs/core";
 import { resendProvider } from "@notifykitjs/resend";
 
@@ -15,6 +16,10 @@ if (!apiKey) {
 
 const inbox = channel.inbox();
 const email = channel.email();
+
+function skippedSummary(result: SendResult): string {
+  return result.skipped.map((s) => `${s.channel}:${s.reason}`).join(", ") || "(none)";
+}
 
 const welcomeEmail = notification({
   id: "welcome",
@@ -97,7 +102,7 @@ async function main() {
   console.log(`\nSendResult:`);
   console.log(`  Inbox items: ${result.inboxItems.length}`);
   console.log(`  Deliveries:  ${result.deliveries.length}`);
-  console.log(`  Skipped:     ${result.skippedChannels.length > 0 ? result.skippedChannels.join(", ") : "(none)"}`);
+  console.log(`  Skipped:     ${skippedSummary(result)}`);
 
   console.log(`\nSending invoice_paid email...`);
   const result2 = await notify.send({

@@ -45,10 +45,16 @@ function makeItem(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function sseResponse(events: Array<{ type: string; [k: string]: unknown }>) {
+function sseResponse(
+  events: Array<{ type: string; [k: string]: unknown }>,
+  lineEnding = "\n",
+) {
   const encoder = new TextEncoder();
   const chunks = events.map(
-    (e) => encoder.encode(`data: ${JSON.stringify(e)}\n\n`),
+    (e) =>
+      encoder.encode(
+        `data: ${JSON.stringify(e)}${lineEnding}${lineEnding}`,
+      ),
   );
   let i = 0;
   const body = new ReadableStream<Uint8Array>({
@@ -138,6 +144,43 @@ describe("SSE event ingestion", () => {
     await waitForState(client, () => client.getState().inbox.items.length === 1);
     expect(client.getState().inbox.items[0].id).toBe("inb_new");
     expect(client.getState().inbox.unreadCount).toBe(1);
+
+    client.disconnect();
+  });
+
+  test("SSE parser accepts CRLF-framed events", async () => {
+    const newItem = makeItem({ id: "inb_crlf" });
+    const client = createNotifyKitClient({
+      fetch: (async (input: string | URL | Request) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        const parsed = new URL(url, "http://localhost");
+        const path = parsed.pathname.replace(/^\/api\/notifykit/, "");
+
+        if (path === "/inbox/stream") {
+          return sseResponse(
+            [{ type: "inbox.created", item: newItem }],
+            "\r\n",
+          );
+        }
+
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as unknown as typeof fetch,
+      realtime: true,
+    });
+
+    await client.inbox.list();
+    client.connect();
+
+    await waitForState(client, () => client.getState().inbox.items.length === 1);
+    expect(client.getState().inbox.items[0].id).toBe("inb_crlf");
 
     client.disconnect();
   });
@@ -502,6 +545,70 @@ describe("SSE reconnection", () => {
     client.disconnect();
   });
 
+  test("refetches after an accepted stream errors mid-read", async () => {
+    let streamAttempts = 0;
+    let inboxFetches = 0;
+    const missedItem = makeItem({ id: "inb_missed" });
+
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      const parsed = new URL(url, "http://localhost");
+      const path = parsed.pathname.replace(/^\/api\/notifykit/, "");
+
+      if (path === "/inbox/stream") {
+        streamAttempts++;
+        if (streamAttempts === 1) {
+          const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.error(new Error("stream interrupted"));
+            },
+          });
+          return new Response(body, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        return sseResponse([]);
+      }
+
+      if (`${method} ${path}` === "GET /inbox") {
+        inboxFetches++;
+        return new Response(JSON.stringify({
+          data: inboxFetches === 1 ? [] : [missedItem],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const client = createNotifyKitClient({
+      fetch: fetchImpl,
+      realtime: true,
+      onRealtimeError: () => {},
+    });
+
+    await client.inbox.list();
+    client.connect();
+
+    await waitForState(
+      client,
+      () => client.getState().inbox.items.some((item) => item.id === "inb_missed"),
+      5000,
+    );
+    expect(streamAttempts).toBeGreaterThanOrEqual(2);
+
+    client.disconnect();
+  });
+
   test("tracks Last-Event-ID from server", async () => {
     let capturedHeaders: Record<string, string> = {};
     let attempt = 0;
@@ -621,10 +728,11 @@ describe("SSE reconnection", () => {
 
     await waitForState(
       client,
-      () => streamAttempts >= 2 && activeInboxFetches >= 1,
+      () => streamAttempts >= 2 && activeInboxFetches >= 1 && client.getState().inbox.items.length === 0,
       5000,
     );
     expect(client.getState().inbox.unreadCount).toBe(0);
+    expect(client.getState().inbox.items).toEqual([]);
 
     client.disconnect();
   });

@@ -39,8 +39,8 @@ export default function DeduplicationPage() {
       <Code
         code={`const result = await notify.send({ ... dedupeKey, dedupeWindowMs })
 
-if (result.deduplicated) {
-  // send was skipped — no notification created
+if (result.skipped.some((item) => item.reason === "duplicate")) {
+  // provider delivery was skipped; an audit notification record still exists
   console.log("duplicate within window")
 }`}
       />
@@ -104,7 +104,7 @@ if (result.deduplicated) {
           </tr>
           <tr>
             <td><strong>On duplicate</strong></td>
-            <td>Skip entirely, no record created</td>
+            <td>Create an audit record and skip provider delivery</td>
             <td>Return the existing notification record</td>
           </tr>
           <tr>

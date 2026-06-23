@@ -247,7 +247,7 @@ describe("rule-based fallback", () => {
         email({ subject: "Alert", body: "{{msg}}" }),
       ],
       fallback: [
-        { if: "channel.failed", then: webhook({ url: "https://example.com/fallback", headers: {} }), from: "email" },
+        { if: "channel.failed", then: webhook({ url: "https://93.184.216.34/fallback", headers: {} }), from: "email" },
       ],
     });
     const notify = createNotifyKit({
@@ -338,7 +338,7 @@ describe("rule-based fallback", () => {
         email({ subject: "Update", body: "{{msg}}" }),
       ],
       fallback: [
-        { if: "skipped", then: webhook({ url: "https://example.com/notify", headers: {} }), from: "email" },
+        { if: "skipped", then: webhook({ url: "https://93.184.216.34/notify", headers: {} }), from: "email" },
       ],
     });
     const notify = createNotifyKit({
@@ -370,7 +370,7 @@ describe("rule-based fallback", () => {
       id: "alert",
       payload: { msg: "string" },
       channels: [
-        webhook({ url: "https://example.com/primary", headers: {} }),
+        webhook({ url: "https://93.184.216.34/primary", headers: {} }),
       ],
       fallback: [
         { if: "channel.failed", then: inbox({ title: "Fallback: {{msg}}" }), from: "email" },
@@ -404,7 +404,7 @@ describe("rule-based fallback", () => {
       ],
       fallback: [
         { if: "channel.failed", then: inbox({ title: "First: {{msg}}" }) },
-        { if: "channel.failed", then: webhook({ url: "https://example.com/second", headers: {} }) },
+        { if: "channel.failed", then: webhook({ url: "https://93.184.216.34/second", headers: {} }) },
       ],
     });
     const notify = createNotifyKit({
@@ -522,7 +522,7 @@ describe("rule-based fallback", () => {
       id: "hook",
       payload: { msg: "string" },
       channels: [
-        webhook({ url: "https://example.com/primary", headers: {} }),
+        webhook({ url: "https://93.184.216.34/primary", headers: {} }),
       ],
       fallback: [
         { if: "channel.failed", then: inbox({ title: "Hook failed: {{msg}}" }) },

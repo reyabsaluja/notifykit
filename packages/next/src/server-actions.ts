@@ -56,13 +56,35 @@ function normalizeIdentity(
   value: string | ServerActionsIdentity,
 ): ServerActionsIdentity {
   if (typeof value === "string") {
-    if (!value) throw new Error("identify() returned an empty string");
+    if (!isValidIdentityId(value)) throw new Error("identify() returned an empty string");
     return { recipientId: value };
   }
-  if (!value.recipientId) {
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("identify() returned an invalid identity");
+  }
+  if (!isValidIdentityId(value.recipientId)) {
     throw new Error("identify() returned an object with an empty recipientId");
   }
+  if (!isValidOptionalIdentityId(value.tenantId)) {
+    throw new Error("identify() returned an object with an empty tenantId");
+  }
+  if (!isValidOptionalIdentityId(value.organizationId)) {
+    throw new Error("identify() returned an object with an empty organizationId");
+  }
+  if (!isValidOptionalIdentityId(value.workspaceId)) {
+    throw new Error("identify() returned an object with an empty workspaceId");
+  }
   return value;
+}
+
+const MAX_ID_LENGTH = 512;
+
+function isValidIdentityId(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "" && value.length <= MAX_ID_LENGTH;
+}
+
+function isValidOptionalIdentityId(value: unknown): value is string | undefined {
+  return value === undefined || isValidIdentityId(value);
 }
 
 const VALID_CHANNEL_KEYS = new Set(["inbox", "email", "webhook", "sms"]);
@@ -99,24 +121,23 @@ export function createServerActions<
     },
 
     async updatePreference(input) {
+      const raw = input as Record<string, unknown>;
       if (
         !input ||
         typeof input !== "object" ||
-        typeof (input as Record<string, unknown>).notificationId !== "string" ||
-        ((input as Record<string, unknown>).notificationId as string).length === 0 ||
-        ((input as Record<string, unknown>).notificationId as string).length > 512
+        typeof raw.notificationId !== "string" ||
+        raw.notificationId.length === 0 ||
+        raw.notificationId.length > 512
       ) {
         throw new Error("Invalid notificationId");
       }
-      const channels = (input as Record<string, unknown>).channels;
-      if (channels !== undefined) {
-        assertChannelMap(channels);
-      }
+      assertChannelMap(raw.channels);
       const { recipientId, ...scope } = await resolveIdentity();
       return notifykit.preferences.update({
-        ...input,
         recipientId,
         ...scope,
+        notificationId: raw.notificationId,
+        channels: raw.channels,
       } as UpdatePreferenceInput<T>);
     },
 

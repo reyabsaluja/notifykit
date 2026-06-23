@@ -33,7 +33,7 @@ function buildWebhookDef(
     },
     channels: [
       webhook({
-        url: "https://example.com/hook/{{postUrl}}",
+        url: "https://93.184.216.34/hook/{{postUrl}}",
         headers: { "x-actor": "{{actorName}}" },
         ...overrides,
       }),
@@ -70,7 +70,7 @@ describe("channel.webhook()", () => {
     expect(provider.sent).toHaveLength(1);
     expect(result.deliveries[0]!.channel).toBe("webhook");
     expect(result.deliveries[0]!.status).toBe("sent");
-    expect(result.deliveries[0]!.to).toBe("https://example.com/hook/%2Fp");
+    expect(result.deliveries[0]!.to).toBe("https://93.184.216.34/hook/%2Fp");
     expect(db._state.deliveries[0]!.body).toBe(JSON.stringify(basePayload));
   });
 
@@ -86,7 +86,7 @@ describe("channel.webhook()", () => {
 
     const call = provider.sent[0]!;
     expect(new URL(call.url).pathname).toBe("/hook/%2Fp");
-    expect(call.headers["host"]).toBe("example.com");
+    expect(call.headers["host"]).toBe("93.184.216.34");
     expect(call.headers["x-actor"]).toBe("Rey");
     expect(call.payload).toEqual({
       notificationId: "comment_mentioned",
@@ -94,6 +94,19 @@ describe("channel.webhook()", () => {
       payload: basePayload,
       sentAt: expect.any(String),
     });
+  });
+
+  test("custom headers cannot configure the reserved transport host header", () => {
+    const provider = fakeWebhookProvider();
+    expect(() =>
+      buildKit(provider, {
+        headers: {
+          host: "evil.example",
+          Host: "also-evil.example",
+          "x-actor": "{{actorName}}",
+        },
+      }),
+    ).toThrow(/header "host" is reserved/i);
   });
 
   test("retry + eventual success", async () => {
@@ -130,7 +143,7 @@ describe("channel.webhook()", () => {
       id: "comment_mentioned",
       payload: { msg: "string" },
       channels: [
-        webhook({ url: "https://example.com/hook" }),
+        webhook({ url: "https://93.184.216.34/hook" }),
       ],
       fallback: inbox({ title: "Fallback: {{msg}}" }),
     });
@@ -184,7 +197,7 @@ describe("channel.webhook()", () => {
       payload: { msg: "string" },
       channels: [
         email({ subject: "{{msg}}", body: "{{msg}}" }),
-        webhook({ url: "https://example.com/hook/x" }),
+        webhook({ url: "https://93.184.216.34/hook/x" }),
       ],
     });
     const emailProvider = {
@@ -256,6 +269,11 @@ describe("channel.webhook()", () => {
 });
 
 describe("webhookProvider (default fetch-based)", () => {
+  test("rejects invalid timeout options", () => {
+    expect(() => webhookProvider({ timeoutMs: 0 })).toThrow(/timeoutMs/);
+    expect(() => webhookProvider({ timeoutMs: Number.NaN })).toThrow(/timeoutMs/);
+  });
+
   test("POSTs JSON payload with signature header when secret is set", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const fakeFetch: typeof fetch = (async (input, init) => {
@@ -265,7 +283,7 @@ describe("webhookProvider (default fetch-based)", () => {
 
     const provider = webhookProvider({ secret: "shhh", fetch: fakeFetch });
     const res = await provider.send({
-      url: "https://example.com/hook",
+      url: "https://93.184.216.34/hook",
       headers: { "x-custom": "v" },
       payload: {
         notificationId: "n",
@@ -277,7 +295,7 @@ describe("webhookProvider (default fetch-based)", () => {
 
     expect(res.providerMessageId).toBe("abc");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe("https://example.com/hook");
+    expect(calls[0]!.url).toBe("https://93.184.216.34/hook");
     const headers = calls[0]!.init.headers as Record<string, string>;
     expect(headers["content-type"]).toBe("application/json");
     expect(headers["x-custom"]).toBe("v");
@@ -299,7 +317,7 @@ describe("webhookProvider (default fetch-based)", () => {
 
     const provider = webhookProvider({ fetch: fakeFetch });
     await provider.send({
-      url: "https://example.com/hook",
+      url: "https://93.184.216.34/hook",
       headers: {},
       payload: {
         notificationId: "n",
@@ -317,7 +335,7 @@ describe("webhookProvider (default fetch-based)", () => {
     const provider = webhookProvider({ fetch: fakeFetch });
     await expect(
       provider.send({
-        url: "https://example.com/hook",
+        url: "https://93.184.216.34/hook",
         headers: {},
         payload: {
           notificationId: "n",
@@ -369,7 +387,7 @@ describe("verifyWebhookSignature", () => {
 
     const provider = webhookProvider({ secret, fetch: fakeFetch });
     await provider.send({
-      url: "https://example.com/hook",
+      url: "https://93.184.216.34/hook",
       headers: {},
       payload: {
         notificationId: "n",

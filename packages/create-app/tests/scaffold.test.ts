@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -82,6 +82,19 @@ describe("scaffold()", () => {
         projectName: "Bad Name",
       }),
     ).rejects.toThrow(/Invalid project name/);
+  });
+
+  test("does not leave the target directory when template validation fails", async () => {
+    const template = resolve(workDir, "bad-template");
+    await mkdir(template, { recursive: true });
+    await writeFile(resolve(template, "package.json"), `{"name":"bad"}\n`);
+
+    const target = resolve(workDir, "partial-app");
+    await expect(
+      scaffold({ targetDir: target, templateDir: template }),
+    ).rejects.toThrow(/missing an expected file/);
+
+    expect(existsSync(target)).toBe(false);
   });
 
   test("route.ts mounts the NotifyKit handler", async () => {

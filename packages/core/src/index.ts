@@ -57,7 +57,9 @@ export type {
 } from "./handler.js";
 
 export type {
+  CapturedSend,
   CreateNotifyKitInput,
+  DevModeConfig,
   NotifyKit,
   SendResult,
 } from "./create-notifykit.js";

@@ -39,6 +39,14 @@ function scopeValue(value: string | undefined): string {
   return value ?? "";
 }
 
+function normalizeLimit(limit: number | undefined | null, max?: number): number | undefined {
+  if (limit == null) return undefined;
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw new RangeError("limit must be a positive integer.");
+  }
+  return max === undefined ? limit : Math.min(limit, max);
+}
+
 function emptyToUndefined(value: string | null | undefined): string | undefined {
   return value === "" || value == null ? undefined : value;
 }
@@ -305,8 +313,10 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           .from(inboxItems)
           .where(and(...conditions))
           .orderBy(desc(inboxItems.createdAt));
-        const cap = Math.min(limit ?? 200, 1000);
-        const rows = await query.limit(cap);
+        const normalizedLimit = normalizeLimit(limit, 1000);
+        const rows = normalizedLimit === undefined
+          ? await query
+          : await query.limit(normalizedLimit);
         return rows.map(rowToInboxItem);
       },
 
@@ -554,14 +564,17 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
         scope?: SecurityScope,
         limit?: number,
       ): Promise<DeliveryRecord[]> {
-        const cap = Math.min(limit ?? 200, 1000);
         const conditions = [
           ...(recipientId ? [eq(deliveries.recipientId, recipientId)] : []),
           ...scopedConditions(deliveries, scope),
         ];
-        const rows = conditions.length > 0
-          ? await db.select().from(deliveries).where(and(...conditions)).orderBy(desc(deliveries.createdAt)).limit(cap)
-          : await db.select().from(deliveries).orderBy(desc(deliveries.createdAt)).limit(cap);
+        const query = conditions.length > 0
+          ? db.select().from(deliveries).where(and(...conditions)).orderBy(desc(deliveries.createdAt))
+          : db.select().from(deliveries).orderBy(desc(deliveries.createdAt));
+        const normalizedLimit = normalizeLimit(limit, 1000);
+        const rows = normalizedLimit === undefined
+          ? await query
+          : await query.limit(normalizedLimit);
         return rows.map(rowToDelivery);
       },
     },
@@ -1081,7 +1094,8 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           .from(timelineEvents)
           .where(eq(timelineEvents.notificationRecordId, notificationRecordId))
           .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
-        if (limit != null) query = query.limit(limit) as typeof query;
+        const normalizedLimit = normalizeLimit(limit);
+        if (normalizedLimit !== undefined) query = query.limit(normalizedLimit) as typeof query;
         const rows = await query;
         return rows.map(rowToTimelineEvent);
       },
@@ -1093,7 +1107,8 @@ export function drizzlePostgresAdapter(db: PgDb): DrizzlePostgresAdapter {
           .from(timelineEvents)
           .where(and(...conditions))
           .orderBy(asc(timelineEvents.timestamp), asc(timelineEvents.seq));
-        if (limit != null) query = query.limit(limit) as typeof query;
+        const normalizedLimit = normalizeLimit(limit);
+        if (normalizedLimit !== undefined) query = query.limit(normalizedLimit) as typeof query;
         const rows = await query;
         return rows.map(rowToTimelineEvent);
       },

@@ -49,10 +49,7 @@ type WsConnection = {
 
 function scopeKey(recipientId: string, scope: SecurityScope): string {
   const s = normalizeScope(scope);
-  const r = recipientId.replace(/\0/g, "");
-  const t = (s.tenantId ?? "").replace(/\0/g, "");
-  const w = (s.workspaceId ?? "").replace(/\0/g, "");
-  return `${r}\0${t}\0${w}`;
+  return JSON.stringify([recipientId, s.tenantId ?? "", s.workspaceId ?? ""]);
 }
 
 export type WebSocketRealtimeAdapter = RealtimeAdapter & {
@@ -76,6 +73,12 @@ export function webSocketRealtimeAdapter(
 ): WebSocketRealtimeAdapter {
   const heartbeatMs = options.heartbeatMs ?? 30_000;
   const maxConnections = options.maxConnections ?? 10_000;
+  if (!Number.isFinite(heartbeatMs) || heartbeatMs < 0) {
+    throw new Error("webSocketRealtimeAdapter: heartbeatMs must be a non-negative number.");
+  }
+  if (!Number.isSafeInteger(maxConnections) || maxConnections <= 0) {
+    throw new Error("webSocketRealtimeAdapter: maxConnections must be a positive integer.");
+  }
   const subs = new Map<string, Set<RealtimeListener>>();
   const connections = new Map<WebSocketLike, WsConnection>();
   const heartbeats = new Map<WebSocketLike, ReturnType<typeof setInterval>>();
@@ -98,7 +101,13 @@ export function webSocketRealtimeAdapter(
     const k = scopeKey(recipientId, scope);
     const set = subs.get(k);
     if (!set) return;
-    for (const fn of set) fn(event);
+    for (const fn of [...set]) {
+      try {
+        fn(event);
+      } catch {
+        // Keep fan-out resilient if a manually subscribed listener throws.
+      }
+    }
   }
 
   function subscribe(
@@ -128,6 +137,11 @@ export function webSocketRealtimeAdapter(
     }
     const identity = await options.authenticate(request);
     if (!identity) return null;
+    if (typeof identity !== "object" || Array.isArray(identity)) return null;
+    if (!isValidIdentityId(identity.recipientId)) return null;
+    if (!isValidOptionalIdentityId(identity.tenantId)) return null;
+    if (!isValidOptionalIdentityId(identity.organizationId)) return null;
+    if (!isValidOptionalIdentityId(identity.workspaceId)) return null;
 
     const scope = normalizeScope(identity);
     const k = scopeKey(identity.recipientId, scope);
@@ -136,7 +150,7 @@ export function webSocketRealtimeAdapter(
       try {
         ws.send(JSON.stringify(event));
       } catch {
-        // socket may have closed
+        handleClose(ws);
       }
     };
 
@@ -224,4 +238,14 @@ function normalizeOrigin(origin: string): string {
   } catch {
     return origin.toLowerCase().replace(/\/+$/, "");
   }
+}
+
+const MAX_ID_LENGTH = 512;
+
+function isValidIdentityId(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "" && value.length <= MAX_ID_LENGTH;
+}
+
+function isValidOptionalIdentityId(value: unknown): value is string | undefined {
+  return value === undefined || isValidIdentityId(value);
 }

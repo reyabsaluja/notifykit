@@ -4,10 +4,15 @@ import {
   fakeEmailProvider,
   memoryAdapter,
   notification,
+  type SendResult,
 } from "@notifykitjs/core";
 
 const inbox = channel.inbox();
 const email = channel.email();
+
+function skippedSummary(result: SendResult): string {
+  return result.skipped.map((s) => `${s.channel}:${s.reason}`).join(", ") || "(none)";
+}
 
 const taskAssigned = notification({
   id: "task_assigned",
@@ -95,7 +100,7 @@ async function main() {
         taskUrl: "/tasks/1",
       },
     });
-    console.log(`  skipped: ${r1.skippedChannels.join(", ") || "(none)"}\n`);
+    console.log(`  skipped: ${skippedSummary(r1)}\n`);
   } catch (err) {
     console.error("  send failed:", err instanceof Error ? err.message : err);
   }
@@ -113,7 +118,7 @@ async function main() {
         taskUrl: "/tasks/2",
       },
     });
-    console.log(`  skipped: ${r2.skippedChannels.join(", ") || "(none)"}\n`);
+    console.log(`  skipped: ${skippedSummary(r2)}\n`);
   } catch (err) {
     console.error("  send failed:", err instanceof Error ? err.message : err);
   }
@@ -149,7 +154,7 @@ async function main() {
         weekOf: "May 13, 2024",
       },
     });
-    console.log(`  skipped: ${r3.skippedChannels.join(", ") || "(none)"}`);
+    console.log(`  skipped: ${skippedSummary(r3)}`);
   } catch (err) {
     console.error("  send failed:", err instanceof Error ? err.message : err);
   }

@@ -241,7 +241,7 @@ describe("app-level defaults", () => {
       payload: { msg: "string" },
       channels: [
         inbox({ title: "{{msg}}" }),
-        webhook({ url: "https://example.com/hook" }),
+        webhook({ url: "https://93.184.216.34/hook" }),
       ],
     });
     const webhookProv = fakeWebhookProvider();
@@ -348,7 +348,7 @@ describe("tenant defaults", () => {
       payload: { msg: "string" },
       channels: [
         inbox({ title: "{{msg}}" }),
-        webhook({ url: "https://example.com/hook" }),
+        webhook({ url: "https://93.184.216.34/hook" }),
       ],
     });
     const webhookProv = fakeWebhookProvider();

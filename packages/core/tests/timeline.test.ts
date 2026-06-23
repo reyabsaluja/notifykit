@@ -596,4 +596,18 @@ describe("timeline", () => {
     const limited = await notify.timeline(result.notification!.id, { limit: 999 });
     expect(limited.length).toBe(all.length);
   });
+
+  test("rejects invalid limit options", async () => {
+    const { notify } = setup();
+    await notify.upsertRecipient({ id: "u1", email: "u1@test.com" });
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { author: "Alice", body: "Hello" },
+    });
+
+    await expect(notify.timeline(result.notification!.id, { limit: 0 })).rejects.toThrow(/positive integer/);
+    await expect(notify.timeline(result.notification!.id, { limit: 2.5 })).rejects.toThrow(/positive integer/);
+  });
 });

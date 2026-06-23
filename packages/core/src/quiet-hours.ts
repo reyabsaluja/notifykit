@@ -54,6 +54,31 @@ export function nextQuietHoursEnd(
   return candidate;
 }
 
+export function validateQuietHours(quietHours: unknown): string | null {
+  if (!quietHours || typeof quietHours !== "object" || Array.isArray(quietHours)) {
+    return "quietHours must be an object.";
+  }
+  const q = quietHours as Partial<QuietHours>;
+  if (typeof q.start !== "string") return "quietHours.start must be a string.";
+  if (typeof q.end !== "string") return "quietHours.end must be a string.";
+  try {
+    parseWindowMinutes({ start: q.start, end: q.end, timezone: q.timezone });
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  if (q.timezone !== undefined) {
+    if (typeof q.timezone !== "string" || q.timezone.trim() === "") {
+      return "quietHours.timezone must be a non-empty IANA timezone string.";
+    }
+    try {
+      new Intl.DateTimeFormat("en-GB", { timeZone: q.timezone });
+    } catch {
+      return `Invalid timezone "${q.timezone}".`;
+    }
+  }
+  return null;
+}
+
 function parseWindowMinutes(q: QuietHours): [number, number] {
   return [parseHHMM(q.start), parseHHMM(q.end)];
 }

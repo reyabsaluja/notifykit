@@ -301,7 +301,7 @@ describe("startup validation", () => {
           notification({
             id: "needs_webhook",
             payload: { url: "string" },
-            channels: [webhook({ url: "https://example.com/hook" })],
+            channels: [webhook({ url: "https://93.184.216.34/hook" })],
           }),
         ] as const,
         database: memoryAdapter(),
@@ -434,6 +434,58 @@ describe("startup validation", () => {
         providers: { email: fakeEmailProvider() },
       }),
     ).not.toThrow();
+  });
+
+  test("rejects invalid retry configuration", () => {
+    const def = notification({
+      id: "retry_config",
+      payload: { msg: "string" },
+      channels: [inbox({ title: "{{msg}}" })],
+    });
+
+    expect(() =>
+      createNotifyKit({
+        notifications: [def] as const,
+        database: memoryAdapter(),
+        retry: { maxAttempts: 0 },
+      }),
+    ).toThrow(/retry\.maxAttempts.*positive integer/i);
+
+    expect(() =>
+      createNotifyKit({
+        notifications: [def] as const,
+        database: memoryAdapter(),
+        retry: { maxAttempts: 1.5 },
+      }),
+    ).toThrow(/retry\.maxAttempts.*positive integer/i);
+
+    expect(() =>
+      createNotifyKit({
+        notifications: [def] as const,
+        database: memoryAdapter(),
+        retry: { delayMs: 10 as unknown as () => number },
+      }),
+    ).toThrow(/retry\.delayMs.*function/i);
+  });
+
+  test("rejects invalid rate limit scope", () => {
+    expect(() =>
+      createNotifyKit({
+        notifications: [
+          notification({
+            id: "bad_rate_scope",
+            payload: { msg: "string" },
+            channels: [inbox({ title: "{{msg}}" })],
+            rateLimit: {
+              max: 1,
+              windowMs: 1000,
+              scope: "workspace" as unknown as "recipient",
+            },
+          }),
+        ] as const,
+        database: memoryAdapter(),
+      }),
+    ).toThrow(/rateLimit\.scope.*recipient.*global/i);
   });
 });
 
@@ -599,7 +651,7 @@ describe("startup validation — webhook header templates", () => {
             payload: { name: "string" },
             channels: [
               webhook({
-                url: "https://example.com/hook",
+                url: "https://93.184.216.34/hook",
                 headers: { "x-key": "{{typo}}" },
               }),
             ],
@@ -620,7 +672,7 @@ describe("startup validation — webhook header templates", () => {
             payload: { name: "string" },
             channels: [
               webhook({
-                url: "https://example.com/hook",
+                url: "https://93.184.216.34/hook",
                 headers: { "x-name": "{{name}}" },
               }),
             ],
