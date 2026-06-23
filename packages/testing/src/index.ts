@@ -60,12 +60,13 @@ export function createTestNotifyKit<
   const webhook = options?.providers?.webhook ?? fakeWebhookProvider();
   const sms = options?.providers?.sms ?? fakeSmsProvider();
 
+  const { providers: _providers, ...restOptions } = options ?? {};
   const config: CreateNotifyKitInput<T> = {
     notifications,
     database,
     providers: { email, webhook, sms },
     retry: { maxAttempts: 1, delayMs: () => 0 },
-    ...options,
+    ...restOptions,
   };
 
   const notify = createNotifyKit(config);
