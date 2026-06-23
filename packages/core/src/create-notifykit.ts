@@ -604,6 +604,9 @@ export function createNotifyKit<
   if (isDev) {
     const allow = devAllowlist.length > 0 ? ` Allowlist: ${devAllowlist.join(", ")}` : " All external sends blocked.";
     console.log(`[notifykit] Development mode active.${allow}`);
+    if (!config.providers?.email && notifications.some((n) => n.channels.some((ch) => ch.type === "email"))) {
+      console.warn("[notifykit:dev] No email provider configured. Dev mode will sandbox email sends, but production will fail without a provider.");
+    }
   }
 
   function buildUnsubscribeUrl(
