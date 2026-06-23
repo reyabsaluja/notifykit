@@ -517,6 +517,9 @@ export function createNotifyKit<
   const T extends readonly NotificationDefinition<string, PayloadSchema>[],
 >(config: CreateNotifyKitInput<T>): NotifyKit<T> {
   const isDev = config.mode === "development";
+  if (isDev && typeof process !== "undefined" && process.env?.NODE_ENV === "production") {
+    console.warn("[notifykit] WARNING: mode: \"development\" is active but NODE_ENV=production. All external sends are being blocked. Remove mode: \"development\" for production use.");
+  }
   const devConfig: DevModeConfig = isDev ? (config.dev ?? {}) : {};
   const devAllowlist = devConfig.allowlist ?? [];
   const devSubjectPrefix = devConfig.subjectPrefix ?? "[DEV] ";
