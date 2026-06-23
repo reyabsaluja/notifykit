@@ -80,6 +80,8 @@ await notify.send({
 - **React hooks** — `useInbox()`, `usePreferences()`, `<NotificationBell />`
 - **Next.js integration** — route handler, server actions, middleware
 - **Real-time** — WebSocket and Postgres LISTEN/NOTIFY adapters
+- **Dev mode** — `mode: "development"` blocks real sends, captures outbound messages, allowlist for safe addresses
+- **Testing utilities** — `createTestNotifyKit()` with assertion helpers and state inspection
 - **CLI** — validate notification definitions at build time
 
 ## Packages
@@ -91,6 +93,7 @@ await notify.send({
 | [`@notifykitjs/react`](packages/react) | React hooks and components |
 | [`@notifykitjs/next`](packages/next) | Next.js route handler, server actions, middleware |
 | [`@notifykitjs/resend`](packages/resend) | Resend email provider |
+| [`@notifykitjs/testing`](packages/testing) | Test harness, fake providers, assertion helpers |
 | [`@notifykitjs/cli`](packages/cli) | CLI for validating notification definitions |
 | [`create-notifykit-app`](packages/create-app) | Project scaffolding |
 | [`@notifykitjs/realtime-ws`](packages/realtime-ws) | WebSocket real-time adapter |
@@ -110,6 +113,46 @@ bun run example:drizzle
 ```
 
 See the [`examples/`](examples) directory for full source code.
+
+## Testing
+
+```bash
+npm install @notifykitjs/testing --save-dev
+```
+
+```ts
+import { createTestNotifyKit, assertSentEmail, assertInboxItem } from "@notifykitjs/testing";
+
+const notify = createTestNotifyKit([commentMentioned] as const);
+await notify.upsertRecipient({ id: "user_123", email: "jane@example.com" });
+
+await notify.send({
+  recipientId: "user_123",
+  notificationId: "comment_mentioned",
+  payload: { actorName: "Rey", postTitle: "Launch Plan", postUrl: "/posts/123" },
+});
+
+assertSentEmail(notify, { to: "jane@example.com", subject: /mentioned you/ });
+assertInboxItem(notify, { recipientId: "user_123", title: /mentioned/ });
+```
+
+## Dev mode
+
+Block real sends in development — no accidental emails to production users:
+
+```ts
+const notify = createNotifyKit({
+  // ...
+  mode: "development",
+  dev: {
+    allowlist: ["dev@yourteam.com"],
+    subjectPrefix: "[DEV] ",
+  },
+});
+
+// notify.captured — array of all blocked/allowed sends
+// notify.isDev — true
+```
 
 ## Production setup
 
