@@ -92,11 +92,9 @@ export function createTestNotifyKit<
       sms.clear();
       results.length = 0;
       lastResult = null;
-      database._state.recipients.length = 0;
       database._state.notifications.length = 0;
       database._state.inboxItems.length = 0;
       database._state.deliveries.length = 0;
-      database._state.preferences.length = 0;
       database._state.digests.length = 0;
       database._state.rateLimits.length = 0;
       database._state.scheduledSends.length = 0;

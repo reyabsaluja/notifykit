@@ -103,6 +103,26 @@ describe("createTestNotifyKit", () => {
     expect(notify.testing.database._state.deliveries).toHaveLength(0);
   });
 
+  test("reset() preserves recipients for subsequent sends", async () => {
+    const notify = createTestNotifyKit([welcomeNotification] as const);
+    await notify.upsertRecipient({ id: "u1", email: "u@test.com" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "welcome",
+      payload: { name: "First" },
+    });
+
+    notify.testing.reset();
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "welcome",
+      payload: { name: "Second" },
+    });
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0]!.status).toBe("sent");
+  });
+
   test("dryRun sends are not tracked in results", async () => {
     const notify = createTestNotifyKit([welcomeNotification] as const);
     await notify.upsertRecipient({ id: "u1", email: "u@test.com" });
