@@ -89,6 +89,12 @@ function assertNonEmptyIdentifier(value: string, field: string): void {
   }
 }
 
+export type DevModeConfig = {
+  allowlist?: string[];
+  subjectPrefix?: string;
+  logPreviews?: boolean;
+};
+
 export type CreateNotifyKitInput<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 > = {
@@ -99,6 +105,8 @@ export type CreateNotifyKitInput<
     webhook?: WebhookProvider;
     sms?: SmsProvider;
   };
+  mode?: "production" | "development";
+  dev?: DevModeConfig;
   on?: Hooks;
   /**
    * Queue used to run provider deliveries (email, webhook, SMS). Defaults to
@@ -402,12 +410,115 @@ export type NotifyKit<
    * core inbox mutations publish their own realtime events.
    */
   readonly realtime: RealtimeAdapter | undefined;
+  /** True when `mode: "development"` was passed. */
+  readonly isDev: boolean;
+  /** Dev mode captured sends. Only populated when `mode: "development"`. */
+  readonly captured: CapturedSend[];
 };
+
+export type CapturedSend = {
+  channel: "email" | "webhook" | "sms";
+  to: string;
+  subject?: string;
+  body: string;
+  blocked: boolean;
+  timestamp: Date;
+};
+
+function applyDevProviders(
+  providers: CreateNotifyKitInput<any>["providers"],
+  allowlist: string[],
+  subjectPrefix: string,
+  logPreviews: boolean,
+): { email?: EmailProvider; webhook?: WebhookProvider; sms?: SmsProvider } {
+  const captured: CapturedSend[] = [];
+
+  function isAllowed(to: string): boolean {
+    if (allowlist.length === 0) return false;
+    return allowlist.some((a) => to.toLowerCase() === a.toLowerCase());
+  }
+
+  function logPreview(channel: string, to: string, subject: string | undefined, body: string, blocked: boolean) {
+    if (!logPreviews) return;
+    const status = blocked ? "BLOCKED" : "SENT";
+    const subj = subject ? ` | Subject: ${subject}` : "";
+    console.log(`[notifykit:dev] ${status} ${channel} → ${to}${subj}`);
+    if (body.length <= 200) {
+      console.log(`[notifykit:dev]   Body: ${body}`);
+    } else {
+      console.log(`[notifykit:dev]   Body: ${body.slice(0, 200)}…`);
+    }
+  }
+
+  const wrappedEmail: EmailProvider | undefined = (() => {
+    const real = providers?.email;
+    return {
+      id: real?.id ?? "dev-sandbox",
+      async send(input: { to: string; subject: string; body: string }) {
+        const blocked = !isAllowed(input.to);
+        const subject = `${subjectPrefix}${input.subject}`;
+        captured.push({ channel: "email", to: input.to, subject, body: input.body, blocked, timestamp: new Date() });
+        logPreview("email", input.to, subject, input.body, blocked);
+        if (blocked) return { providerMessageId: `dev-blocked-${Date.now()}` };
+        if (real) return real.send({ ...input, subject });
+        return { providerMessageId: `dev-sandbox-${Date.now()}` };
+      },
+    };
+  })();
+
+  const wrappedWebhook: WebhookProvider | undefined = providers?.webhook
+    ? {
+        id: providers.webhook.id,
+        signed: providers.webhook.signed,
+        async send(input) {
+          const blocked = allowlist.length > 0 && !isAllowed(input.url);
+          const body = JSON.stringify(input.payload);
+          captured.push({ channel: "webhook", to: input.url, body, blocked, timestamp: new Date() });
+          logPreview("webhook", input.url, undefined, body, blocked);
+          if (blocked) return { providerMessageId: `dev-blocked-${Date.now()}` };
+          return providers!.webhook!.send(input);
+        },
+      }
+    : undefined;
+
+  const wrappedSms: SmsProvider | undefined = (() => {
+    const real = providers?.sms;
+    if (!real) return undefined;
+    return {
+      id: real.id,
+      async send(input: { to: string; body: string }) {
+        const blocked = !isAllowed(input.to);
+        captured.push({ channel: "sms", to: input.to, body: input.body, blocked, timestamp: new Date() });
+        logPreview("sms", input.to, undefined, input.body, blocked);
+        if (blocked) return { providerMessageId: `dev-blocked-${Date.now()}` };
+        return real.send(input);
+      },
+    };
+  })();
+
+  const result = {
+    email: wrappedEmail,
+    webhook: wrappedWebhook,
+    sms: wrappedSms,
+  } as { email?: EmailProvider; webhook?: WebhookProvider; sms?: SmsProvider; _captured: CapturedSend[] };
+  (result as any)._captured = captured;
+  return result;
+}
 
 export function createNotifyKit<
   const T extends readonly NotificationDefinition<string, PayloadSchema>[],
 >(config: CreateNotifyKitInput<T>): NotifyKit<T> {
-  const { notifications, database, providers, on } = config;
+  const isDev = config.mode === "development";
+  const devConfig: DevModeConfig = isDev ? (config.dev ?? {}) : {};
+  const devAllowlist = devConfig.allowlist ?? [];
+  const devSubjectPrefix = devConfig.subjectPrefix ?? "[DEV] ";
+  const devLogPreviews = devConfig.logPreviews ?? isDev;
+
+  const providers = isDev
+    ? applyDevProviders(config.providers, devAllowlist, devSubjectPrefix, devLogPreviews)
+    : config.providers;
+
+  const { notifications, database, on } = config;
   const onTimelineError = config.onTimelineError ?? ((err: unknown) => {
     console.error("[notifykit] timeline append error:", err);
   });
@@ -462,6 +573,11 @@ export function createNotifyKit<
       const loc = w.notificationId ? `[${w.notificationId}] ` : "";
       console.warn(`[notifykit] ${loc}${w.message}${w.fix ? ` ${w.fix}` : ""}`);
     }
+  }
+
+  if (isDev) {
+    const allow = devAllowlist.length > 0 ? ` Allowlist: ${devAllowlist.join(", ")}` : " All external sends blocked.";
+    console.log(`[notifykit] Development mode active.${allow}`);
   }
 
   function buildUnsubscribeUrl(
@@ -2926,6 +3042,8 @@ export function createNotifyKit<
     },
     definitions: notifications,
     realtime: realtimeAdapter,
+    isDev,
+    captured: isDev ? (providers as any)._captured ?? [] : [],
     redactPayload(notificationId, payload) {
       const def = byId.get(notificationId);
       if (!def) {

@@ -20,7 +20,7 @@
   ],
   "scripts": {
     "test": "bun test",
-    "build": "bun run --cwd packages/core build && bun run --cwd packages/drizzle-adapter build && bun run --cwd packages/realtime-ws build && bun run --cwd packages/realtime-pg build && bun run --cwd packages/react build && bun run --cwd packages/next build && bun run --cwd packages/cli build && bun run --cwd packages/resend build && bun run --cwd packages/create-app build",
+    "build": "bun run --cwd packages/core build && bun run --cwd packages/drizzle-adapter build && bun run --cwd packages/realtime-ws build && bun run --cwd packages/realtime-pg build && bun run --cwd packages/react build && bun run --cwd packages/next build && bun run --cwd packages/cli build && bun run --cwd packages/resend build && bun run --cwd packages/testing build && bun run --cwd packages/create-app build",
     "example": "bun run --cwd examples/basic start",
     "example:drizzle": "bun run --cwd examples/drizzle start",
     "example:handler": "bun run --cwd examples/handler start",
