@@ -250,4 +250,34 @@ describe("dev mode", () => {
     expect(notify.captured[0]!.subject).toContain("User2");
     expect(notify.captured[2]!.subject).toContain("User4");
   });
+
+  test("logPreviews: false suppresses console output", async () => {
+    const consoleSpy = mock(() => {});
+    const originalLog = console.log;
+    console.log = consoleSpy;
+
+    try {
+      const db = memoryAdapter();
+      const notify = createNotifyKit({
+        notifications: [welcomeNotification] as const,
+        database: db,
+        mode: "development",
+        dev: { logPreviews: false },
+      });
+
+      await notify.upsertRecipient({ id: "u1", email: "a@test.com" });
+      await notify.send({
+        recipientId: "u1",
+        notificationId: "welcome",
+        payload: { name: "Silent" },
+      });
+
+      const devLogCalls = consoleSpy.mock.calls.filter(
+        (args) => typeof args[0] === "string" && args[0].includes("[notifykit:dev]"),
+      );
+      expect(devLogCalls).toHaveLength(0);
+    } finally {
+      console.log = originalLog;
+    }
+  });
 });
