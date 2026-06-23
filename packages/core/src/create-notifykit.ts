@@ -432,6 +432,7 @@ function applyDevProviders(
   logPreviews: boolean,
 ): { email?: EmailProvider; webhook?: WebhookProvider; sms?: SmsProvider } {
   const captured: CapturedSend[] = [];
+  let idCounter = 0;
 
   function isAllowed(to: string): boolean {
     if (allowlist.length === 0) return false;
@@ -459,9 +460,9 @@ function applyDevProviders(
         const subject = `${subjectPrefix}${input.subject}`;
         captured.push({ channel: "email", to: input.to, subject, body: input.body, blocked, timestamp: new Date() });
         logPreview("email", input.to, subject, input.body, blocked);
-        if (blocked) return { providerMessageId: `dev-blocked-${Date.now()}` };
+        if (blocked) return { providerMessageId: `dev-blocked-${++idCounter}` };
         if (real) return real.send({ ...input, subject });
-        return { providerMessageId: `dev-sandbox-${Date.now()}` };
+        return { providerMessageId: `dev-sandbox-${++idCounter}` };
       },
     };
   })();
@@ -475,7 +476,7 @@ function applyDevProviders(
           const body = JSON.stringify(input.payload);
           captured.push({ channel: "webhook", to: input.url, body, blocked, timestamp: new Date() });
           logPreview("webhook", input.url, undefined, body, blocked);
-          if (blocked) return { providerMessageId: `dev-blocked-${Date.now()}` };
+          if (blocked) return { providerMessageId: `dev-blocked-${++idCounter}` };
           return providers!.webhook!.send(input);
         },
       }
@@ -490,7 +491,7 @@ function applyDevProviders(
         const blocked = !isAllowed(input.to);
         captured.push({ channel: "sms", to: input.to, body: input.body, blocked, timestamp: new Date() });
         logPreview("sms", input.to, undefined, input.body, blocked);
-        if (blocked) return { providerMessageId: `dev-blocked-${Date.now()}` };
+        if (blocked) return { providerMessageId: `dev-blocked-${++idCounter}` };
         return real.send(input);
       },
     };
