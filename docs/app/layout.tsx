@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { NotifyKitProvider } from "@notifykitjs/react";
-import { SideNav } from "./_components/side-nav";
 import { CopyButtonScript } from "./_components/copy-button-script";
 import "./globals.css";
 
@@ -27,10 +26,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <NotifyKitProvider options={{ baseUrl: "/api/notifykit" }}>
-          <div className="docs-shell">
-            <SideNav />
-            <main className="docs-content">{children}</main>
-          </div>
+          {children}
         </NotifyKitProvider>
         <CopyButtonScript />
       </body>
