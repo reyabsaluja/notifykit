@@ -426,13 +426,18 @@ export type CapturedSend = {
   timestamp: Date;
 };
 
+type DevProvidersResult = {
+  providers: { email?: EmailProvider; webhook?: WebhookProvider; sms?: SmsProvider };
+  captured: CapturedSend[];
+};
+
 function applyDevProviders(
   providers: CreateNotifyKitInput<any>["providers"],
   allowlist: string[],
   subjectPrefix: string,
   logPreviews: boolean,
   maxCaptured: number,
-): { email?: EmailProvider; webhook?: WebhookProvider; sms?: SmsProvider } {
+): DevProvidersResult {
   const captured: CapturedSend[] = [];
   let idCounter = 0;
 
@@ -504,13 +509,14 @@ function applyDevProviders(
     };
   })();
 
-  const result = {
-    email: wrappedEmail,
-    webhook: wrappedWebhook,
-    sms: wrappedSms,
-  } as { email?: EmailProvider; webhook?: WebhookProvider; sms?: SmsProvider; _captured: CapturedSend[] };
-  (result as any)._captured = captured;
-  return result;
+  return {
+    providers: {
+      email: wrappedEmail,
+      webhook: wrappedWebhook,
+      sms: wrappedSms,
+    },
+    captured,
+  };
 }
 
 export function createNotifyKit<
@@ -526,9 +532,11 @@ export function createNotifyKit<
   const devLogPreviews = devConfig.logPreviews ?? false;
   const devMaxCaptured = Math.max(devConfig.maxCaptured ?? 1000, 1);
 
-  const providers = isDev
+  const devResult = isDev
     ? applyDevProviders(config.providers, devAllowlist, devSubjectPrefix, devLogPreviews, devMaxCaptured)
-    : config.providers;
+    : null;
+  const providers = devResult ? devResult.providers : config.providers;
+  const devCaptured: CapturedSend[] = devResult ? devResult.captured : [];
 
   const { notifications, database, on } = config;
   const onTimelineError = config.onTimelineError ?? ((err: unknown) => {
@@ -3055,7 +3063,7 @@ export function createNotifyKit<
     definitions: notifications,
     realtime: realtimeAdapter,
     isDev,
-    captured: isDev ? (providers as any)._captured ?? [] : [],
+    captured: devCaptured,
     redactPayload(notificationId, payload) {
       const def = byId.get(notificationId);
       if (!def) {
