@@ -4,9 +4,11 @@ import { Code } from "./_components/code";
 import { InstallCommand } from "./_components/install-command";
 import { HeroShader } from "./_components/hero-shader";
 import { SideShaders } from "./_components/side-shaders";
+import { ShaderProvider } from "./_components/shader-source";
 
 export default function HomePage() {
   return (
+    <ShaderProvider>
     <div className="landing" data-theme="dark">
       <nav className="landing-nav">
         <Link href="/" className="landing-nav-logo">
@@ -218,5 +220,6 @@ export const notify = createNotifyKit({
         </div>
       </footer>
     </div>
+    </ShaderProvider>
   );
 }
