@@ -132,19 +132,45 @@ const config: ShaderLabConfig = {
   },
 };
 
-type RegisterMirror = (canvas: HTMLCanvasElement | null) => () => void;
+type RegisterMirror = (el: HTMLDivElement | null) => () => void;
 
 const ShaderContext = createContext<RegisterMirror | null>(null);
 
+const PROXIMITY_RADIUS = 300;
+const BRIGHTNESS_BOOST = 2.5;
+
 export function ShaderProvider({ children }: { children: ReactNode }) {
   const sourceRef = useRef<HTMLDivElement>(null);
-  const mirrors = useRef<Set<HTMLCanvasElement>>(new Set());
+  const mirrorElements = useRef<Set<HTMLDivElement>>(new Set());
+  const canvasMap = useRef<WeakMap<HTMLDivElement, HTMLCanvasElement>>(new WeakMap());
   const rafId = useRef<number>(0);
+  const mousePos = useRef<{ x: number; y: number }>({ x: -9999, y: -9999 });
 
-  const register: RegisterMirror = useCallback((canvas) => {
-    if (!canvas) return () => {};
-    mirrors.current.add(canvas);
-    return () => { mirrors.current.delete(canvas); };
+  const register: RegisterMirror = useCallback((el) => {
+    if (!el) return () => {};
+    mirrorElements.current.add(el);
+    const canvas = el.querySelector("canvas");
+    if (canvas) canvasMap.current.set(el, canvas);
+    return () => { mirrorElements.current.delete(el); };
+  }, []);
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      mousePos.current.x = e.clientX;
+      mousePos.current.y = e.clientY;
+    }
+
+    function onMouseLeave() {
+      mousePos.current.x = -9999;
+      mousePos.current.y = -9999;
+    }
+
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    document.addEventListener("mouseleave", onMouseLeave);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseleave", onMouseLeave);
+    };
   }, []);
 
   useEffect(() => {
@@ -154,14 +180,32 @@ export function ShaderProvider({ children }: { children: ReactNode }) {
       if (!running) return;
       const source = sourceRef.current?.querySelector("canvas");
       if (source && source.width > 0 && source.height > 0) {
-        for (const mirror of mirrors.current) {
-          if (mirror.width !== source.width) mirror.width = source.width;
-          if (mirror.height !== source.height) mirror.height = source.height;
-          const ctx = mirror.getContext("2d");
+        const mx = mousePos.current.x;
+        const my = mousePos.current.y;
+
+        for (const el of mirrorElements.current) {
+          let canvas = canvasMap.current.get(el);
+          if (!canvas) {
+            canvas = el.querySelector("canvas") ?? undefined;
+            if (canvas) canvasMap.current.set(el, canvas);
+            else continue;
+          }
+
+          if (canvas.width !== source.width) canvas.width = source.width;
+          if (canvas.height !== source.height) canvas.height = source.height;
+          const ctx = canvas.getContext("2d");
           if (ctx) {
-            ctx.clearRect(0, 0, mirror.width, mirror.height);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(source, 0, 0);
           }
+
+          const rect = el.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          const dist = Math.hypot(mx - cx, my - cy);
+          const proximity = Math.max(0, 1 - dist / PROXIMITY_RADIUS);
+          const boost = 1 + proximity * (BRIGHTNESS_BOOST - 1);
+          el.style.filter = boost > 1.01 ? `brightness(${boost})` : "";
         }
       }
       rafId.current = requestAnimationFrame(draw);
@@ -182,11 +226,10 @@ export function ShaderProvider({ children }: { children: ReactNode }) {
         style={{
           position: "fixed",
           top: 0,
-          left: 0,
-          width: 512,
-          height: 512,
+          left: "-9999px",
+          width: "512px",
+          height: "512px",
           pointerEvents: "none",
-          opacity: 0,
           zIndex: -9999,
         }}
       >
@@ -199,16 +242,16 @@ export function ShaderProvider({ children }: { children: ReactNode }) {
 
 export function ShaderMirror({ className }: { className?: string }) {
   const register = useContext(ShaderContext);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!register || !canvasRef.current) return;
-    return register(canvasRef.current);
+    if (!register || !wrapperRef.current) return;
+    return register(wrapperRef.current);
   }, [register]);
 
   return (
-    <div className={className}>
-      <canvas ref={canvasRef} />
+    <div ref={wrapperRef} className={className} style={{ transition: "filter 0.2s ease-out" }}>
+      <canvas />
     </div>
   );
 }

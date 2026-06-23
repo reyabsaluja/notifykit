@@ -10,7 +10,7 @@ const NAV: Group[] = [
   {
     heading: "Getting Started",
     entries: [
-      { href: "/", label: "Overview" },
+      { href: "/docs", label: "Overview" },
       { href: "/docs/installation", label: "Installation" },
       { href: "/docs/quickstart", label: "Quickstart" },
     ],
@@ -71,7 +71,8 @@ export function SideNav() {
   const pathname = usePathname();
   return (
     <nav className="docs-nav" aria-label="Docs">
-      <Link href="/" className="docs-nav-logo">
+      <Link href="/" className="docs-nav-logo" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "0.25rem", fontSize: "1.3rem", color: "#ffffff", fontFamily: "var(--font-heading)" }}>
+        <img src="/logo.png" alt="" width={40} height={40} style={{ display: "block" }} />
         NotifyKit
       </Link>
       {NAV.map((group) => (
