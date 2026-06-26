@@ -125,53 +125,103 @@ export const notify = createNotifyKit({
         </div>
       </section>
 
-      <section className="landing-philosophy">
-        <div className="landing-philosophy-inner">
-          <h2>Not a platform. A framework.</h2>
-          <p>
-            NotifyKit runs inside your app, writes to your database, and calls your providers directly.
-            No hosted service, no dashboard, no external workflow editor.
+      <section className="landing-result">
+        <div className="landing-result-inner">
+          <h2>What your users see</h2>
+          <p className="landing-result-sub">
+            One <code>send()</code> call, multiple delivery surfaces — each respecting the recipient&apos;s preferences.
           </p>
-          <p className="landing-philosophy-tagline">
-            Think Better Auth for notifications. Define in code. Own your data.
-          </p>
+          <div className="landing-result-grid">
+            <div className="landing-result-card">
+              <h3>In-app inbox</h3>
+              <div className="landing-result-preview">
+                <div className="landing-result-item">
+                  <strong>Rey mentioned you</strong>
+                  <span>In Launch Plan</span>
+                </div>
+                <div className="landing-result-item landing-result-item-read">
+                  <strong>Sam assigned you a task</strong>
+                  <span>Review the API docs</span>
+                </div>
+              </div>
+              <p>Realtime via SSE. Mark read, archive, delete. Unread count badge.</p>
+            </div>
+            <div className="landing-result-card">
+              <h3>Email</h3>
+              <div className="landing-result-preview">
+                <div className="landing-result-email">
+                  <span className="landing-result-email-subject">Rey mentioned you in Launch Plan</span>
+                  <span className="landing-result-email-body">Open /posts/42 to reply.</span>
+                  <span className="landing-result-email-unsub">Unsubscribe</span>
+                </div>
+              </div>
+              <p>Templated from payload. HMAC-signed unsubscribe. RFC 8058 one-click.</p>
+            </div>
+            <div className="landing-result-card">
+              <h3>Preferences</h3>
+              <div className="landing-result-preview">
+                <div className="landing-result-pref">
+                  <span>Comment mentions</span>
+                  <span className="landing-result-pref-toggles">
+                    <span className="landing-result-toggle landing-result-toggle-on">Inbox</span>
+                    <span className="landing-result-toggle landing-result-toggle-on">Email</span>
+                  </span>
+                </div>
+                <div className="landing-result-pref">
+                  <span>New followers</span>
+                  <span className="landing-result-pref-toggles">
+                    <span className="landing-result-toggle landing-result-toggle-on">Inbox</span>
+                    <span className="landing-result-toggle landing-result-toggle-off">Email</span>
+                  </span>
+                </div>
+              </div>
+              <p>Per-channel, per-notification. Auto-generated from definitions.</p>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="landing-packages">
-        <h2>Packages</h2>
-        <div className="landing-packages-grid">
-          <div className="landing-package">
-            <code>@notifykitjs/core</code>
-            <span>Engine — notifications, channels, delivery</span>
+      <section className="landing-flow">
+        <h2>Three steps. Full lifecycle.</h2>
+        <div className="landing-flow-grid">
+          <div className="landing-flow-step">
+            <div className="landing-flow-header">
+              <span className="landing-flow-number">1</span>
+              <h3>Define</h3>
+            </div>
+            <Code
+              filename="lib/notifications.ts"
+              code={`export const invite = notification({
+  id: "invite",
+  channels: [inbox({ title: "{{name}} invited you" }),
+             email({ subject: "You're invited" })],
+})`}
+            />
           </div>
-          <div className="landing-package">
-            <code>@notifykitjs/react</code>
-            <span>React hooks and components</span>
+          <div className="landing-flow-step">
+            <div className="landing-flow-header">
+              <span className="landing-flow-number">2</span>
+              <h3>Send</h3>
+            </div>
+            <Code
+              filename="app/api/invite/route.ts"
+              code={`await notify.send("invite", {
+  userId: "user_123",
+  payload: { name: "Rey" },
+})`}
+            />
           </div>
-          <div className="landing-package">
-            <code>@notifykitjs/next</code>
-            <span>Next.js route handler &amp; middleware</span>
-          </div>
-          <div className="landing-package">
-            <code>@notifykitjs/drizzle</code>
-            <span>SQLite + Postgres adapters</span>
-          </div>
-          <div className="landing-package">
-            <code>@notifykitjs/resend</code>
-            <span>Resend email provider</span>
-          </div>
-          <div className="landing-package">
-            <code>@notifykitjs/testing</code>
-            <span>Test harness &amp; assertions</span>
-          </div>
-          <div className="landing-package">
-            <code>@notifykitjs/realtime-ws</code>
-            <span>WebSocket real-time</span>
-          </div>
-          <div className="landing-package">
-            <code>@notifykitjs/cli</code>
-            <span>Validate definitions at build time</span>
+          <div className="landing-flow-step">
+            <div className="landing-flow-header">
+              <span className="landing-flow-number">3</span>
+              <h3>Deliver</h3>
+            </div>
+            <Code
+              filename="channels resolved at runtime"
+              code={`✓ Inbox    → stored in your database
+✓ Email   → sent via Resend
+✗ SMS     → user opted out (preferences)`}
+            />
           </div>
         </div>
       </section>

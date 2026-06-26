@@ -9,9 +9,25 @@ export default function InstallationPage() {
     <article>
       <h1>Installation</h1>
       <p>
-        The fastest path to a working NotifyKit app is the starter scaffold.
-        It&apos;s a standard Next.js app with everything wired up.
+        Two paths to get started — pick based on where you are:
       </p>
+
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">A</span>
+          <div>
+            <strong>New project</strong>
+            <p>Use the starter scaffold. A full Next.js app with notifications wired end-to-end. Best for exploring or starting fresh.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">B</span>
+          <div>
+            <strong>Existing app</strong>
+            <p>Install the packages and add three files. Best when you&apos;re adding notifications to something already running.</p>
+          </div>
+        </div>
+      </div>
 
       <h2>Starter scaffold</h2>
       <Code
@@ -32,6 +48,60 @@ npm run dev`}
         <code>/settings/notifications</code>. The scaffold uses the in-memory
         adapter and a fake email provider so it works offline.
       </p>
+
+      <h3>Scaffold file map</h3>
+      <p>
+        Here&apos;s what the generated project looks like and where to
+        find each piece:
+      </p>
+      <table>
+        <thead>
+          <tr><th>File</th><th>What it does</th><th>Edit when</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>lib/notifykit.ts</code></td>
+            <td>NotifyKit instance + notification definitions</td>
+            <td>Adding notifications, swapping database/provider</td>
+          </tr>
+          <tr>
+            <td><code>lib/notifications/*.ts</code></td>
+            <td>Individual notification definitions (one per file)</td>
+            <td>Modifying payload, channels, or adding new notifications</td>
+          </tr>
+          <tr>
+            <td><code>app/api/notifykit/[...route]/route.ts</code></td>
+            <td>REST handler — inbox, preferences, SSE, unsubscribe</td>
+            <td>Changing auth, adding CORS, protecting routes</td>
+          </tr>
+          <tr>
+            <td><code>app/layout.tsx</code></td>
+            <td><code>&lt;NotifyKitProvider&gt;</code> wrapper</td>
+            <td>Changing <code>baseUrl</code> or conditional rendering</td>
+          </tr>
+          <tr>
+            <td><code>app/settings/notifications/page.tsx</code></td>
+            <td>Preferences UI with per-channel toggles</td>
+            <td>Customizing the settings layout or adding categories</td>
+          </tr>
+          <tr>
+            <td><code>components/notification-bell.tsx</code></td>
+            <td>Bell icon + dropdown inbox</td>
+            <td>Styling, adding animations, changing dropdown behavior</td>
+          </tr>
+          <tr>
+            <td><code>.env.example</code></td>
+            <td>Required env vars with comments</td>
+            <td>Adding provider API keys for production</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Start in <code>lib/notifykit.ts</code>.</strong> That&apos;s
+        the one file that controls everything — your notification definitions,
+        database adapter, and provider config. Edit it, save, and the dev
+        server hot-reloads. The rest of the scaffold just wires things up.
+      </div>
 
       <h2>Or install into an existing Next.js app</h2>
       <Code
@@ -104,33 +174,370 @@ export default function RootLayout({ children }) {
 }`}
       />
 
+      <h2>Verify it works</h2>
+      <p>
+        After adding those three files, start the dev server and hit the
+        health endpoint:
+      </p>
+      <Code
+        lang="bash"
+        code={`npm run dev
+curl http://localhost:3000/api/notifykit/notifications`}
+      />
+      <p>
+        You should see a JSON array of your registered notifications:
+      </p>
+      <Code
+        code={`[{ "id": "comment_mentioned", "channels": ["inbox", "email"], ... }]`}
+      />
+      <table>
+        <thead>
+          <tr><th>What you see</th><th>What it means</th><th>If it fails</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>JSON array with your notification IDs</td>
+            <td>Handler is wired up and NotifyKit instance is loading</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td><code>404</code></td>
+            <td>Route not found</td>
+            <td>Check the file is at <code>app/api/notifykit/[...route]/route.ts</code></td>
+          </tr>
+          <tr>
+            <td><code>500</code> / module error</td>
+            <td>Import or config issue</td>
+            <td>Check the terminal — usually a missing env var or bad import path</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>What to add next</h2>
+      <p>
+        You have a working setup — now grow it incrementally. Each step is
+        independent; add them in any order as your app needs them:
+      </p>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Define your notifications</strong>
+            <p>Create typed definitions with payloads and channel templates. You&apos;ll call <code>send()</code> against these.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Add inbox UI</strong>
+            <p>Drop in <code>useInbox()</code> and <code>useUnreadCount()</code> for a notification bell. Works with zero config.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Swap to a real database</strong>
+            <p>Install <code>@notifykitjs/drizzle</code> and switch to SQLite or Postgres. Data now survives restarts.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Connect an email provider</strong>
+            <p>Install <code>@notifykitjs/resend</code> (or build a custom provider). Emails start reaching real inboxes.</p>
+          </div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>When you need</th><th>Add this</th><th>Docs</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Typed notification definitions</td><td>Notification definitions in <code>lib/notifications/</code></td><td><Link href="/docs/defining">Defining</Link></td></tr>
+          <tr><td>In-app notification bell</td><td><code>useInbox()</code> + <code>useUnreadCount()</code></td><td><Link href="/docs/react">React hooks</Link></td></tr>
+          <tr><td>Persistent state</td><td><code>@notifykitjs/drizzle</code> adapter</td><td><Link href="/docs/database">Database</Link></td></tr>
+          <tr><td>Real email delivery</td><td><code>@notifykitjs/resend</code> provider</td><td><Link href="/docs/providers">Providers</Link></td></tr>
+          <tr><td>User opt-outs</td><td>Preferences UI with <code>usePreferences()</code></td><td><Link href="/docs/preferences">Preferences</Link></td></tr>
+          <tr><td>Noise control</td><td><code>rateLimit</code> + <code>digest</code> on definitions</td><td><Link href="/docs/digests">Digests</Link></td></tr>
+          <tr><td>Multi-instance deploys</td><td><code>@notifykitjs/realtime-pg</code></td><td><Link href="/docs/realtime">Realtime</Link></td></tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Each piece is additive.</strong> Adding a database doesn&apos;t
+        change your notification definitions. Adding email doesn&apos;t change
+        your inbox code. You can ship each step independently without touching
+        what you built before.
+      </div>
+
       <h2>Requirements</h2>
-      <ul>
-        <li>
-          Node 18+ or another runtime with <code>fetch</code> and
-          Node-compatible <code>crypto</code> APIs.
-        </li>
-        <li>TypeScript 5.0+ for full type inference.</li>
-        <li>
-          Next.js 14+ (App Router) if you&apos;re using the handler and React
-          bindings. Other frameworks work too — the handler is plain Web
-          Request/Response.
-        </li>
-      </ul>
+      <table>
+        <thead>
+          <tr><th>Dependency</th><th>Minimum</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Node.js</td><td>18+</td><td>Or any runtime with <code>fetch</code> + <code>crypto</code> (Bun, Deno, Cloudflare Workers)</td></tr>
+          <tr><td>TypeScript</td><td>5.0+</td><td>Required for full type inference on <code>send()</code></td></tr>
+          <tr><td>Next.js</td><td>14+ (App Router)</td><td>Only if using the handler and React bindings. Core works anywhere.</td></tr>
+        </tbody>
+      </table>
+      <div className="callout">
+        <strong>Not on Next.js?</strong> The route handler uses standard{" "}
+        Web <code>Request</code>/<code>Response</code> — it works with Hono, Express
+        (via adapter), SvelteKit, or any framework that supports the Fetch API.
+      </div>
 
       <h2>Packages</h2>
       <table>
         <thead>
-          <tr><th>Package</th><th>Purpose</th></tr>
+          <tr><th>Package</th><th>Purpose</th><th>When to install</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>@notifykitjs/core</code></td><td>Engine, channels, providers, types</td></tr>
-          <tr><td><code>@notifykitjs/next</code></td><td>Route handler, server actions, middleware</td></tr>
-          <tr><td><code>@notifykitjs/react</code></td><td>Hooks, components, client SDK</td></tr>
-          <tr><td><code>@notifykitjs/drizzle</code></td><td>SQLite + Postgres database adapters</td></tr>
-          <tr><td><code>@notifykitjs/resend</code></td><td>Resend email provider</td></tr>
-          <tr><td><code>@notifykitjs/realtime-pg</code></td><td>PostgreSQL NOTIFY realtime adapter</td></tr>
-          <tr><td><code>@notifykitjs/realtime-ws</code></td><td>WebSocket realtime adapter</td></tr>
+          <tr><td><code>@notifykitjs/core</code></td><td>Engine, channels, providers, types</td><td><strong>Always</strong></td></tr>
+          <tr><td><code>@notifykitjs/next</code></td><td>Route handler, server actions</td><td>Next.js apps with client-facing API</td></tr>
+          <tr><td><code>@notifykitjs/react</code></td><td>Hooks, components, client SDK</td><td>Building notification UI in React</td></tr>
+          <tr><td><code>@notifykitjs/drizzle</code></td><td>SQLite + Postgres adapters</td><td>Persisting state beyond in-memory</td></tr>
+          <tr><td><code>@notifykitjs/resend</code></td><td>Resend email provider</td><td>Sending real emails via Resend</td></tr>
+          <tr><td><code>@notifykitjs/realtime-pg</code></td><td>PostgreSQL NOTIFY adapter</td><td>Multi-instance deploys with Postgres</td></tr>
+          <tr><td><code>@notifykitjs/realtime-ws</code></td><td>WebSocket adapter</td><td>Custom transports, high connection counts</td></tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Minimum install: 3 packages.</strong> Most Next.js apps start
+        with <code>core</code> + <code>next</code> + <code>react</code>. Add{" "}
+        <code>drizzle</code> when you need persistence and a provider package
+        when you&apos;re ready to send real emails.
+      </div>
+
+      <h2>Environment variables</h2>
+      <p>
+        NotifyKit needs very few environment variables. Here&apos;s a consolidated
+        reference — copy into your <code>.env.local</code> and fill in values:
+      </p>
+      <Code
+        filename=".env.local"
+        code={`# ─── Required ────────────────────────────────────────────
+NOTIFYKIT_SECRET=           # 32-byte hex string (signs unsubscribe links + tokens)
+
+# ─── Database (pick one) ─────────────────────────────────
+DATABASE_URL=               # Postgres connection string (if using drizzlePostgresAdapter)
+# Or: omit entirely for memoryAdapter() / SQLite file path
+
+# ─── Email provider (pick one) ───────────────────────────
+RESEND_API_KEY=             # If using @notifykitjs/resend
+RESEND_FROM=                # Sender address: "App Name <noreply@app.com>"
+# Or: omit for fakeEmailProvider() in dev
+
+# ─── SMS provider (optional) ─────────────────────────────
+TWILIO_ACCOUNT_SID=         # If using a Twilio-based SMS provider
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM=                # Your Twilio phone number
+
+# ─── Webhooks (optional) ─────────────────────────────────
+WEBHOOK_SIGNING_SECRET=     # Shared secret for outbound webhook signatures`}
+      />
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Required</th><th>Used by</th><th>Format</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>NOTIFYKIT_SECRET</code></td>
+            <td>Yes</td>
+            <td>Unsubscribe links, token signing</td>
+            <td>64-char hex (32 bytes). Generate with <code>node -e &quot;...&quot;</code></td>
+          </tr>
+          <tr>
+            <td><code>DATABASE_URL</code></td>
+            <td>Production only</td>
+            <td>Drizzle Postgres adapter</td>
+            <td><code>postgresql://user:pass@host:5432/db</code></td>
+          </tr>
+          <tr>
+            <td><code>RESEND_API_KEY</code></td>
+            <td>If sending email</td>
+            <td><code>@notifykitjs/resend</code></td>
+            <td><code>re_...</code> (from Resend dashboard)</td>
+          </tr>
+          <tr>
+            <td><code>RESEND_FROM</code></td>
+            <td>If sending email</td>
+            <td><code>resendProvider()</code></td>
+            <td><code>&quot;Name &lt;email@domain&gt;&quot;</code> (must be verified domain)</td>
+          </tr>
+          <tr>
+            <td><code>WEBHOOK_SIGNING_SECRET</code></td>
+            <td>If using webhooks</td>
+            <td><code>webhookProvider()</code></td>
+            <td>Any strong random string (32+ chars)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Per-environment setup</h3>
+      <p>
+        Match your env vars to your deployment stage. Most teams need three
+        configurations:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>Database</th><th>Email</th><th>Secret</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Local dev</strong></td>
+            <td>Memory (no <code>DATABASE_URL</code>)</td>
+            <td>Fake (no <code>RESEND_API_KEY</code>)</td>
+            <td>Any hex string — never leaves your machine</td>
+          </tr>
+          <tr>
+            <td><strong>CI / Tests</strong></td>
+            <td>Memory (fastest)</td>
+            <td>Fake</td>
+            <td>Hardcoded test value in CI config</td>
+          </tr>
+          <tr>
+            <td><strong>Staging</strong></td>
+            <td>Postgres (shared staging DB)</td>
+            <td>Resend test mode or a sandbox domain</td>
+            <td>Unique per environment — rotate on compromise</td>
+          </tr>
+          <tr>
+            <td><strong>Production</strong></td>
+            <td>Postgres (production DB)</td>
+            <td>Resend with verified domain</td>
+            <td>Stored in secrets manager (Vercel, AWS SSM, Vault)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-warn">
+        <strong>Never share <code>NOTIFYKIT_SECRET</code> across environments.</strong>{" "}
+        Unsubscribe tokens signed with the staging secret are valid in staging
+        only. If you reuse the same secret in production, a leaked staging token
+        could unsubscribe production users. Generate a unique secret per environment.
+      </div>
+
+      <Code
+        code={`// Pattern: environment-aware config in lib/notifykit.ts
+import { createNotifyKit, memoryAdapter, fakeEmailProvider } from "@notifykitjs/core"
+import { drizzlePostgresAdapter } from "@notifykitjs/drizzle"
+import { resendProvider } from "@notifykitjs/resend"
+
+const isProd = process.env.NODE_ENV === "production"
+
+export const notify = createNotifyKit({
+  notifications: [...] as const,
+
+  database: isProd
+    ? drizzlePostgresAdapter(db)
+    : memoryAdapter(),
+
+  providers: {
+    email: process.env.RESEND_API_KEY
+      ? resendProvider({ apiKey: process.env.RESEND_API_KEY, from: process.env.RESEND_FROM! })
+      : fakeEmailProvider(),
+  },
+
+  unsubscribe: {
+    secret: process.env.NOTIFYKIT_SECRET!,
+    baseUrl: isProd
+      ? "https://yourapp.com/api/notifykit"
+      : "http://localhost:3000/api/notifykit",
+  },
+})`}
+      />
+      <div className="callout callout-tip">
+        <strong>Feature-flag by env var presence, not by <code>NODE_ENV</code>.</strong>{" "}
+        Checking <code>process.env.RESEND_API_KEY</code> means you can test with
+        real email locally by adding the key to <code>.env.local</code> — without
+        changing any code. Same adapter, different credentials.
+      </div>
+
+      <h2>Troubleshooting setup</h2>
+      <p>
+        Stuck during installation? These are the most common issues and their
+        one-line fixes:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Error / symptom</th><th>Cause</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>Cannot find module &apos;@notifykitjs/core&apos;</code></td>
+            <td>Package not installed or wrong workspace</td>
+            <td>Run <code>npm install @notifykitjs/core</code> in the correct directory</td>
+          </tr>
+          <tr>
+            <td><code>NOTIFYKIT_SECRET is undefined</code></td>
+            <td>Missing <code>.env.local</code> or env not loaded</td>
+            <td>Create <code>.env.local</code> with <code>NOTIFYKIT_SECRET=&lt;32-byte hex&gt;</code>. Restart the dev server.</td>
+          </tr>
+          <tr>
+            <td><code>TypeError: notify.send is not a function</code></td>
+            <td>Importing the config object instead of the instance</td>
+            <td>Make sure you export and import the result of <code>createNotifyKit()</code>, not the options object</td>
+          </tr>
+          <tr>
+            <td>Route returns <code>405 Method Not Allowed</code></td>
+            <td>Missing HTTP method export</td>
+            <td>Export all methods: <code>{`export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler(...)`}</code></td>
+          </tr>
+          <tr>
+            <td><code>Error: No notifications registered</code></td>
+            <td>Empty or non-<code>const</code> notification array</td>
+            <td>Pass at least one notification and use <code>as const</code>: <code>{`notifications: [...] as const`}</code></td>
+          </tr>
+          <tr>
+            <td>TypeScript: <code>Argument not assignable to parameter</code> on <code>send()</code></td>
+            <td>Missing <code>as const</code> on the notifications array</td>
+            <td>Add <code>as const</code> — without it, TypeScript widens IDs to <code>string</code> and loses type safety</td>
+          </tr>
+          <tr>
+            <td>SSE connection drops immediately</td>
+            <td>Next.js static optimization caching the route</td>
+            <td>Export <code>dynamic</code> from the route handler — it sets <code>export const dynamic = &apos;force-dynamic&apos;</code></td>
+          </tr>
+          <tr>
+            <td>Hooks return <code>status: &quot;error&quot;</code> with 401</td>
+            <td><code>identify()</code> can&apos;t read the session cookie</td>
+            <td>Verify cookies are sent — check <code>credentials: &quot;include&quot;</code> and same-origin. Cross-origin needs CORS config.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Generate a secret in one line:</strong>{" "}
+        <code>node -e &quot;console.log(require(&apos;crypto&apos;).randomBytes(32).toString(&apos;hex&apos;))&quot;</code>{" "}
+        — paste the output into <code>.env.local</code>. Never commit secrets
+        to git.
+      </div>
+
+      <h3>Checklist before asking for help</h3>
+      <table>
+        <thead>
+          <tr><th>Check</th><th>Command</th><th>Expected</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Packages installed</td>
+            <td><code>npm ls @notifykitjs/core</code></td>
+            <td>Shows version number, no <code>MISSING</code></td>
+          </tr>
+          <tr>
+            <td>Env loaded</td>
+            <td><code>echo $NOTIFYKIT_SECRET</code> (or check Next.js log)</td>
+            <td>Non-empty 64-char hex string</td>
+          </tr>
+          <tr>
+            <td>Route handler responding</td>
+            <td><code>curl http://localhost:3000/api/notifykit/notifications</code></td>
+            <td>JSON array (even if empty)</td>
+          </tr>
+          <tr>
+            <td>TypeScript compiles</td>
+            <td><code>npx tsc --noEmit</code></td>
+            <td>No errors in notifykit files</td>
+          </tr>
         </tbody>
       </table>
 

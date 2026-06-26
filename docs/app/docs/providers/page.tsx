@@ -14,6 +14,84 @@ export default function ProvidersPage() {
         a one-line change.
       </p>
 
+      <table>
+        <thead>
+          <tr><th>Channel</th><th>Built-in</th><th>Custom</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Email</td><td><code>@notifykitjs/resend</code></td><td>Postmark, SES, SendGrid — ~20 lines</td></tr>
+          <tr><td>SMS</td><td>—</td><td>Twilio, Vonage — implement <code>SmsProvider</code></td></tr>
+          <tr><td>Webhook</td><td><code>webhookProvider()</code> in core</td><td>N/A (generic by design)</td></tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-tip">
+        <strong>Every provider is just a <code>send()</code> function.</strong> If
+        your service has an HTTP API, you can wrap it in under 20 lines.
+        NotifyKit handles retries, fallbacks, and rate limiting — your provider
+        just makes the request.
+      </div>
+
+      <h2>Choosing an email provider</h2>
+      <p>
+        Haven&apos;t picked a provider yet? Here&apos;s a quick comparison of
+        common options and when they fit:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Provider</th><th>Free tier</th><th>Best for</th><th>Integration effort</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Resend</strong></td>
+            <td>3,000 emails/mo</td>
+            <td>Startups, developer-first apps. Simple API, fast setup.</td>
+            <td>1 line — <code>@notifykitjs/resend</code></td>
+          </tr>
+          <tr>
+            <td><strong>Postmark</strong></td>
+            <td>100 emails/mo</td>
+            <td>Transactional email with high deliverability. No marketing allowed.</td>
+            <td>~20 lines — custom provider</td>
+          </tr>
+          <tr>
+            <td><strong>AWS SES</strong></td>
+            <td>62,000 emails/mo (from EC2)</td>
+            <td>High volume, already on AWS. Cheapest at scale ($0.10/1k).</td>
+            <td>~30 lines — custom provider with SDK</td>
+          </tr>
+          <tr>
+            <td><strong>SendGrid</strong></td>
+            <td>100 emails/day</td>
+            <td>Teams needing analytics dashboards and dedicated IPs.</td>
+            <td>~20 lines — custom provider</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">?</span>
+          <div>
+            <strong>Need to ship fast?</strong>
+            <p>Use Resend — first-party package, one import, generous free tier. Swap later if needed.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">?</span>
+          <div>
+            <strong>Sending 100k+ emails/month?</strong>
+            <p>Use SES for cost, or Postmark for deliverability. Consider <Link href="/docs/fallbacks">failover</Link> with two providers.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">?</span>
+          <div>
+            <strong>Not ready to pick?</strong>
+            <p>Use <code>fakeEmailProvider()</code> — zero config, logs to console. Swap to a real provider with one line when ready.</p>
+          </div>
+        </div>
+      </div>
+
       <h2>Resend</h2>
       <Code
         lang="bash"
@@ -40,8 +118,25 @@ export const notify = createNotifyKit({
 
       <h2>Custom email provider</h2>
       <p>
-        The <code>EmailProvider</code> interface is tiny. Wrap Postmark, SES,
-        SendGrid, or any HTTP service in ~20 lines:
+        Every provider implements the same minimal contract:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Field</th><th>Type</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>id</code></td><td><code>string</code></td><td>Identifier for logs and timeline (e.g. &quot;postmark&quot;)</td></tr>
+          <tr><td><code>send(input)</code></td><td><code>async</code></td><td>Make the API call. Throw on failure. Return <code>{`{ providerMessageId? }`}</code> on success.</td></tr>
+        </tbody>
+      </table>
+      <div className="callout">
+        <strong>Error contract.</strong> Throw any error to trigger retries.
+        NotifyKit catches it, records it in the timeline, and retries per your{" "}
+        <code>retry</code> config. You don&apos;t need try/catch inside your
+        provider — just let non-2xx responses throw.
+      </div>
+      <p>
+        Wrap Postmark, SES, SendGrid, or any HTTP service in ~20 lines:
       </p>
       <Code
         code={`import type { EmailProvider } from "@notifykitjs/core"
@@ -149,11 +244,108 @@ export function twilioProvider(opts: {
 }`}
       />
 
+      <h2>Smoke-testing your provider</h2>
+      <p>
+        Before wiring a custom provider into your app, test it in isolation.
+        This catches auth issues, payload problems, and network errors
+        without touching the rest of the stack:
+      </p>
+      <Code
+        filename="scripts/test-provider.ts"
+        code={`// Run: npx tsx scripts/test-provider.ts
+import { postmarkProvider } from "./lib/providers/postmark"
+
+const provider = postmarkProvider({
+  token: process.env.POSTMARK_TOKEN!,
+  from: "test@yourapp.com",
+})
+
+const result = await provider.send({
+  to: "your-own-email@gmail.com",
+  subject: "[TEST] NotifyKit provider smoke test",
+  body: "If you see this, the provider works.",
+})
+
+console.log("✓ Sent:", result.providerMessageId ?? "(no message ID returned)")`}
+      />
+      <table>
+        <thead>
+          <tr><th>You see</th><th>Meaning</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>&#x2713; Sent: msg_abc123</code></td>
+            <td>Provider works — safe to wire into NotifyKit</td>
+            <td>None needed</td>
+          </tr>
+          <tr>
+            <td><code>401 Unauthorized</code></td>
+            <td>API key is invalid or expired</td>
+            <td>Regenerate the key in the provider dashboard</td>
+          </tr>
+          <tr>
+            <td><code>403 / domain not verified</code></td>
+            <td>The &quot;from&quot; address uses an unverified domain</td>
+            <td>Verify the domain in provider settings (DNS records)</td>
+          </tr>
+          <tr>
+            <td><code>422 / invalid recipient</code></td>
+            <td>Test address rejected — try a different <code>to</code></td>
+            <td>Use a real address you own; some providers reject <code>+</code> aliases</td>
+          </tr>
+          <tr>
+            <td><code>fetch failed / ENOTFOUND</code></td>
+            <td>Network or DNS issue</td>
+            <td>Check internet connection; verify the API URL in your provider code</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Test before you commit.</strong> A provider that passes this
+        script will work with NotifyKit — the engine calls the same{" "}
+        <code>send(input)</code> method with the same shape. If the isolated test
+        works but the wired version doesn&apos;t, the issue is in your config
+        (wrong env var name, missing <code>!</code> assertion), not the provider.
+      </div>
+
+      <h2>Provider input shapes</h2>
+      <p>
+        Each provider type receives a different <code>input</code> object:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Provider</th><th>Input fields</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>EmailProvider</code></td><td><code>to</code>, <code>subject</code>, <code>body</code></td></tr>
+          <tr><td><code>SmsProvider</code></td><td><code>to</code>, <code>body</code></td></tr>
+          <tr><td><code>WebhookProvider</code></td><td><code>url</code>, <code>headers</code>, <code>payload</code> (full notification context)</td></tr>
+        </tbody>
+      </table>
+
       <h2>Queues &amp; retries</h2>
       <p>
-        The default <code>inlineQueue()</code> runs deliveries synchronously.
-        Switch to <code>setTimeoutQueue()</code> for async, or implement the{" "}
-        <code>Queue</code> interface for BullMQ, SQS, or Cloudflare Queues:
+        The queue decides <em>when</em> delivery code runs. Pick based on your
+        deployment:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Queue</th><th>Delivery timing</th><th>Survives restart</th><th>Best for</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>inlineQueue()</code></td><td><code>send()</code> awaits provider</td><td>N/A</td><td>Scripts, tests, CLIs</td></tr>
+          <tr><td><code>setTimeoutQueue()</code></td><td>Background via <code>setTimeout</code></td><td>No — in-flight lost on crash</td><td>Web servers, single-instance apps</td></tr>
+          <tr><td>Custom (BullMQ, SQS)</td><td>External worker picks up jobs</td><td>Yes — jobs persist in Redis/SQS</td><td>Multi-instance production, serverless</td></tr>
+        </tbody>
+      </table>
+      <div className="callout callout-warn">
+        <strong>Serverless needs a durable queue.</strong> Vercel/Lambda
+        functions die after the response. <code>setTimeoutQueue()</code> jobs
+        will be lost. Use BullMQ (with Redis) or SQS, or stick with{" "}
+        <code>inlineQueue()</code> and accept the latency hit.
+      </div>
+      <p>
+        Implement the <code>Queue</code> interface — two methods:
       </p>
       <Code
         code={`import type { Queue } from "@notifykitjs/core"
@@ -183,6 +375,253 @@ const bullQueue: Queue = {
   },
 })`}
       />
+      <p>With the default exponential backoff, the retry timeline looks like:</p>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Attempt 1</strong>
+            <p>Immediate. If it fails, wait 1s.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Attempt 2</strong>
+            <p>After 1s. If it fails, wait 2s.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Attempt 3</strong>
+            <p>After 2s. If it fails, wait 4s.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Attempt 4</strong>
+            <p>After 4s. If it fails, wait 8s.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">5</span>
+          <div>
+            <strong>Attempt 5 (final)</strong>
+            <p>After 8s. If it fails → <code>delivery.failed</code> hook fires, fallback triggers.</p>
+          </div>
+        </div>
+      </div>
+
+      <h2>Transient vs permanent errors</h2>
+      <p>
+        Not all failures should be retried. A 429 (rate limit) or 503 (service
+        unavailable) will likely succeed on retry. A 400 (bad request) or 422
+        (invalid recipient) never will. Your provider controls this:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Error type</th><th>Provider behavior</th><th>Engine response</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Transient</strong> (retryable)</td>
+            <td>Throw a regular <code>Error</code></td>
+            <td>Retries up to <code>maxAttempts</code>, then fails with fallback</td>
+          </tr>
+          <tr>
+            <td><strong>Permanent</strong> (not retryable)</td>
+            <td>Throw with <code>permanent: true</code> property</td>
+            <td>Immediately fails — no retries, fallback triggers right away</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        code={`import type { EmailProvider } from "@notifykitjs/core"
+
+export function myProvider(opts): EmailProvider {
+  return {
+    id: "my-esp",
+    async send(input) {
+      const res = await fetch("https://api.provider.com/send", {
+        method: "POST",
+        headers: { Authorization: \`Bearer \${opts.apiKey}\` },
+        body: JSON.stringify({ to: input.to, subject: input.subject, body: input.body }),
+      })
+
+      if (res.ok) {
+        const json = await res.json()
+        return { providerMessageId: json.id }
+      }
+
+      // Permanent errors — retrying won't help
+      if (res.status === 400 || res.status === 422) {
+        const err = new Error(\`Provider rejected: \${res.status}\`)
+        ;(err as any).permanent = true
+        throw err
+      }
+
+      // Transient errors — retry with backoff
+      throw new Error(\`Provider error: \${res.status}\`)
+    },
+  }
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>HTTP status</th><th>Classification</th><th>Examples</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>400</code>, <code>422</code></td><td>Permanent</td><td>Invalid email address, malformed payload, recipient bounced</td></tr>
+          <tr><td><code>401</code>, <code>403</code></td><td>Permanent</td><td>Bad API key, account suspended, insufficient permissions</td></tr>
+          <tr><td><code>429</code></td><td>Transient</td><td>Provider rate limit — back off and retry</td></tr>
+          <tr><td><code>500</code>, <code>502</code>, <code>503</code></td><td>Transient</td><td>Provider outage — usually recovers within seconds</td></tr>
+          <tr><td>Network error / timeout</td><td>Transient</td><td>DNS failure, connection reset, read timeout</td></tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>When in doubt, let it retry.</strong> Only mark errors as
+        permanent when you&apos;re certain the same input will never succeed.
+        Wasting a few retries on a 400 costs milliseconds; skipping retries
+        on a transient 500 loses the notification entirely.
+      </div>
+
+      <h2>Provider failover</h2>
+      <p>
+        Channel-level fallbacks (email→inbox) change the delivery mechanism
+        when a channel fails. Provider failover is different — it keeps the
+        same channel (email) but switches to a backup provider (Resend→Postmark)
+        when the primary is down.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Mechanism</th><th>What changes</th><th>Use when</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Channel fallback</strong></td>
+            <td>Channel (email → inbox)</td>
+            <td>User should get the notification <em>somewhere</em>, even if degraded</td>
+          </tr>
+          <tr>
+            <td><strong>Provider failover</strong></td>
+            <td>Provider (Resend → Postmark)</td>
+            <td>Email must arrive as email — different provider, same experience</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Implement provider failover by wrapping multiple providers into one
+        that tries each in order:
+      </p>
+      <Code
+        code={`import type { EmailProvider } from "@notifykitjs/core"
+
+export function failoverEmailProvider(
+  providers: EmailProvider[]
+): EmailProvider {
+  return {
+    id: providers.map(p => p.id).join("+"),
+    async send(input) {
+      let lastError: Error | null = null
+
+      for (const provider of providers) {
+        try {
+          return await provider.send(input)
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err))
+          // If permanent error, don't try the next provider either
+          if ((lastError as any).permanent) throw lastError
+          // Otherwise, try the next provider
+        }
+      }
+
+      // All providers failed with transient errors
+      throw lastError!
+    },
+  }
+}`}
+      />
+      <Code
+        code={`// Usage: Resend primary, Postmark backup
+import { resendProvider } from "@notifykitjs/resend"
+
+const notify = createNotifyKit({
+  // ...
+  providers: {
+    email: failoverEmailProvider([
+      resendProvider({ apiKey: process.env.RESEND_API_KEY!, from: "app@example.com" }),
+      postmarkProvider({ token: process.env.POSTMARK_TOKEN!, from: "app@example.com" }),
+    ]),
+  },
+})`}
+      />
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Try primary</strong>
+            <p>Resend gets the first attempt. If it succeeds, done.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Primary fails (transient)</strong>
+            <p>500, timeout, or network error. Move to backup.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Try backup</strong>
+            <p>Postmark gets the same input. If it succeeds, the user gets their email.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Both fail</strong>
+            <p>The wrapper throws the last error. The engine retries the whole chain per your retry config.</p>
+          </div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Design choice</th><th>Recommendation</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Permanent errors</td>
+            <td>Don&apos;t try backup</td>
+            <td>A 422 (bad address) will fail on any provider — no point trying Postmark</td>
+          </tr>
+          <tr>
+            <td>Provider order</td>
+            <td>Cheapest/fastest first</td>
+            <td>The backup only fires during outages — optimize for the happy path</td>
+          </tr>
+          <tr>
+            <td>Monitoring</td>
+            <td>Log which provider succeeded</td>
+            <td>Track when backups fire — sustained backup usage means your primary is degraded</td>
+          </tr>
+          <tr>
+            <td>From address</td>
+            <td>Same <code>from</code> on both</td>
+            <td>Recipients see a consistent sender regardless of which provider fired</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Failover happens inside a single retry attempt.</strong> If
+        Resend fails and Postmark succeeds, that counts as one successful
+        attempt — no retry consumed. If both fail, the engine retries the
+        whole failover chain on the next attempt. This means with 2 providers
+        and 3 retry attempts, you get up to 6 total provider calls before
+        giving up.
+      </div>
 
       <div className="page-nav">
         <Link href="/docs/database">

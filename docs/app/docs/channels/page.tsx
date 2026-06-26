@@ -14,22 +14,50 @@ export default function ChannelsPage() {
         types — inbox, email, SMS, and webhook.
       </p>
 
+      <table>
+        <thead>
+          <tr><th>Channel</th><th>Type</th><th>How it delivers</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Inbox</strong></td><td>Pull</td><td>Writes a row — user fetches it via hook or API</td></tr>
+          <tr><td><strong>Email</strong></td><td>Push</td><td>Sends via your email provider (Resend, Postmark, etc.)</td></tr>
+          <tr><td><strong>SMS</strong></td><td>Push</td><td>Sends via your SMS provider (Twilio, Vonage, etc.)</td></tr>
+          <tr><td><strong>Webhook</strong></td><td>Push</td><td>POSTs a signed JSON payload to a URL</td></tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-tip">
+        <strong>Pull vs push matters.</strong> Pull channels (inbox) are never
+        affected by quiet hours or delivery failures — the item is simply
+        there when the user looks. Push channels (email, SMS, webhook) go
+        through the full pipeline: queue, retry, quiet hours, fallback.
+      </div>
+
       <h2>Inbox</h2>
       <p>
         The inbox channel writes a row to your database. It&apos;s user-pulled
         (the recipient fetches it via the React hook or REST API), so it&apos;s
         never subject to quiet hours or delivery failures.
       </p>
+      <table>
+        <thead>
+          <tr><th>Property</th><th>Required</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>title</code></td><td>Yes</td><td>Main text shown in the inbox list</td></tr>
+          <tr><td><code>body</code></td><td>No</td><td>Secondary text or preview</td></tr>
+          <tr><td><code>actionUrl</code></td><td>No</td><td>Link destination when the item is clicked</td></tr>
+        </tbody>
+      </table>
       <Code
         code={`import { channel } from "@notifykitjs/core"
 
 const inbox = channel.inbox()
 
-// In a notification definition:
 inbox({
   title: "{{actorName}} mentioned you",
-  body: "In {{postTitle}}",        // optional
-  actionUrl: "{{postUrl}}",        // optional — renders as a link
+  body: "In {{postTitle}}",
+  actionUrl: "{{postUrl}}",
 })`}
       />
       <p>
@@ -41,10 +69,17 @@ inbox({
       <h2>Email</h2>
       <p>
         The email channel queues a delivery job that your configured{" "}
-        <Link href="/docs/providers">email provider</Link> sends. It supports
-        subject, body (plain text), and the reserved{" "}
-        <code>{`{{_unsubscribeUrl}}`}</code> template variable.
+        <Link href="/docs/providers">email provider</Link> sends.
       </p>
+      <table>
+        <thead>
+          <tr><th>Property</th><th>Required</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>subject</code></td><td>Yes</td><td>Email subject line (supports template variables)</td></tr>
+          <tr><td><code>body</code></td><td>Yes</td><td>Plain text body (supports template variables)</td></tr>
+        </tbody>
+      </table>
       <Code
         code={`const email = channel.email()
 
@@ -53,16 +88,25 @@ email({
   body: "Open {{postUrl}} to reply.\\n\\nUnsubscribe: {{_unsubscribeUrl}}",
 })`}
       />
-      <p>
-        Email deliveries go through the full pipeline: queue, retry with
-        backoff, fallback on terminal failure.
-      </p>
+      <div className="callout">
+        <strong>Built-in variable.</strong> <code>{`{{_unsubscribeUrl}}`}</code> is
+        injected automatically — it links to the one-click unsubscribe handler.
+        Always include it in email bodies.
+      </div>
 
       <h2>SMS</h2>
       <p>
         The SMS channel sends a text message through your configured{" "}
-        SMS provider. The recipient must have a <code>phone</code> field set.
+        SMS provider.
       </p>
+      <table>
+        <thead>
+          <tr><th>Property</th><th>Required</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>body</code></td><td>Yes</td><td>Message text (max ~160 chars recommended)</td></tr>
+        </tbody>
+      </table>
       <Code
         code={`const sms = channel.sms()
 
@@ -70,6 +114,11 @@ sms({
   body: "Your verification code is {{code}}",
 })`}
       />
+      <div className="callout callout-warn">
+        <strong>Recipient requires <code>phone</code>.</strong> If the recipient
+        doesn&apos;t have a phone number set, the SMS channel resolves to{" "}
+        <code>&quot;unavailable&quot;</code> and is skipped.
+      </div>
 
       <h2>Webhook</h2>
       <p>
@@ -77,6 +126,15 @@ sms({
         Slack integrations, custom destinations, or forwarding to external
         services.
       </p>
+      <table>
+        <thead>
+          <tr><th>Property</th><th>Required</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>url</code></td><td>Yes</td><td>Destination endpoint</td></tr>
+          <tr><td><code>headers</code></td><td>No</td><td>Additional HTTP headers</td></tr>
+        </tbody>
+      </table>
       <Code
         code={`const webhook = channel.webhook()
 
@@ -85,14 +143,42 @@ webhook({
   headers: { "Content-Type": "application/json" },
 })`}
       />
+
+      <h3>Signature verification</h3>
       <p>
         When a <code>secret</code> is configured on the webhook provider,
-        every request includes an <code>x-notifykit-signature: sha256=&lt;hex&gt;</code>{" "}
-        header. Receivers verify by HMAC-SHA256-ing the raw body with the
-        shared secret.
+        every request includes an <code>x-notifykit-signature</code> header.
       </p>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>NotifyKit signs</strong>
+            <p>HMAC-SHA256 of the raw JSON body with your shared secret.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Header sent</strong>
+            <p><code>x-notifykit-signature: sha256=&lt;hex&gt;</code> included on every POST.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Receiver verifies</strong>
+            <p>Compute HMAC-SHA256 of the raw body with the same secret. Compare to header value.</p>
+          </div>
+        </div>
+      </div>
 
       <h2>Channel behavior during send</h2>
+      <div className="callout callout-tip">
+        <strong>Key insight.</strong> Inbox always delivers immediately (it&apos;s
+        just a DB write). Everything else goes through the queue and can be
+        deferred, retried, or skipped.
+      </div>
       <table>
         <thead>
           <tr>
@@ -101,6 +187,7 @@ webhook({
             <th>Quiet hours</th>
             <th>Preferences</th>
             <th>Retries</th>
+            <th>Fallback</th>
           </tr>
         </thead>
         <tbody>
@@ -109,31 +196,568 @@ webhook({
             <td>Immediate (DB write)</td>
             <td>Not affected</td>
             <td>Respects opt-out</td>
+            <td>N/A (can&apos;t fail)</td>
             <td>N/A</td>
           </tr>
           <tr>
             <td>Email</td>
             <td>Via queue + provider</td>
-            <td>Deferred</td>
+            <td>Deferred until window ends</td>
             <td>Respects opt-out</td>
-            <td>Configurable</td>
+            <td>Up to 5 with backoff</td>
+            <td>Supported</td>
           </tr>
           <tr>
             <td>SMS</td>
             <td>Via queue + provider</td>
-            <td>Deferred</td>
+            <td>Deferred until window ends</td>
             <td>Respects opt-out</td>
-            <td>Configurable</td>
+            <td>Up to 5 with backoff</td>
+            <td>Supported</td>
           </tr>
           <tr>
             <td>Webhook</td>
             <td>Via queue + provider</td>
-            <td>Deferred</td>
+            <td>Deferred until window ends</td>
             <td>Respects opt-out</td>
-            <td>Configurable</td>
+            <td>Up to 5 with backoff</td>
+            <td>Supported</td>
           </tr>
         </tbody>
       </table>
+      <p>
+        Retry count and backoff are configured globally via{" "}
+        <Link href="/docs/providers">Providers &amp; queues</Link>. Fallback
+        channels are configured per-notification — see{" "}
+        <Link href="/docs/fallbacks">Fallback channels</Link>.
+      </p>
+
+      <h2>Choosing channels for your notifications</h2>
+      <p>
+        Not every notification needs every channel. Match urgency to
+        intrusiveness:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Urgency</th><th>Channels</th><th>Examples</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Critical — act now</strong></td>
+            <td>Email + SMS + inbox</td>
+            <td>Security alert, 2FA code, payment failed</td>
+          </tr>
+          <tr>
+            <td><strong>Important — act soon</strong></td>
+            <td>Email + inbox</td>
+            <td>Team invite, comment mention, task assigned</td>
+          </tr>
+          <tr>
+            <td><strong>Informational — FYI</strong></td>
+            <td>Inbox only</td>
+            <td>New follower, post liked, deploy succeeded</td>
+          </tr>
+          <tr>
+            <td><strong>System-to-system</strong></td>
+            <td>Webhook (+ inbox as audit trail)</td>
+            <td>Slack integration, external service sync, analytics event</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout">
+        <strong>Start with inbox + email, expand from there.</strong> Most
+        apps only need two channels at launch. Add SMS when you have time-critical
+        notifications, and webhooks when you integrate with external services.
+        Users can always turn off channels they don&apos;t want via{" "}
+        <Link href="/docs/preferences">preferences</Link>.
+      </div>
+
+      <h2>Putting it together</h2>
+      <p>
+        Here&apos;s a single notification that uses three channels. Each renders
+        the same payload differently based on the medium:
+      </p>
+      <Code
+        code={`notification({
+  id: "task_assigned",
+  payload: {
+    assignerName: "string",
+    taskTitle: "string",
+    taskUrl: "string",
+    projectName: "string",
+  },
+  channels: [
+    inbox({
+      title: "{{assignerName}} assigned you a task",
+      body: "{{taskTitle}} in {{projectName}}",
+      actionUrl: "{{taskUrl}}",
+    }),
+    email({
+      subject: "New task: {{taskTitle}}",
+      body: "{{assignerName}} assigned you '{{taskTitle}}' in {{projectName}}.\\n\\nOpen it: {{taskUrl}}\\n\\nUnsubscribe: {{_unsubscribeUrl}}",
+    }),
+    webhook({
+      url: "https://hooks.slack.com/services/T.../B.../xxx",
+    }),
+  ],
+  // Pipeline options (all optional):
+  required: false,              // user can opt out per channel
+  defaultChannels: { inbox: true, email: true, webhook: true },
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>What happens at send time</th><th>Inbox</th><th>Email</th><th>Webhook</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Preferences checked</strong></td>
+            <td>User opted out? → skip</td>
+            <td>User opted out? → skip</td>
+            <td>User opted out? → skip</td>
+          </tr>
+          <tr>
+            <td><strong>Destination resolved</strong></td>
+            <td>Always available (DB write)</td>
+            <td>Needs <code>email</code> on recipient</td>
+            <td>URL hardcoded in config</td>
+          </tr>
+          <tr>
+            <td><strong>Quiet hours</strong></td>
+            <td>Delivers immediately</td>
+            <td>Deferred if in window</td>
+            <td>Deferred if in window</td>
+          </tr>
+          <tr>
+            <td><strong>Delivery</strong></td>
+            <td>Instant DB write</td>
+            <td>Queued → provider</td>
+            <td>Queued → POST</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Each channel is independent.</strong> If email fails after retries,
+        the inbox item and webhook delivery are unaffected. Use{" "}
+        <Link href="/docs/fallbacks">fallbacks</Link> to fire an alternate channel
+        when one fails.
+      </div>
+
+      <h2>Template syntax</h2>
+      <p>
+        Channel strings support <code>{`{{variable}}`}</code> interpolation.
+        Variables come from the <code>payload</code> you pass to{" "}
+        <code>send()</code>, plus a few built-in variables injected by the
+        engine.
+      </p>
+      <Code
+        code={`// Definition:
+notification({
+  id: "comment_mentioned",
+  payload: { actorName: "string", postTitle: "string", postUrl: "string" },
+  channels: [
+    inbox({ title: "{{actorName}} mentioned you", body: "In {{postTitle}}", actionUrl: "{{postUrl}}" }),
+    email({ subject: "{{actorName}} mentioned you in {{postTitle}}", body: "Open {{postUrl}}" }),
+  ],
+})
+
+// Send:
+await notify.send({
+  recipientId: user.id,
+  notificationId: "comment_mentioned",
+  payload: { actorName: "Rey", postTitle: "Launch Plan", postUrl: "/posts/42" },
+})
+// → inbox title resolves to "Rey mentioned you"
+// → email subject resolves to "Rey mentioned you in Launch Plan"`}
+      />
+      <table>
+        <thead>
+          <tr><th>Variable type</th><th>Source</th><th>Examples</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Payload fields</strong></td>
+            <td>Your <code>payload</code> object</td>
+            <td><code>{`{{actorName}}`}</code>, <code>{`{{orderNumber}}`}</code>, <code>{`{{postUrl}}`}</code></td>
+          </tr>
+          <tr>
+            <td><strong>Built-in: unsubscribe</strong></td>
+            <td>Engine (requires <code>unsubscribe</code> config)</td>
+            <td><code>{`{{_unsubscribeUrl}}`}</code> — HMAC-signed one-click link</td>
+          </tr>
+          <tr>
+            <td><strong>Built-in: recipient</strong></td>
+            <td>Recipient record fields</td>
+            <td><code>{`{{_recipient.name}}`}</code>, <code>{`{{_recipient.email}}`}</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-warn">
+        <strong>Missing variables render as empty strings.</strong> If you
+        reference <code>{`{{foo}}`}</code> but don&apos;t pass <code>foo</code>{" "}
+        in the payload, the template outputs <code>&quot;&quot;</code> — no error
+        is thrown at runtime. Use payload validation (typed schemas) to catch
+        missing fields at send time.
+      </div>
+
+      <h3>Built-in variables</h3>
+      <p>
+        Variables prefixed with <code>_</code> are injected by the engine and
+        don&apos;t need to be in your payload schema:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Available in</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>{`{{_unsubscribeUrl}}`}</code></td>
+            <td>Email only</td>
+            <td>Signed URL to unsubscribe from this notification. Requires <code>unsubscribe</code> config.</td>
+          </tr>
+          <tr>
+            <td><code>{`{{_recipient.name}}`}</code></td>
+            <td>All channels</td>
+            <td>Recipient&apos;s <code>name</code> field from <code>upsertRecipient()</code></td>
+          </tr>
+          <tr>
+            <td><code>{`{{_recipient.email}}`}</code></td>
+            <td>All channels</td>
+            <td>Recipient&apos;s email address</td>
+          </tr>
+          <tr>
+            <td><code>{`{{_notificationId}}`}</code></td>
+            <td>All channels</td>
+            <td>The notification&apos;s ID (useful in webhook payloads for routing)</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        code={`// Using built-in variables in an email:
+email({
+  subject: "Hi {{_recipient.name}}, {{actorName}} mentioned you",
+  body: \`Open {{postUrl}} to reply.
+
+Unsubscribe: {{_unsubscribeUrl}}\`,
+})`}
+      />
+      <div className="callout callout-tip">
+        <strong>Templates are intentionally simple.</strong> No conditionals,
+        no loops, no filters. If you need complex rendering (HTML emails,
+        i18n, conditional sections), use a{" "}
+        <code>render()</code> function on your channel config instead — it
+        receives the full typed payload and returns the final string.
+      </div>
+
+      <h2>Using render() for complex templates</h2>
+      <p>
+        When <code>{`{{variable}}`}</code> interpolation isn&apos;t enough —
+        HTML emails, conditional sections, loops, or i18n — use a{" "}
+        <code>render()</code> function instead. It receives the typed payload
+        and returns the final string for each field.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>Supports</th><th>Best for</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Template strings</strong> (<code>{`{{var}}`}</code>)</td>
+            <td>Variable substitution only</td>
+            <td>Simple notifications — title, subject, short body</td>
+          </tr>
+          <tr>
+            <td><strong>render() function</strong></td>
+            <td>Conditionals, loops, HTML, i18n, any JS logic</td>
+            <td>HTML emails, dynamic content, multi-language, complex formatting</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Basic render()</h3>
+      <p>
+        Pass a <code>render</code> function that returns the channel fields.
+        It receives the full typed payload:
+      </p>
+      <Code
+        code={`notification({
+  id: "order_shipped",
+  payload: {
+    orderNumber: "string",
+    itemCount: "number",
+    trackingUrl: "string",
+    expedited: "boolean",
+  },
+  channels: [
+    inbox({
+      render: (payload) => ({
+        title: \`Order \${payload.orderNumber} shipped\`,
+        body: payload.expedited
+          ? \`\${payload.itemCount} items — expedited shipping\`
+          : \`\${payload.itemCount} items on the way\`,
+        actionUrl: payload.trackingUrl,
+      }),
+    }),
+    email({
+      render: (payload) => ({
+        subject: \`Your order \${payload.orderNumber} has shipped\`,
+        body: [
+          \`Hi! Your order with \${payload.itemCount} item\${payload.itemCount > 1 ? "s" : ""} is on the way.\`,
+          payload.expedited ? "Expedited delivery — arriving in 1-2 days." : "",
+          \`Track your package: \${payload.trackingUrl}\`,
+          "",
+          \`Unsubscribe: {{_unsubscribeUrl}}\`,
+        ].filter(Boolean).join("\\n"),
+      }),
+    }),
+  ],
+})`}
+      />
+      <div className="callout">
+        <strong>render() and templates can mix.</strong> Inside a{" "}
+        <code>render()</code> return value, you can still use{" "}
+        <code>{`{{_unsubscribeUrl}}`}</code> — built-in variables are
+        interpolated after your function returns. Only payload variables need
+        to be handled in the function.
+      </div>
+
+      <h3>HTML emails</h3>
+      <p>
+        For rich HTML emails, use <code>render()</code> with any templating
+        approach — template literals, React email, or a library like mjml:
+      </p>
+      <Code
+        code={`import { renderEmailHtml } from "@/lib/email-templates"
+
+notification({
+  id: "weekly_digest",
+  payload: {
+    recipientName: "string",
+    highlights: "string",
+    unreadCount: "number",
+    weekOf: "string",
+  },
+  channels: [
+    email({
+      render: (payload) => ({
+        subject: \`Your weekly digest — \${payload.weekOf}\`,
+        body: renderEmailHtml({
+          heading: \`Hey \${payload.recipientName}, here's your week\`,
+          sections: [
+            { title: "Highlights", content: payload.highlights },
+            { title: "Unread", content: \`\${payload.unreadCount} notifications waiting\` },
+          ],
+          footer: { unsubscribeUrl: "{{_unsubscribeUrl}}" },
+        }),
+        html: true,
+      }),
+    }),
+  ],
+})`}
+      />
+
+      <h3>Internationalization (i18n)</h3>
+      <p>
+        Use <code>render()</code> with your i18n library to send notifications
+        in the recipient&apos;s language:
+      </p>
+      <Code
+        code={`import { t } from "@/lib/i18n"
+
+notification({
+  id: "comment_mentioned",
+  payload: {
+    actorName: "string",
+    postTitle: "string",
+    postUrl: "string",
+    locale: "string",
+  },
+  channels: [
+    inbox({
+      render: (payload) => ({
+        title: t(payload.locale, "mention.title", { actor: payload.actorName }),
+        body: t(payload.locale, "mention.body", { post: payload.postTitle }),
+        actionUrl: payload.postUrl,
+      }),
+    }),
+    email({
+      render: (payload) => ({
+        subject: t(payload.locale, "mention.email_subject", {
+          actor: payload.actorName,
+          post: payload.postTitle,
+        }),
+        body: t(payload.locale, "mention.email_body", {
+          actor: payload.actorName,
+          url: payload.postUrl,
+        }),
+      }),
+    }),
+  ],
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>How to pass locale</th><th>Trade-off</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Locale in payload</strong></td>
+            <td>Include <code>locale: user.locale</code> at send time</td>
+            <td>Simple — works with any i18n library. Payload grows slightly.</td>
+          </tr>
+          <tr>
+            <td><strong>Locale on recipient</strong></td>
+            <td>Store on the recipient record, access via <code>{`{{_recipient.locale}}`}</code></td>
+            <td>Cleaner payloads, but requires a custom recipient field.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>render() is sync.</strong> It cannot be <code>async</code> — no
+        database queries or API calls inside it. Load all the data you need
+        into the payload at send time, then render from that. This keeps the
+        delivery pipeline fast and predictable.
+      </div>
+
+      <h2>Debugging channel delivery</h2>
+      <p>
+        When a notification doesn&apos;t arrive, work through these checks in
+        order. Most issues resolve at step 1 or 2:
+      </p>
+
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Check <code>result.skipped</code></strong>
+            <p>Was the channel skipped entirely? <code>reason</code> tells you why: preferences, missing address, rate limit, or dedup match.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Check <code>result.deferredChannels</code></strong>
+            <p>Was it deferred by quiet hours? The delivery will fire when the window ends — call <code>flushScheduledSends()</code> to release manually.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Check <code>result.deliveries</code></strong>
+            <p>Was it attempted but failed? Look at <code>status</code> and <code>error</code>. Provider errors (5xx, timeout) are retried automatically.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Check <code>result.digested</code> / <code>result.rateLimited</code></strong>
+            <p>Was the send absorbed? Digested sends deliver later; rate-limited sends are silently dropped.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">5</span>
+          <div>
+            <strong>Use <code>explain()</code></strong>
+            <p>Dry-run the same send. Shows the full resolution trail — preferences, quiet hours, channel evaluation — without writing any records.</p>
+          </div>
+        </div>
+      </div>
+
+      <p>
+        The table below maps specific symptoms to their root cause:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Symptom</th><th>Channel</th><th>Likely cause</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Item not in inbox</td>
+            <td>Inbox</td>
+            <td>Recipient opted out via preferences</td>
+            <td>Check <code>result.skipped</code> — look for <code>reason: &quot;preference_opt_out&quot;</code></td>
+          </tr>
+          <tr>
+            <td>Email never arrives</td>
+            <td>Email</td>
+            <td>No <code>email</code> on recipient record</td>
+            <td>Check <code>result.skipped</code> for <code>reason: &quot;missing_destination&quot;</code></td>
+          </tr>
+          <tr>
+            <td>Email delayed by hours</td>
+            <td>Email</td>
+            <td>Recipient is in quiet hours window</td>
+            <td>Check <code>result.deferredChannels</code> — delivery will happen when window ends</td>
+          </tr>
+          <tr>
+            <td>SMS not delivered</td>
+            <td>SMS</td>
+            <td>Provider returned error (invalid number, region blocked)</td>
+            <td>Check <code>result.deliveries</code> for the SMS entry — <code>error</code> field has provider message</td>
+          </tr>
+          <tr>
+            <td>Webhook returns 4xx/5xx</td>
+            <td>Webhook</td>
+            <td>Endpoint down, auth expired, or payload rejected</td>
+            <td>Check <code>result.deliveries</code> — retries happen automatically up to 5 times</td>
+          </tr>
+          <tr>
+            <td>Nothing sent at all</td>
+            <td>All</td>
+            <td>Deduplication key matched a recent send</td>
+            <td>Check <code>result.idempotent</code> — the original send&apos;s result is returned</td>
+          </tr>
+          <tr>
+            <td>Send returns but no delivery records</td>
+            <td>All</td>
+            <td>Notification was digested</td>
+            <td>Check <code>result.digested === true</code> — it will deliver when the digest window fires</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Inspecting the result programmatically</h3>
+      <Code
+        code={`const result = await notify.send({
+  recipientId: user.id,
+  notificationId: "comment_mentioned",
+  payload: { actorName: "Rey", postTitle: "Launch", postUrl: "/posts/1" },
+})
+
+// Was anything skipped?
+for (const skip of result.skipped) {
+  console.log(\`Channel \${skip.channel} skipped: \${skip.reason}\`)
+  // → "Channel email skipped: missing_destination"
+  // → "Channel sms skipped: preference_opt_out"
+}
+
+// Did any delivery fail after retries?
+const failures = result.deliveries.filter(d => d.status === "failed")
+for (const fail of failures) {
+  console.log(\`\${fail.channel} failed: \${fail.error}\`)
+  // → "email failed: 550 mailbox not found"
+}
+
+// Was it deferred by quiet hours?
+if (result.deferredChannels.length > 0) {
+  console.log(\`Deferred: \${result.deferredChannels.join(", ")}\`)
+  // → "Deferred: email, sms"
+}`}
+      />
+      <div className="callout callout-tip">
+        <strong>Use the <code>delivery.failed</code> hook for monitoring.</strong>{" "}
+        Instead of checking every send result manually, set up a{" "}
+        <Link href="/docs/hooks">hook</Link> that fires on failures and routes
+        them to your error tracker (Sentry, Datadog, etc.).
+      </div>
+
+      <div className="callout callout-warn">
+        <strong>Template errors are silent.</strong> If a{" "}
+        <code>{`{{variable}}`}</code> is missing from the payload, the template
+        renders an empty string — no error is thrown. If your messages look
+        blank or incomplete, verify the payload fields match your template
+        variables exactly.
+      </div>
 
       <div className="page-nav">
         <Link href="/docs/sending">
