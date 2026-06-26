@@ -93,6 +93,7 @@ await notify.send({
 | [`@notifykitjs/react`](packages/react) | React hooks and components |
 | [`@notifykitjs/next`](packages/next) | Next.js route handler, server actions, middleware |
 | [`@notifykitjs/resend`](packages/resend) | Resend email provider |
+| [`@notifykitjs/nodemailer`](packages/nodemailer) | Nodemailer/SMTP provider (SendGrid, Postmark, SES, any SMTP) |
 | [`@notifykitjs/testing`](packages/testing) | Test harness, fake providers, assertion helpers |
 | [`@notifykitjs/cli`](packages/cli) | CLI for validating notification definitions |
 | [`create-notifykit-app`](packages/create-app) | Project scaffolding |
@@ -207,11 +208,16 @@ const notify = createNotifyKit({
 
 ## Roadmap
 
-These features are planned but **not yet shipped** in v0.0:
+NotifyKit v0.1 ships with inbox, email, SMS, and webhook channels, a full preference engine, digests, rate limiting, quiet hours, deduplication, fallbacks, and real-time delivery. Here's what's next:
 
-- MySQL Drizzle adapter
-- Push notification channel (FCM / APNs)
-- Dashboard UI
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Push notifications (FCM / APNs) | Planned | Channel + provider adapters |
+| Prisma database adapter | Planned | Same interface as `@notifykitjs/drizzle` |
+| MySQL Drizzle adapter | Planned | Currently supports Postgres + SQLite |
+| React Email / MJML templates | Planned | Rich HTML email rendering |
+| Bull/pg-boss job queue adapter | Planned | Production queue for high-volume |
+| Dashboard UI | Planned | Admin view for delivery status |
 
 ## License
 
