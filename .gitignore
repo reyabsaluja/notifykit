@@ -3,3 +3,4 @@ node_modules/
 .bun/
 dist/
 notifykit_logo.png
+.vercel

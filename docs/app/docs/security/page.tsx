@@ -518,6 +518,104 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
         <code>requestRateLimit</code> only protects authenticated endpoints.
       </div>
 
+      <h2>Secret rotation</h2>
+      <p>
+        Every unsubscribe link ever sent is signed with your{" "}
+        <code>NOTIFYKIT_SECRET</code>. If you rotate the secret in one step,
+        every outstanding link in every email your users have ever received
+        breaks instantly. Use the dual-secret pattern to rotate gracefully:
+      </p>
+
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Add new secret alongside old</strong>
+            <p>Deploy with both secrets. New links are signed with the new secret. Old links still verify against the old one.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Wait for old links to expire from inboxes</strong>
+            <p>Most email clients surface messages for 30–90 days. Wait at least that long before removing the old secret.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Remove old secret</strong>
+            <p>Once the overlap window passes, remove the old secret. Only the new secret remains.</p>
+          </div>
+        </div>
+      </div>
+
+      <Code
+        code={`// lib/notifykit.ts — dual-secret rotation
+import { createNotifyKit } from "@notifykitjs/core"
+
+export const notify = createNotifyKit({
+  // ...notifications, database, providers
+
+  unsubscribe: {
+    // Primary secret — used for signing NEW links
+    secret: process.env.NOTIFYKIT_SECRET!,
+
+    // Previous secret(s) — verified on incoming unsubscribes
+    // but never used for signing new links
+    previousSecrets: process.env.NOTIFYKIT_SECRET_OLD
+      ? [process.env.NOTIFYKIT_SECRET_OLD]
+      : [],
+
+    baseUrl: process.env.NEXT_PUBLIC_APP_URL + "/api/notifykit",
+  },
+})`}
+      />
+
+      <table>
+        <thead>
+          <tr><th>When to rotate</th><th>Urgency</th><th>Overlap window</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Secret leaked in logs or git</strong></td>
+            <td>Immediate — rotate today</td>
+            <td>Keep old secret for 90 days (links are already in the wild)</td>
+          </tr>
+          <tr>
+            <td><strong>Employee with access left</strong></td>
+            <td>Within a week</td>
+            <td>Keep old secret for 90 days</td>
+          </tr>
+          <tr>
+            <td><strong>Compliance policy (quarterly rotation)</strong></td>
+            <td>Scheduled</td>
+            <td>Keep old secret for 90 days, then remove on next rotation</td>
+          </tr>
+          <tr>
+            <td><strong>Suspected active compromise</strong></td>
+            <td>Immediate — rotate and remove old</td>
+            <td>Zero — accept that old links break. Attacker can&apos;t forge new ones.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-warn">
+        <strong>Compromised secret = attacker can forge unsubscribe links.</strong>{" "}
+        They can&apos;t read inbox data or send notifications (those require
+        server access), but they <em>can</em> unsubscribe any user from any
+        notification by crafting a valid token. In an active compromise, remove
+        the old secret immediately — broken unsubscribe links are less harmful
+        than an attacker silently disabling notifications for your users.
+      </div>
+
+      <div className="callout callout-tip">
+        <strong>Webhook secrets rotate the same way.</strong> If your webhook
+        channel uses a <code>secret</code> for signing, the receiving service
+        must accept both old and new signatures during the transition. Coordinate
+        the rotation with the team that owns the webhook receiver.
+      </div>
+
       <div className="page-nav">
         <Link href="/docs/multi-tenancy">
           <span className="page-nav-label">Previous</span>

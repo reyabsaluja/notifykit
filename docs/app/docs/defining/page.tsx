@@ -776,6 +776,132 @@ export const notify = createNotifyKit({
         it — no orphaned code.
       </div>
 
+      <h2>Safe schema evolution</h2>
+      <p>
+        Once a notification is in production, changing its payload schema
+        requires care. Buffered digests, queued deliveries, and in-flight sends
+        may still carry the old shape. Follow these rules to evolve safely:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Change</th><th>Safe?</th><th>Why</th><th>Migration needed</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Add an optional field</strong></td>
+            <td>Yes</td>
+            <td>Old sends pass validation (field is optional). Templates render it as empty string if absent.</td>
+            <td>None</td>
+          </tr>
+          <tr>
+            <td><strong>Add a required field</strong></td>
+            <td>No</td>
+            <td>In-flight sends and buffered digests lack the field — validation fails on flush.</td>
+            <td>Add as optional first, backfill all callers, then make required in a follow-up deploy</td>
+          </tr>
+          <tr>
+            <td><strong>Remove a field</strong></td>
+            <td>Yes (if templates updated)</td>
+            <td>Old queued sends may still include it (harmless — extra fields are ignored). Danger is templates referencing a now-missing field.</td>
+            <td>Remove from templates first, then from schema</td>
+          </tr>
+          <tr>
+            <td><strong>Rename a field</strong></td>
+            <td>No</td>
+            <td>Equivalent to adding required + removing old. In-flight sends break.</td>
+            <td>Add new field (optional), update callers, update templates, remove old field</td>
+          </tr>
+          <tr>
+            <td><strong>Change a field&apos;s type</strong></td>
+            <td>No</td>
+            <td>Old sends carry the old type — validation or template rendering breaks.</td>
+            <td>Add a new field with the new type, migrate callers, then remove the old field</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-warn">
+        <strong>Digests are the hidden danger.</strong> A 24-hour digest window
+        means payloads from yesterday are flushed with today&apos;s schema. If you
+        added a required field between those sends, the <code>render()</code>{" "}
+        function receives payloads that lack it. Always guard with optional
+        chaining or defaults inside <code>render()</code>.
+      </div>
+
+      <h3>Safe field addition (two-deploy pattern)</h3>
+      <Code
+        code={`// Deploy 1: add as optional, handle absence in templates
+notification({
+  id: "order_shipped",
+  payload: {
+    orderNumber: "string",
+    trackingUrl: "string",
+    carrier: "string?",     // new optional field
+  },
+  channels: [
+    inbox({
+      render: (p) => ({
+        title: \`Order \${p.orderNumber} shipped\`,
+        body: p.carrier
+          ? \`Shipped via \${p.carrier}\`
+          : "Your order is on the way",
+      }),
+    }),
+  ],
+  digest: {
+    windowMs: 60 * 60_000,
+    render: ({ payloads, count }) => ({
+      orderNumber: payloads[payloads.length - 1]!.orderNumber,
+      trackingUrl: payloads[payloads.length - 1]!.trackingUrl,
+      carrier: payloads[payloads.length - 1]?.carrier ?? undefined,
+    }),
+  },
+})
+
+// Deploy 2 (after all callers pass carrier): promote to required
+// payload: { orderNumber: "string", trackingUrl: "string", carrier: "string" }`}
+      />
+
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Deploy: add optional field</strong>
+            <p>Schema accepts both old (without field) and new (with field) payloads. Templates handle absence gracefully.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Update all callers</strong>
+            <p>Every <code>send()</code> call now passes the new field. Verify with <code>grep</code> — no caller should omit it.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Wait for in-flight to drain</strong>
+            <p>Wait at least as long as your longest digest window + queue retry delay. All old-shape payloads flush.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Deploy: make required</strong>
+            <p>Now safe — no in-flight payloads lack the field. TypeScript enforces it at compile time from here on.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="callout callout-tip">
+        <strong>The wait in step 3 equals your longest digest window.</strong>{" "}
+        If your longest digest is 1 hour, wait 1 hour after deploy 2 before
+        deploy 3. If you use <code>setTimeoutQueue()</code> with 5 retry
+        attempts at exponential backoff, add ~30 seconds for the retry tail.
+        For <code>inlineQueue()</code>, there&apos;s no wait — sends resolve
+        synchronously.
+      </div>
+
       <div className="page-nav">
         <Link href="/docs/quickstart">
           <span className="page-nav-label">Previous</span>
