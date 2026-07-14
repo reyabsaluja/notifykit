@@ -13,6 +13,25 @@ export default function TypesPage() {
         page documents the most commonly referenced ones.
       </p>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>End-to-end inference</h3>
+          <p>Define a payload once — TypeScript narrows send() inputs, hook contexts, and result types automatically.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Single import path</h3>
+          <p>Every type ships from @notifykitjs/core. No hunting across subpackages or peer dependencies.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Utility extractors</h3>
+          <p>InferPayload, InferNotificationId, and InferSendInput derive types from your instance — no manual duplication.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Exhaustive skip reasons</h3>
+          <p>A typed union of every possible skip reason so switch statements catch all cases at compile time.</p>
+        </div>
+      </div>
+
       <table>
         <thead>
           <tr><th>Type</th><th>Used for</th></tr>
@@ -35,6 +54,7 @@ export default function TypesPage() {
         Everything exports from a single path. Import only what you need:
       </p>
       <Code
+        filename="lib/types.ts"
         code={`import type {
   SendResult,
   InboxItem,
@@ -65,28 +85,28 @@ export default function TypesPage() {
       </p>
       <div className="overview-flow">
         <div className="overview-flow-step">
-          <span className="overview-flow-number">D</span>
+          <span className="overview-flow-number">1</span>
           <div>
             <strong>NotificationDefinition</strong>
             <p>You write: <code>id</code>, <code>payload</code> schema, <code>channels</code>. TypeScript infers <code>Id</code> and <code>PayloadSchema</code> as literal types.</p>
           </div>
         </div>
         <div className="overview-flow-step">
-          <span className="overview-flow-number">S</span>
+          <span className="overview-flow-number">2</span>
           <div>
             <strong>send() input</strong>
             <p>Narrowed by <code>notificationId</code>. Pass <code>&quot;comment_mentioned&quot;</code> and TypeScript enforces <em>that notification&apos;s</em> payload shape.</p>
           </div>
         </div>
         <div className="overview-flow-step">
-          <span className="overview-flow-number">R</span>
+          <span className="overview-flow-number">3</span>
           <div>
             <strong>SendResult</strong>
             <p>Contains <code>NotificationRecord</code>, <code>InboxItem[]</code>, <code>DeliveryRecord[]</code>, <code>SkippedDelivery[]</code>. All typed — no unknown fields.</p>
           </div>
         </div>
         <div className="overview-flow-step">
-          <span className="overview-flow-number">H</span>
+          <span className="overview-flow-number">4</span>
           <div>
             <strong>Hook context</strong>
             <p>Hooks receive typed objects: <code>delivery.sent</code> gives you a <code>DeliveryRecord</code>, <code>notification.created</code> gives you a <code>NotificationRecord</code>.</p>
@@ -136,18 +156,16 @@ export default function TypesPage() {
         from the definitions themselves:
       </p>
       <Code
+        filename="lib/notification-types.ts"
         code={`import type { InferPayload, InferNotificationId } from "@notifykitjs/core"
 import type { notify } from "@/lib/notifykit"
 
-// Extract the union of all notification IDs
 type NotificationId = InferNotificationId<typeof notify>
 // → "comment_mentioned" | "order_shipped" | "team_invite"
 
-// Extract the payload type for a specific notification
 type CommentPayload = InferPayload<typeof notify, "comment_mentioned">
 // → { actorName: string; postTitle: string; postUrl: string }
 
-// Use in your own utilities:
 function trackNotificationSent(id: NotificationId, payload: Record<string, unknown>) {
   analytics.track("notification_sent", { notificationId: id, ...payload })
 }`}
@@ -175,24 +193,19 @@ function trackNotificationSent(id: NotificationId, payload: Record<string, unkno
         </tbody>
       </table>
       <Code
-        code={`// Common pattern: typed wrapper for background job queues
-import type { InferSendInput } from "@notifykitjs/core"
+        filename="lib/notification-queue.ts"
+        code={`import type { InferSendInput } from "@notifykitjs/core"
 import type { notify } from "@/lib/notifykit"
 
 type SendJob = InferSendInput<typeof notify>
 
-// Your queue enqueues typed jobs:
 async function enqueueSend(job: SendJob) {
   await queue.add("notification:send", job)
 }
 
-// Your worker processes them:
 async function processSend(job: SendJob) {
   await notify.send(job)
-}
-
-// Both sides are fully typed — if you add a new notification,
-// the worker automatically accepts its payload shape.`}
+}`}
       />
       <div className="callout callout-tip">
         <strong>Derive, don&apos;t duplicate.</strong> If you find yourself
@@ -456,27 +469,49 @@ type RetryPolicy = {
       <h2>SkipReason</h2>
       <p>
         When a channel is skipped, <code>result.skipped[].reason</code> tells
-        you why:
+        you why. Reasons are grouped by the pipeline stage that produced them —
+        earlier stages short-circuit the entire send, later stages affect
+        individual channels.
       </p>
+
+      <h3>Early pipeline (stops entire send)</h3>
       <table>
         <thead>
-          <tr><th>Reason</th><th>What happened</th></tr>
+          <tr><th>Reason</th><th>Stage</th><th>What happened</th><th>Fix</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>preferences_disabled</code></td><td>User opted out of this channel for this notification</td></tr>
-          <tr><td><code>missing_address</code></td><td>Recipient has no email/phone for this channel</td></tr>
-          <tr><td><code>missing_provider</code></td><td>No provider configured for this channel type</td></tr>
-          <tr><td><code>rate_limited</code></td><td>Send exceeded the notification&apos;s rate limit</td></tr>
-          <tr><td><code>quiet_hours_deferred</code></td><td>Deferred — will send when quiet hours end</td></tr>
-          <tr><td><code>duplicate</code></td><td>Matched an existing dedup key within the window</td></tr>
-          <tr><td><code>idempotent_replay</code></td><td>Idempotency key already exists — original result returned</td></tr>
-          <tr><td><code>unsubscribed</code></td><td>User unsubscribed via email link</td></tr>
-          <tr><td><code>invalid_payload</code></td><td>Payload failed schema validation</td></tr>
-          <tr><td><code>suppressed</code></td><td>All channels were skipped — notification had no effect</td></tr>
-          <tr><td><code>condition_false</code></td><td>A conditional channel rule evaluated to false</td></tr>
-          <tr><td><code>expired</code></td><td>Scheduled send expired before delivery</td></tr>
-          <tr><td><code>disabled_in_dev</code></td><td>Channel disabled in dev mode configuration</td></tr>
-          <tr><td><code>required_override</code></td><td>Preferences were bypassed by <code>required: true</code></td></tr>
+          <tr><td><code>idempotent_replay</code></td><td>1. Idempotency</td><td>Key already exists — original result returned</td><td>Expected on retries. Not a problem.</td></tr>
+          <tr><td><code>duplicate</code></td><td>2. Dedup</td><td>Dedup key matched within the window</td><td>Expected. If surprising, check your key design.</td></tr>
+          <tr><td><code>invalid_payload</code></td><td>3. Validation</td><td>Payload failed schema validation</td><td>Fix the payload — check <code>error.fields</code>.</td></tr>
+          <tr><td><code>rate_limited</code></td><td>4. Rate limit</td><td>Exceeded threshold for this notification</td><td>Increase the limit, or add a digest to batch instead of drop.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Per-channel (skips one channel, others may still deliver)</h3>
+      <table>
+        <thead>
+          <tr><th>Reason</th><th>Stage</th><th>What happened</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>preferences_disabled</code></td><td>5. Preferences</td><td>User opted out of this channel</td><td>Expected. User chose this — don&apos;t override unless <code>required</code>.</td></tr>
+          <tr><td><code>unsubscribed</code></td><td>5. Preferences</td><td>User clicked unsubscribe link in email</td><td>Same as above — respect the opt-out.</td></tr>
+          <tr><td><code>condition_false</code></td><td>5. Preferences</td><td>A conditional channel rule evaluated to false</td><td>Check your channel condition logic.</td></tr>
+          <tr><td><code>quiet_hours_deferred</code></td><td>6. Quiet hours</td><td>Deferred — will deliver when window ends</td><td>Not truly skipped — check back after quiet hours pass.</td></tr>
+          <tr><td><code>missing_address</code></td><td>7. Delivery</td><td>Recipient has no email/phone for this channel</td><td>Call <code>upsertRecipient()</code> with the missing field.</td></tr>
+          <tr><td><code>missing_provider</code></td><td>7. Delivery</td><td>No provider configured for this channel type</td><td>Add a provider in <code>createNotifyKit()</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Meta (informational)</h3>
+      <table>
+        <thead>
+          <tr><th>Reason</th><th>What happened</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>suppressed</code></td><td>All channels were skipped — notification had no visible effect</td><td>Check individual skip reasons to find why each channel failed.</td></tr>
+          <tr><td><code>expired</code></td><td>Scheduled send expired before delivery window opened</td><td>Usually means quiet hours ended but the configured TTL passed first.</td></tr>
+          <tr><td><code>disabled_in_dev</code></td><td>Channel disabled by <code>devMode</code> configuration</td><td>Only in development — won&apos;t appear in production.</td></tr>
+          <tr><td><code>required_override</code></td><td>Preferences were bypassed by <code>required: true</code></td><td>Informational — channel <em>did</em> deliver despite user opt-out.</td></tr>
         </tbody>
       </table>
 
@@ -486,33 +521,30 @@ type RetryPolicy = {
         with. Here are practical patterns for inspecting and acting on it:
       </p>
       <Code
+        filename="lib/send-and-log.ts"
         code={`import type { SendResult, SkipReason } from "@notifykitjs/core"
 
 async function sendAndLog(result: SendResult) {
-  // Was the notification actually delivered to any channel?
   const delivered = result.deliveries.length > 0 || result.inboxItems.length > 0
 
-  // Was it silently absorbed?
   if (result.rateLimited) return "dropped_by_rate_limit"
   if (result.digested) return "buffered_in_digest"
   if (result.idempotent) return "duplicate_replay"
 
-  // Which channels were skipped and why?
   const skippedEmail = result.skipped.find(s => s.channel === "email")
   if (skippedEmail) {
     switch (skippedEmail.reason) {
-      case "preferences_disabled": // user opted out — expected
+      case "preferences_disabled":
         break
-      case "missing_address": // no email on file — maybe prompt user
+      case "missing_address":
         await promptUserForEmail(result.notification?.recipientId)
         break
-      case "missing_provider": // dev oversight — log a warning
+      case "missing_provider":
         logger.warn("No email provider configured")
         break
     }
   }
 
-  // Track which channels actually fired
   const channels = result.deliveries.map(d => d.channel)
   analytics.track("notification_sent", {
     id: result.notification?.notificationId,
@@ -555,6 +587,172 @@ async function sendAndLog(result: SendResult) {
         <code>result.rateLimited</code> is <code>true</code>,{" "}
         <code>result.notification</code> is <code>null</code> — TypeScript
         narrows this automatically. No type assertions needed.
+      </div>
+
+      <h2>DatabaseAdapter</h2>
+      <p>
+        Implement this interface to connect NotifyKit to any storage backend.
+        The built-in <code>memoryAdapter()</code> and{" "}
+        <code>drizzlePostgresAdapter()</code> both satisfy this contract:
+      </p>
+      <Code
+        code={`type DatabaseAdapter = {
+  // Notifications
+  createNotificationRecord(record: NotificationRecord): Promise<NotificationRecord>
+  getNotificationRecord(id: string, scope?: SecurityScope): Promise<NotificationRecord | null>
+
+  // Inbox
+  createInboxItem(item: InboxItem): Promise<InboxItem>
+  getInboxItems(recipientId: string, opts?: InboxQuery & SecurityScope): Promise<InboxItem[]>
+  getInboxItem(id: string, scope?: SecurityScope): Promise<InboxItem | null>
+  updateInboxItem(id: string, update: Partial<InboxItem>, scope?: SecurityScope): Promise<InboxItem>
+  deleteInboxItem(id: string, scope?: SecurityScope): Promise<void>
+  markAllRead(recipientId: string, scope?: SecurityScope): Promise<number>
+  getUnreadCount(recipientId: string, scope?: SecurityScope): Promise<number>
+
+  // Deliveries
+  createDeliveryRecord(record: DeliveryRecord): Promise<DeliveryRecord>
+  updateDeliveryRecord(id: string, update: Partial<DeliveryRecord>): Promise<DeliveryRecord>
+  getDeliveryRecords(notificationRecordId: string, scope?: SecurityScope): Promise<DeliveryRecord[]>
+
+  // Recipients
+  upsertRecipient(recipient: Partial<Recipient> & { id: string }): Promise<Recipient>
+  getRecipient(id: string): Promise<Recipient | null>
+
+  // Preferences
+  getPreference(recipientId: string, notificationId: string, scope?: SecurityScope): Promise<RecipientPreference | null>
+  getPreferences(recipientId: string, scope?: SecurityScope): Promise<RecipientPreference[]>
+  upsertPreference(pref: RecipientPreference): Promise<RecipientPreference>
+
+  // Dedup & idempotency
+  hasDedupeKey(key: string, windowMs: number): Promise<boolean>
+  setDedupeKey(key: string, windowMs: number): Promise<void>
+  getIdempotencyResult(key: string): Promise<SendResult | null>
+  setIdempotencyResult(key: string, result: SendResult, ttlMs: number): Promise<void>
+
+  // Scheduled sends (quiet hours)
+  createScheduledSend(send: ScheduledSend): Promise<ScheduledSend>
+  claimScheduledSends(before: Date): Promise<ScheduledSend[]>
+}
+
+type InboxQuery = {
+  limit?: number
+  offset?: number
+  archived?: boolean
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Method group</th><th>Called by</th><th>Must be atomic</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Notifications</strong></td>
+            <td><code>send()</code> pipeline</td>
+            <td>No — single writes</td>
+          </tr>
+          <tr>
+            <td><strong>Inbox</strong></td>
+            <td>Handler routes + <code>send()</code></td>
+            <td><code>markAllRead</code> should be atomic (updates many rows)</td>
+          </tr>
+          <tr>
+            <td><strong>Deliveries</strong></td>
+            <td>Queue workers + retry logic</td>
+            <td>No — updates are per-record</td>
+          </tr>
+          <tr>
+            <td><strong>Dedup/idempotency</strong></td>
+            <td><code>send()</code> early checks</td>
+            <td>Yes — <code>hasDedupeKey</code> + <code>setDedupeKey</code> must be race-safe</td>
+          </tr>
+          <tr>
+            <td><strong>Scheduled sends</strong></td>
+            <td>Quiet hours + flush</td>
+            <td>Yes — <code>claimScheduledSends</code> must prevent double-processing</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Start from <code>memoryAdapter()</code> source.</strong> It&apos;s
+        ~200 lines and implements every method with plain arrays and Maps. Copy it
+        as a starting point for Redis, DynamoDB, or any custom backend — the
+        contract is the same regardless of storage.
+      </div>
+
+      <h2>Common type errors</h2>
+      <p>
+        TypeScript errors in NotifyKit are usually caused by one of five issues.
+        Match the error message to the fix:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>Argument of type &apos;string&apos; is not assignable to parameter of type &apos;&quot;comment_mentioned&quot; | &quot;order_shipped&quot;&apos;</code></td>
+            <td>Variable typed as <code>string</code> instead of the literal union</td>
+            <td>Use <code>as const</code> on the value, or type the variable as <code>InferNotificationId&lt;typeof notify&gt;</code></td>
+          </tr>
+          <tr>
+            <td><code>Property &apos;actorName&apos; is missing in type &apos;{`{}`}&apos;</code></td>
+            <td>Payload doesn&apos;t match the schema for this notification ID</td>
+            <td>Add the missing field. Use <code>InferPayload&lt;typeof notify, &quot;your_id&quot;&gt;</code> to see the expected shape.</td>
+          </tr>
+          <tr>
+            <td><code>Type &apos;string&apos; is not assignable to type &apos;never&apos;</code> on <code>notificationId</code></td>
+            <td>Missing <code>as const</code> on the <code>notifications</code> array in <code>createNotifyKit()</code></td>
+            <td>Change <code>notifications: [...]</code> to <code>notifications: [...] as const</code></td>
+          </tr>
+          <tr>
+            <td><code>Object literal may only specify known properties</code> on <code>payload</code></td>
+            <td>Passing extra fields not declared in the notification&apos;s payload schema</td>
+            <td>Remove the extra field, or add it to the notification definition&apos;s <code>payload</code> object</td>
+          </tr>
+          <tr>
+            <td><code>Type &apos;undefined&apos; is not assignable to type &apos;string&apos;</code> on provider <code>send</code></td>
+            <td>Custom provider&apos;s <code>send()</code> return doesn&apos;t match <code>EmailProvider</code></td>
+            <td>Return <code>{`{ providerMessageId?: string }`}</code> — even <code>{`{}`}</code> satisfies the contract</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        filename="lib/send-notification.ts"
+        code={`// ❌ Error: string ≠ literal union
+const id = getNotificationFromConfig()
+await notify.send({ recipientId: "u1", notificationId: id, payload: {} })
+
+// ✅ Fix 1: type assertion (when validated externally)
+await notify.send({
+  recipientId: "u1",
+  notificationId: id as InferNotificationId<typeof notify>,
+  payload: getPayloadForId(id),
+})
+
+// ✅ Fix 2: typed lookup (preferred)
+const NOTIFICATION_MAP = {
+  comment: "comment_mentioned",
+  order: "order_shipped",
+} as const
+
+await notify.send({
+  recipientId: "u1",
+  notificationId: NOTIFICATION_MAP.comment,
+  payload: { actorName: "Rey", postUrl: "/p/1" },
+})`}
+      />
+      <div className="callout callout-warn">
+        <strong>Never use <code>as any</code> to silence NotifyKit type errors.</strong>{" "}
+        They exist to catch real bugs — a wrong notification ID means the payload
+        won&apos;t match the template, and the notification will render broken or
+        throw at runtime. Fix the type, don&apos;t suppress it.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/api" className="primary">API reference</Link>
+        <Link href="/docs/providers">Custom providers</Link>
+        <Link href="/docs/database">Database adapters</Link>
       </div>
 
       <div className="page-nav">

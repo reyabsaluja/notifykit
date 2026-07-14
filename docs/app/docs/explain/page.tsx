@@ -15,6 +15,42 @@ export default function ExplainPage() {
         writing any records or triggering any deliveries.
       </p>
 
+      <h2>Pick the right debugging tool</h2>
+      <p>
+        NotifyKit has three debugging surfaces. Each answers a different
+        question — pick based on what you know and what went wrong:
+      </p>
+      <table>
+        <thead>
+          <tr><th>You want to know</th><th>Use</th><th>When</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>What <em>would</em> happen if I sent this now?</strong></td>
+            <td><code>explain()</code> <em>(this page)</em></td>
+            <td>Before sending, or reproducing a reported issue without side effects</td>
+          </tr>
+          <tr>
+            <td><strong>What <em>did</em> happen to a specific send?</strong></td>
+            <td><code><Link href="/docs/timeline">timeline()</Link></code></td>
+            <td>After sending — you have a notification record ID and want the full event log</td>
+          </tr>
+          <tr>
+            <td><strong>What happened <em>just now</em> in my code?</strong></td>
+            <td><code>SendResult</code> fields</td>
+            <td>Immediately after <code>send()</code> returns — check <code>skipped</code>, <code>deliveries</code>, <code>deferredChannels</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Key distinction:</strong> <code>explain()</code> is predictive
+        (what would happen), <code>timeline()</code> is forensic (what did
+        happen), and <code>SendResult</code> is immediate (what just happened).
+        Start with <code>explain()</code> when you can reproduce the scenario.
+        Use <code>timeline()</code> when you have a record ID from a past send
+        that failed.
+      </div>
+
       <h2>Using explain()</h2>
       <Code
         code={`const explanation = await notify.explain({
@@ -121,54 +157,97 @@ console.log(explanation)`}
 
       <h2>Channel outcomes</h2>
       <p>
-        Each channel in the explanation has an <code>outcome</code> field:
+        Each channel in the explanation has an <code>outcome</code> field.
+        Outcomes fall into three categories — use them to decide your next step:
       </p>
+
+      <div className="features">
+        <div className="feature-card">
+          <h3>Will deliver</h3>
+          <p><code>&quot;deliver&quot;</code> — channel is clear. No action needed.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Permanently blocked</h3>
+          <p>Won&apos;t deliver now or on retry. Fix the root cause (preferences, missing address, payload).</p>
+        </div>
+        <div className="feature-card">
+          <h3>Deferred / absorbed</h3>
+          <p>Not lost — will deliver later (quiet hours, digest) or was already handled (dedup, idempotent).</p>
+        </div>
+      </div>
+
       <table>
         <thead>
           <tr>
             <th>Outcome</th>
+            <th>Category</th>
             <th>Meaning</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><code>&quot;deliver&quot;</code></td>
+            <td>Success</td>
             <td>Would be delivered normally</td>
+            <td>None — working as intended</td>
           </tr>
           <tr>
             <td><code>&quot;disabled&quot;</code></td>
+            <td>Blocked</td>
             <td>Disabled by user preferences</td>
+            <td>Check <code>trail</code> to see which layer blocked it</td>
           </tr>
           <tr>
             <td><code>&quot;unavailable&quot;</code></td>
+            <td>Blocked</td>
             <td>Recipient lacks destination (no email/phone)</td>
+            <td>Prompt user to add the missing contact info</td>
           </tr>
           <tr>
             <td><code>&quot;invalid_payload&quot;</code></td>
+            <td>Blocked</td>
             <td>Payload validation would fail</td>
-          </tr>
-          <tr>
-            <td><code>&quot;idempotent&quot;</code></td>
-            <td>Would replay an existing send</td>
-          </tr>
-          <tr>
-            <td><code>&quot;deduplicated&quot;</code></td>
-            <td>Would be deduplicated</td>
+            <td>Check <code>payloadValidation.errors</code> for the specific field</td>
           </tr>
           <tr>
             <td><code>&quot;rate_limited&quot;</code></td>
-            <td>Would exceed rate limit</td>
-          </tr>
-          <tr>
-            <td><code>&quot;digested&quot;</code></td>
-            <td>Would be buffered into a digest</td>
+            <td>Blocked</td>
+            <td>Would exceed the configured rate limit</td>
+            <td>Expected — or widen <code>max</code>/<code>windowMs</code> if too tight</td>
           </tr>
           <tr>
             <td><code>&quot;delayed&quot;</code></td>
+            <td>Deferred</td>
             <td>Would be deferred by quiet hours</td>
+            <td>Will deliver when window ends — not a bug</td>
+          </tr>
+          <tr>
+            <td><code>&quot;digested&quot;</code></td>
+            <td>Deferred</td>
+            <td>Would be buffered into a digest window</td>
+            <td>Will deliver on next flush — check <code>flushDigests()</code> schedule</td>
+          </tr>
+          <tr>
+            <td><code>&quot;deduplicated&quot;</code></td>
+            <td>Absorbed</td>
+            <td>Matched a recent dedup key — skipped</td>
+            <td>Expected if same event fired twice within window</td>
+          </tr>
+          <tr>
+            <td><code>&quot;idempotent&quot;</code></td>
+            <td>Absorbed</td>
+            <td>Idempotency key already exists — replay</td>
+            <td>Expected on retries — original result returned</td>
           </tr>
         </tbody>
       </table>
+      <div className="callout callout-tip">
+        <strong>Blocked = fix something. Deferred = wait. Absorbed = safe to ignore.</strong>{" "}
+        If you see <code>&quot;disabled&quot;</code> or <code>&quot;unavailable&quot;</code>,
+        there&apos;s a user-facing issue to resolve. If you see <code>&quot;delayed&quot;</code>{" "}
+        or <code>&quot;digested&quot;</code>, the notification will arrive — just not immediately.
+      </div>
 
       <h2>Preference resolution trail</h2>
       <p>
@@ -264,8 +343,8 @@ console.log(explanation)`}
         </div>
       </div>
       <Code
-        code={`// Quick diagnostic script for support teams:
-const e = await notify.explain({
+        filename="scripts/diagnose.ts"
+        code={`const e = await notify.explain({
   recipientId: "user_456",
   notificationId: "comment_mentioned",
   payload: { actorName: "Rey", postTitle: "Q4 Plan", postUrl: "/posts/99" },
@@ -280,34 +359,22 @@ console.log(blocked.length ? blocked : "All channels would deliver")`}
       />
 
       <h2>When to use it</h2>
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Debugging</strong>
-            <p>&quot;Why didn&apos;t this user get an email?&quot; — run explain, check the preference trail, see exactly which layer blocked it.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Debugging</h3>
+          <p>&quot;Why didn&apos;t this user get an email?&quot; — run explain, check the preference trail, see exactly which layer blocked it.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">!</span>
-          <div>
-            <strong>Admin tooling</strong>
-            <p>Show operators a preview of what would happen before they trigger a broadcast to 10k users.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Admin tooling</h3>
+          <p>Show operators a preview of what would happen before they trigger a broadcast to 10k users.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">&checkmark;</span>
-          <div>
-            <strong>Testing</strong>
-            <p>Assert expected delivery behavior in your test suite without actually sending emails or writing inbox rows.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Testing</h3>
+          <p>Assert expected delivery behavior in your test suite without actually sending emails or writing inbox rows.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">&crarr;</span>
-          <div>
-            <strong>Preference UIs</strong>
-            <p>Show users the live effect of toggling a setting — &quot;if you disable this, you&apos;ll stop receiving email but still see it in your inbox.&quot;</p>
-          </div>
+        <div className="feature-card">
+          <h3>Preference UIs</h3>
+          <p>Show users the live effect of toggling a setting — &quot;if you disable this, you&apos;ll stop receiving email but still see it in your inbox.&quot;</p>
         </div>
       </div>
 
@@ -318,8 +385,8 @@ console.log(blocked.length ? blocked : "All channels would deliver")`}
         output into plain language:
       </p>
       <Code
-        code={`// app/api/admin/diagnose/route.ts
-import { notify } from "@/lib/notifykit"
+        filename="app/api/admin/diagnose/route.ts"
+        code={`import { notify } from "@/lib/notifykit"
 import { requireAdmin } from "@/lib/auth"
 
 export async function GET(request: Request) {
@@ -394,7 +461,7 @@ function friendlyReason(outcome: string, layer?: string): string {
           </tr>
         </tbody>
       </table>
-      <div className="callout callout-tip">
+      <div className="callout callout-warn">
         <strong>Protect this endpoint.</strong> Explain reveals preference
         state and rate limit counts for any user. Gate it behind admin auth
         and log every access. Never expose it to the public API surface.
@@ -435,6 +502,7 @@ function friendlyReason(outcome: string, layer?: string): string {
       </table>
 
       <Code
+        filename="tests/notification-routing.test.ts"
         code={`import { describe, it, expect, beforeAll } from "vitest"
 import { createNotifyKit, memoryAdapter, fakeEmailProvider } from "@notifykitjs/core"
 import { commentMentioned } from "./notifications"
@@ -576,6 +644,7 @@ describe("notification routing", () => {
         all interacting:
       </p>
       <Code
+        filename="tests/preference-resolution.test.ts"
         code={`it("tenant default overrides app default", async () => {
   // Setup: tenant "free_org" has email off by default
   const e = await notify.explain({
@@ -612,12 +681,18 @@ it("user preference overrides tenant default", async () => {
   expect(e.channels.email.outcome).toBe("deliver")
 })`}
       />
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Test your resolution hierarchy early.</strong> Preference bugs
         are invisible until a user reports &quot;I never got that email&quot; —
         and then you&apos;re debugging in production. Write explain-based tests
         that cover: app default → category override → tenant override → user
         override → required bypass. Five tests, each one line of setup.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/timeline" className="primary">Timeline (forensic debugging)</Link>
+        <Link href="/docs/preferences">Preference resolution</Link>
+        <Link href="/docs/hooks">Hooks &amp; observability</Link>
       </div>
 
       <div className="page-nav">

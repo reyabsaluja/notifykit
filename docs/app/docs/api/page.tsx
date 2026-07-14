@@ -14,6 +14,25 @@ export default function ApiPage() {
         <code>createNotifyKit()</code>.
       </p>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>Sending</h3>
+          <p>send(), explain(), and check() — deliver notifications or dry-run the pipeline without side effects.</p>
+        </div>
+        <div className="feature-card">
+          <h3>State management</h3>
+          <p>Inbox, preferences, and recipient APIs — read and write user-facing notification state.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Debugging</h3>
+          <p>timeline() and redactPayload() — forensic event logs and PII-safe payload inspection.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Lifecycle</h3>
+          <p>drain(), flushScheduledSends(), and flushDigests() — graceful shutdown and scheduled delivery.</p>
+        </div>
+      </div>
+
       <table>
         <thead>
           <tr><th>Category</th><th>Methods</th></tr>
@@ -55,6 +74,7 @@ export default function ApiPage() {
         </tbody>
       </table>
       <Code
+        filename="lib/notifykit.ts"
         code={`import { createNotifyKit, memoryAdapter, setTimeoutQueue } from "@notifykitjs/core"
 
 export const notify = createNotifyKit({
@@ -106,12 +126,52 @@ export const notify = createNotifyKit({
 
       <h2>notify.explain(input)</h2>
       <p>
-        Dry-run a send. Same input as <code>send()</code>, returns{" "}
-        <code>DeliveryExplanation</code>. No records written.
+        Dry-run a send with zero side effects — no records written, no emails
+        sent. Returns a <code>DeliveryExplanation</code> showing exactly what
+        <em>would</em> happen if this were a real <code>send()</code>. Same
+        input shape as <code>send()</code>.
       </p>
+      <table>
+        <thead>
+          <tr><th>Return field</th><th>Type</th><th>What it tells you</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>channels</code></td><td><code>Record&lt;string, ChannelExplanation&gt;</code></td><td>Per-channel outcome: <code>would_deliver</code>, <code>skipped</code> (with reason), or <code>deferred</code></td></tr>
+          <tr><td><code>preferences</code></td><td><code>PreferenceResolution</code></td><td>Full resolution trail — global defaults → tenant → category → notification → recipient override</td></tr>
+          <tr><td><code>wouldDeduplicate</code></td><td><code>boolean</code></td><td>Whether the dedup key has been seen within its window</td></tr>
+          <tr><td><code>wouldRateLimit</code></td><td><code>boolean</code></td><td>Whether the send would exceed the rate limit threshold</td></tr>
+          <tr><td><code>wouldDigest</code></td><td><code>boolean</code></td><td>Whether the send would enter a digest buffer instead of delivering immediately</td></tr>
+          <tr><td><code>quietHours</code></td><td><code>{`{ active, resumesAt? }`}</code></td><td>Whether the recipient is in quiet hours and when push channels would fire</td></tr>
+          <tr><td><code>recipient</code></td><td><code>Recipient | null</code></td><td>The resolved recipient record (or null if not found)</td></tr>
+        </tbody>
+      </table>
+      <Code
+        code={`const explanation = await notify.explain({
+  recipientId: "user_123",
+  notificationId: "comment_mentioned",
+  payload: { actorName: "Rey", postUrl: "/posts/42" },
+})
+
+// Check why email didn't fire:
+console.log(explanation.channels.email)
+// → { outcome: "skipped", reason: "preferences_disabled" }
+
+// Check the full preference trail:
+console.log(explanation.preferences)
+// → { global: { email: true }, recipient: { email: false }, resolved: { email: false } }
+
+// Check pipeline stages:
+console.log(explanation.wouldRateLimit)  // false
+console.log(explanation.quietHours)      // { active: true, resumesAt: "2026-06-28T08:00:00Z" }`}
+      />
+      <div className="callout callout-tip">
+        <strong>Wire explain() into your admin panel.</strong> Support teams can
+        paste a user ID and notification ID to see exactly why a notification
+        would or wouldn&apos;t deliver — without triggering any actual send.
+      </div>
 
       <h2>notify.check(input)</h2>
-      <p>Alias for <code>explain()</code>.</p>
+      <p>Alias for <code>explain()</code>. Identical behavior and return type.</p>
 
       <h2>notify.upsertRecipient(input)</h2>
       <p>
@@ -297,6 +357,7 @@ export const notify = createNotifyKit({
         </tbody>
       </table>
       <Code
+        filename="lib/send-notification.ts"
         code={`import { NotifyKitValidationError, NotifyKitNotFoundError } from "@notifykitjs/core"
 
 try {
@@ -321,20 +382,14 @@ try {
   }
 }`}
       />
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">!</span>
-          <div>
-            <strong>Throws (programming/infra error)</strong>
-            <p>Bad payload, missing recipient, DB failure. You must fix the root cause.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Throws (programming/infra error)</h3>
+          <p>Bad payload, missing recipient, DB failure. You must fix the root cause.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">&crarr;</span>
-          <div>
-            <strong>Returns in result (delivery failure)</strong>
-            <p>Provider timeout, 500 from Resend, network blip. Retried automatically. Check <code>result.deliveries</code>.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Returns in result (delivery failure)</h3>
+          <p>Provider timeout, 500 from Resend, network blip. Retried automatically. Check <code>result.deliveries</code>.</p>
         </div>
       </div>
       <div className="callout callout-tip">
@@ -354,7 +409,8 @@ try {
 
       <h3>Onboard a new user</h3>
       <Code
-        code={`// 1. Create the recipient (idempotent — safe to call on every login)
+        filename="lib/onboard-user.ts"
+        code={`// Create the recipient (idempotent — safe to call on every login)
 await notify.upsertRecipient({
   id: user.id,
   email: user.email,
@@ -379,10 +435,50 @@ const result = await notify.send({
 })`}
       />
 
+      <h3>Deactivate a user</h3>
+      <Code
+        filename="lib/deactivate-user.ts"
+        code={`const recipientId = user.id
+const tenantId = user.orgId
+
+// 1. Drain any in-flight sends so nothing new arrives mid-cleanup
+await notify.drain()
+
+// 2. Clear their inbox (iterate and delete)
+const items = await notify.inbox.list(recipientId, { tenantId })
+await Promise.all(
+  items.map(item => notify.inbox.deleteForRecipient(item.id, recipientId, { tenantId }))
+)
+
+// 3. Opt them out of all channels to prevent future sends
+//    (belt-and-suspenders — even if your app stops calling send() for this user,
+//    scheduled digests or queued sends might still fire)
+const metadata = notify.notificationMetadata
+await Promise.all(
+  metadata.map(n =>
+    notify.preferences.update({
+      recipientId,
+      notificationId: n.id,
+      channels: { email: false, sms: false, inbox: false, webhook: false },
+      tenantId,
+    })
+  )
+)
+
+// 4. Prune their timeline data (GDPR / data minimization)
+await notify.pruneTimeline(0)  // 0ms = prune everything`}
+      />
+      <div className="callout callout-warn">
+        <strong>Order matters.</strong> Call <code>drain()</code> first — otherwise
+        a queued send could deliver between steps 2 and 3, creating a new inbox
+        item for a &quot;deleted&quot; user. If you only need soft-delete (user
+        might return), skip steps 2 and 4 and just opt them out.
+      </div>
+
       <h3>Diagnose a failed delivery</h3>
       <Code
-        code={`// Support ticket: "user didn't get the email"
-const recipientId = "user_abc"
+        filename="scripts/diagnose-delivery.ts"
+        code={`const recipientId = "user_abc"
 
 // 1. Find recent deliveries for this user
 const deliveries = await notify.deliveries.list(recipientId)
@@ -405,8 +501,8 @@ const explanation = await notify.explain({
 
       <h3>Build a notification preferences UI</h3>
       <Code
-        code={`// Server: fetch everything the preferences page needs
-async function getPreferencesPageData(recipientId: string, tenantId: string) {
+        filename="app/settings/notifications/page.tsx"
+        code={`async function getPreferencesPageData(recipientId: string, tenantId: string) {
   const [prefs, metadata] = await Promise.all([
     notify.preferences.list(recipientId, { tenantId }),
     notify.notificationMetadata,  // safe subset: id, description, category, channels
@@ -430,8 +526,8 @@ async function getPreferencesPageData(recipientId: string, tenantId: string) {
 
       <h3>Graceful shutdown (serverless / edge)</h3>
       <Code
-        code={`// In serverless: flush pending work before the function dies
-export async function handler(req: Request) {
+        filename="app/api/send/route.ts"
+        code={`export async function handler(req: Request) {
   const result = await notify.send({ ... })
 
   // Flush deferred sends (quiet hours) and digests before shutdown
@@ -453,6 +549,7 @@ export async function handler(req: Request) {
         </thead>
         <tbody>
           <tr><td>Onboard user</td><td><code>upsertRecipient</code> → <code>preferences.update</code> → <code>send</code></td><td>Yes — recipient must exist before send</td></tr>
+          <tr><td>Deactivate user</td><td><code>drain</code> → <code>inbox.deleteForRecipient</code> → <code>preferences.update</code> → <code>pruneTimeline</code></td><td>Yes — drain first to prevent race</td></tr>
           <tr><td>Debug failed send</td><td><code>deliveries.list</code> → <code>timeline</code> → <code>explain</code></td><td>No — each gives independent context</td></tr>
           <tr><td>Preferences UI</td><td><code>preferences.list</code> + <code>notificationMetadata</code></td><td>No — fetch in parallel</td></tr>
           <tr><td>Clean shutdown</td><td><code>flushScheduledSends</code> + <code>flushDigests</code> → <code>drain</code></td><td>Flush before drain</td></tr>
@@ -464,6 +561,84 @@ export async function handler(req: Request) {
         a zero-side-effect dry run that shows exactly what would happen — which
         channels fire, which get skipped and why, and how preferences resolve. Wire
         it into your admin panel or support tooling.
+      </div>
+
+      <h2>Cheat sheet</h2>
+      <p>
+        Every method on a single screen. Copy the signature, fill in your
+        values. Grouped by what you&apos;re trying to do:
+      </p>
+      <Code
+        code={`// ─── Send ────────────────────────────────────────────────────────────
+await notify.send({ recipientId, notificationId, payload })
+await notify.send({ recipientId, notificationId, payload, tenantId, idempotencyKey, dedupeKey, dedupeWindowMs })
+await notify.send({ recipientId, notificationId, payload, dryRun: true })  // → DeliveryExplanation
+await notify.explain({ recipientId, notificationId, payload })             // same as dryRun: true
+
+// ─── Recipients ──────────────────────────────────────────────────────
+await notify.upsertRecipient({ id, email?, phone?, name?, tenantId?, quietHours? })
+
+// ─── Inbox (server-side) ─────────────────────────────────────────────
+await notify.inbox.list(recipientId, { tenantId }?, { archived }?, limit?)
+await notify.inbox.unreadCount(recipientId, { tenantId }?)
+await notify.inbox.markReadForRecipient(itemId, recipientId, { tenantId }?)
+await notify.inbox.markAllRead(recipientId, { tenantId }?)
+await notify.inbox.archiveForRecipient(itemId, recipientId, { tenantId }?)
+await notify.inbox.unarchiveForRecipient(itemId, recipientId, { tenantId }?)
+await notify.inbox.deleteForRecipient(itemId, recipientId, { tenantId }?)
+
+// ─── Preferences ─────────────────────────────────────────────────────
+await notify.preferences.list(recipientId, { tenantId }?)
+await notify.preferences.get({ recipientId, notificationId, tenantId? })
+await notify.preferences.update({ recipientId, notificationId, channels: { email: false }, tenantId? })
+await notify.preferences.explain({ recipientId, notificationId, tenantId? })
+
+// ─── Debugging ───────────────────────────────────────────────────────
+await notify.timeline(notificationRecordId)
+await notify.timeline(notificationRecordId, { deliveryId })
+await notify.deliveries.list(recipientId?, { tenantId }?, limit?)
+await notify.pruneTimeline(olderThan?)
+notify.redactPayload(notificationId, payload)
+
+// ─── Lifecycle ───────────────────────────────────────────────────────
+await notify.drain()                 // wait for in-flight jobs
+await notify.flushScheduledSends()   // fire deferred quiet-hours sends
+await notify.flushDigests()          // flush expired digest buckets
+
+// ─── Instance properties ─────────────────────────────────────────────
+notify.notifications                 // NotificationDefinition[]
+notify.notificationMetadata          // NotificationMeta[] (safe for client)`}
+      />
+      <table>
+        <thead>
+          <tr><th>I want to...</th><th>Method</th><th>Returns</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Send a notification</td><td><code>send()</code></td><td><code>SendResult</code></td></tr>
+          <tr><td>Preview what would happen</td><td><code>explain()</code></td><td><code>DeliveryExplanation</code></td></tr>
+          <tr><td>Create/update a user</td><td><code>upsertRecipient()</code></td><td><code>Recipient</code></td></tr>
+          <tr><td>Read a user&apos;s inbox</td><td><code>inbox.list()</code></td><td><code>InboxItem[]</code></td></tr>
+          <tr><td>Get unread badge count</td><td><code>inbox.unreadCount()</code></td><td><code>number</code></td></tr>
+          <tr><td>See why a send was skipped</td><td><code>timeline()</code></td><td><code>TimelineEvent[]</code></td></tr>
+          <tr><td>Check a user&apos;s opt-outs</td><td><code>preferences.list()</code></td><td><code>RecipientPreference[]</code></td></tr>
+          <tr><td>See which layer blocked a channel</td><td><code>preferences.explain()</code></td><td><code>PreferenceExplanation</code></td></tr>
+          <tr><td>Opt a user out of a channel</td><td><code>preferences.update()</code></td><td><code>RecipientPreference</code></td></tr>
+          <tr><td>Find failed deliveries</td><td><code>deliveries.list()</code></td><td><code>DeliveryRecord[]</code></td></tr>
+          <tr><td>Clean up old debug data</td><td><code>pruneTimeline()</code></td><td><code>number</code> (deleted count)</td></tr>
+          <tr><td>Shut down cleanly</td><td><code>drain()</code></td><td><code>void</code></td></tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Bookmark this section.</strong> The cheat sheet has every method
+        in one block — use it as a quick reminder when you know the method name
+        but need the exact parameter order. For detailed behavior, scroll to the
+        full section above or check the linked docs page.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/types" className="primary">TypeScript types</Link>
+        <Link href="/docs/explain">Explain &amp; dry run</Link>
+        <Link href="/docs/timeline">Timeline debugging</Link>
       </div>
 
       <div className="page-nav">

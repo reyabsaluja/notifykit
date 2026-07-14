@@ -15,11 +15,47 @@ export default function DatabasePage() {
         available for SQLite and PostgreSQL in production.
       </p>
 
+      <h2>Which adapter?</h2>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Memory</h3>
+          <p><strong>Dev &amp; tests.</strong> Zero config, instant startup, resets on restart. No database required — state lives in-process.</p>
+          <table style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <tbody>
+              <tr><td>Persistence</td><td>None (in-process)</td></tr>
+              <tr><td>Concurrency</td><td>Single process</td></tr>
+              <tr><td>Setup</td><td>Zero — built into core</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="feature-card">
+          <h3>SQLite</h3>
+          <p><strong>Prototypes &amp; single-server.</strong> File-based persistence without a running database process. Fast reads, simple deploys.</p>
+          <table style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <tbody>
+              <tr><td>Persistence</td><td>File on disk</td></tr>
+              <tr><td>Concurrency</td><td>Single writer</td></tr>
+              <tr><td>Setup</td><td><code>better-sqlite3</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="feature-card">
+          <h3>PostgreSQL</h3>
+          <p><strong>Production.</strong> Full ACID, concurrent writes across multiple instances, scales with your app.</p>
+          <table style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <tbody>
+              <tr><td>Persistence</td><td>Networked DB</td></tr>
+              <tr><td>Concurrency</td><td>Multi-writer</td></tr>
+              <tr><td>Setup</td><td><code>postgres</code> + connection URL</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div className="callout callout-tip">
-        <strong>Which adapter?</strong> Use <strong>memory</strong> for local dev and
-        tests. Use <strong>SQLite</strong> for single-server deploys or
-        prototypes that need persistence. Use <strong>PostgreSQL</strong> for
-        multi-instance production with concurrent writes.
+        <strong>Start with memory, graduate to Postgres.</strong> The adapter
+        swap is a one-line change in <code>lib/notifykit.ts</code>. All
+        behavior stays identical — only the storage layer changes.
       </div>
 
       <div className="overview-flow">
@@ -167,7 +203,7 @@ npx drizzle-kit generate
 # Apply it (same as your app migrations)
 npx drizzle-kit migrate`}
       />
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Why versioned migrations?</strong> Future NotifyKit versions may
         add columns or tables. With drizzle-kit, you get a diff you can review
         before applying — no surprise schema changes in production.
@@ -658,6 +694,82 @@ export const notify = createNotifyKit({
         connection pool, no teardown. Each test gets a fresh{" "}
         <code>memoryAdapter()</code> with zero state — no cleanup needed between
         runs.
+      </div>
+
+      <h2>Performance at scale</h2>
+      <p>
+        NotifyKit queries are straightforward — but as volume grows, certain
+        access patterns become slow without proper indexing or query tuning.
+        Use this table to diagnose common performance symptoms:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Inbox list slow for high-volume users</td>
+            <td>Missing composite index on <code>(recipientId, archivedAt, createdAt)</code></td>
+            <td>Add the index — the Drizzle adapter creates it by default, but custom adapters may not</td>
+          </tr>
+          <tr>
+            <td><code>send()</code> latency spikes during broadcasts</td>
+            <td>Connection pool exhausted — too many concurrent writes</td>
+            <td>Batch with <code>Promise.allSettled</code> in chunks of 10–20, or use an external queue</td>
+          </tr>
+          <tr>
+            <td><code>flushDigests()</code> takes &gt;10s</td>
+            <td>Large digest buffer table with no index on <code>expiresAt</code></td>
+            <td>Add index on <code>(expiresAt)</code> — the flush query scans by expiry time</td>
+          </tr>
+          <tr>
+            <td><code>unreadCount()</code> slow (100ms+)</td>
+            <td>Table scan on <code>inbox_items</code> for users with 1000+ items</td>
+            <td>The default index covers this, but verify with <code>EXPLAIN ANALYZE</code></td>
+          </tr>
+          <tr>
+            <td>Timeline queries slow after months of data</td>
+            <td>Timeline table grew unbounded — no pruning configured</td>
+            <td>Run <code>pruneTimeline()</code> on a cron and set <code>timelineRetentionMs</code></td>
+          </tr>
+          <tr>
+            <td>Preference resolution adds &gt;20ms per send</td>
+            <td>Multiple round-trips for global + category + notification preferences</td>
+            <td>The Drizzle adapter fetches all preferences for a recipient in one query — verify your custom adapter does the same</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Key indexes for PostgreSQL</h3>
+      <p>
+        The Drizzle adapter creates these automatically. If you&apos;re using a
+        custom adapter, verify they exist:
+      </p>
+      <Code
+        code={`-- Inbox queries (list by recipient, filter archived, sort by time)
+CREATE INDEX idx_inbox_recipient_active
+  ON notifykit_inbox_items (recipient_id, created_at DESC)
+  WHERE archived_at IS NULL;
+
+-- Delivery queries (find failures for incident investigation)
+CREATE INDEX idx_deliveries_status_time
+  ON notifykit_deliveries (status, created_at DESC)
+  WHERE status = 'failed';
+
+-- Timeline pruning (prune by age without full table scan)
+CREATE INDEX idx_timeline_created
+  ON notifykit_timeline_events (created_at);
+
+-- Rate limit counting (sliding window lookups)
+CREATE INDEX idx_rate_limits_key_time
+  ON notifykit_rate_limit_events (key, created_at);`}
+      />
+      <div className="callout callout-tip">
+        <strong>Measure before you optimize.</strong> Run{" "}
+        <code>EXPLAIN ANALYZE</code> on slow queries before adding indexes.
+        Most apps under 100 sends/day never need manual tuning — the default
+        schema handles it. Start investigating when <code>send()</code> p95
+        exceeds 100ms or inbox loads take &gt;50ms.
       </div>
 
       <h2>Migration checklist</h2>

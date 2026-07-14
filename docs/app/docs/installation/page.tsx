@@ -12,20 +12,14 @@ export default function InstallationPage() {
         Two paths to get started — pick based on where you are:
       </p>
 
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">A</span>
-          <div>
-            <strong>New project</strong>
-            <p>Use the starter scaffold. A full Next.js app with notifications wired end-to-end. Best for exploring or starting fresh.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>New project</h3>
+          <p>Use the starter scaffold. A full Next.js app with notifications wired end-to-end. Best for exploring or starting fresh.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">B</span>
-          <div>
-            <strong>Existing app</strong>
-            <p>Install the packages and add three files. Best when you&apos;re adding notifications to something already running.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Existing app</h3>
+          <p>Install the packages and add three files. Best when you&apos;re adding notifications to something already running.</p>
         </div>
       </div>
 
@@ -213,6 +207,67 @@ curl http://localhost:3000/api/notifykit/notifications`}
         </tbody>
       </table>
 
+      <h2>Send your first notification</h2>
+      <p>
+        The handler responds — now verify the full pipeline. Run this
+        one-off script to create a recipient, send a notification, and
+        confirm it landed in the inbox:
+      </p>
+      <Code
+        code={`// scripts/verify-setup.ts — run with: npx tsx scripts/verify-setup.ts
+import { notify } from "../lib/notifykit"
+
+async function main() {
+  // 1. Create a test recipient
+  await notify.upsertRecipient({ id: "test_user", email: "you@example.com" })
+
+  // 2. Send a notification
+  const result = await notify.send({
+    recipientId: "test_user",
+    notificationId: "comment_mentioned",
+    payload: { actorName: "Setup Script", postUrl: "/test" },
+  })
+
+  // 3. Verify it worked
+  const inbox = await notify.inbox.list("test_user")
+
+  console.log("Deliveries:", result.deliveries.length)
+  console.log("Inbox items:", inbox.length)
+  console.log("First item:", inbox[0]?.title)
+}
+
+main()`}
+      />
+      <div className="features">
+        <div className="feature-card">
+          <h3>Deliveries: 1+</h3>
+          <p>
+            At least one delivery record means the channel pipeline
+            ran. If 0, check that your notification has channels defined.
+          </p>
+        </div>
+        <div className="feature-card">
+          <h3>Inbox items: 1</h3>
+          <p>
+            The inbox item was written. If 0, ensure your notification
+            includes an <code>inbox()</code> channel.
+          </p>
+        </div>
+        <div className="feature-card">
+          <h3>Title matches template</h3>
+          <p>
+            &quot;Setup Script mentioned you&quot; confirms payload
+            interpolation works. If raw <code>{`{{actorName}}`}</code> appears,
+            check your template syntax.
+          </p>
+        </div>
+      </div>
+      <div className="callout callout-tip">
+        <strong>This script uses the in-memory adapter</strong> — data
+        disappears on restart. That&apos;s expected for dev. Once you see
+        all three checks pass, your setup is correct end-to-end.
+      </div>
+
       <h2>What to add next</h2>
       <p>
         You have a working setup — now grow it incrementally. Each step is
@@ -280,7 +335,7 @@ curl http://localhost:3000/api/notifykit/notifications`}
           <tr><td>Next.js</td><td>14+ (App Router)</td><td>Only if using the handler and React bindings. Core works anywhere.</td></tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Not on Next.js?</strong> The route handler uses standard{" "}
         Web <code>Request</code>/<code>Response</code> — it works with Hono, Express
         (via adapter), SvelteKit, or any framework that supports the Fetch API.
@@ -453,6 +508,129 @@ export const notify = createNotifyKit({
         changing any code. Same adapter, different credentials.
       </div>
 
+      <h2>Monorepo setup</h2>
+      <p>
+        In a monorepo (Turborepo, Nx, pnpm workspaces), your NotifyKit instance,
+        route handler, and React UI typically live in separate packages. The key
+        is putting notification definitions in a shared package so both server
+        and client apps can import them without duplication.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Package</th><th>Contains</th><th>Depends on</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>packages/notifications</code></td>
+            <td>NotifyKit instance, notification definitions, recipient helpers</td>
+            <td><code>@notifykitjs/core</code>, <code>@notifykitjs/drizzle</code></td>
+          </tr>
+          <tr>
+            <td><code>apps/api</code> (or <code>apps/web</code>)</td>
+            <td>Route handler, server actions, <code>identify()</code></td>
+            <td><code>@notifykitjs/next</code>, <code>packages/notifications</code></td>
+          </tr>
+          <tr>
+            <td><code>apps/web</code> (frontend)</td>
+            <td><code>&lt;NotifyKitProvider&gt;</code>, hooks, inbox UI</td>
+            <td><code>@notifykitjs/react</code></td>
+          </tr>
+          <tr>
+            <td><code>apps/worker</code> (optional)</td>
+            <td>Background jobs that call <code>notify.send()</code></td>
+            <td><code>packages/notifications</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        code={`// packages/notifications/src/index.ts
+import { createNotifyKit, channel, notification } from "@notifykitjs/core"
+import { drizzlePostgresAdapter } from "@notifykitjs/drizzle"
+import { db } from "./db"
+
+const inbox = channel.inbox()
+const email = channel.email()
+
+export const commentMentioned = notification({
+  id: "comment_mentioned",
+  payload: { actorName: "string", postUrl: "string" },
+  channels: [
+    inbox({ title: "{{actorName}} mentioned you" }),
+    email({ subject: "{{actorName}} mentioned you", body: "Open {{postUrl}}" }),
+  ],
+})
+
+export const notify = createNotifyKit({
+  notifications: [commentMentioned] as const,
+  database: drizzlePostgresAdapter(db),
+  providers: { email: process.env.RESEND_API_KEY ? resendProvider({...}) : fakeEmailProvider() },
+  unsubscribe: { secret: process.env.NOTIFYKIT_SECRET!, baseUrl: process.env.NOTIFYKIT_BASE_URL! },
+})`}
+      />
+      <Code
+        code={`// apps/web/app/api/notifykit/[...route]/route.ts
+import { createRouteHandler } from "@notifykitjs/next"
+import { notify } from "@acme/notifications"  // ← internal package
+import { auth } from "@/lib/auth"
+
+export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
+  notifykit: notify,
+  identify: async (request) => {
+    const session = await auth(request)
+    if (!session) return null
+    return { recipientId: session.user.id, tenantId: session.orgId }
+  },
+})`}
+      />
+      <div className="callout callout-warn">
+        <strong>Don&apos;t import <code>@notifykitjs/core</code> from the frontend.</strong>{" "}
+        The shared <code>packages/notifications</code> package contains server-only
+        code (database connections, secrets). Only the route handler and background
+        workers should import it. The frontend only needs <code>@notifykitjs/react</code>{" "}
+        and talks to NotifyKit through the REST API.
+      </div>
+      <table>
+        <thead>
+          <tr><th>Pitfall</th><th>Symptom</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Importing <code>notify</code> in a client component</td>
+            <td>Build error: <code>pg</code> / <code>crypto</code> not available in browser</td>
+            <td>Only import from <code>packages/notifications</code> in server code. Frontend uses hooks.</td>
+          </tr>
+          <tr>
+            <td>Missing env vars in the shared package</td>
+            <td><code>NOTIFYKIT_SECRET is undefined</code> at runtime</td>
+            <td>Env vars resolve in the consuming app, not the package. Add them to each app&apos;s <code>.env</code>.</td>
+          </tr>
+          <tr>
+            <td>TypeScript path aliases don&apos;t resolve</td>
+            <td><code>Cannot find module &apos;@acme/notifications&apos;</code></td>
+            <td>Configure <code>transpilePackages</code> in <code>next.config.js</code> or set up proper <code>exports</code> in the package&apos;s <code>package.json</code>.</td>
+          </tr>
+          <tr>
+            <td>Multiple NotifyKit instances across workers</td>
+            <td>Dedup and rate limits don&apos;t work (each instance has its own memory)</td>
+            <td>With in-memory, all callers must share the same process. Use Postgres adapter for multi-process setups.</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        filename="apps/web/next.config.js"
+        code={`/** @type {import('next').NextConfig} */
+module.exports = {
+  // Tell Next.js to transpile the internal package
+  transpilePackages: ["@acme/notifications"],
+}`}
+      />
+      <div className="callout callout-tip">
+        <strong>Test from the shared package.</strong> Write your notification
+        unit tests (using <code>explain()</code> and <code>memoryAdapter()</code>)
+        inside <code>packages/notifications</code>. They run without starting any
+        app — fast feedback on routing logic, dedup keys, and preference resolution.
+      </div>
+
       <h2>Troubleshooting setup</h2>
       <p>
         Stuck during installation? These are the most common issues and their
@@ -540,6 +718,12 @@ export const notify = createNotifyKit({
           </tr>
         </tbody>
       </table>
+
+      <div className="button-row">
+        <Link href="/docs/quickstart" className="primary">Quickstart guide</Link>
+        <Link href="/docs/nextjs">Next.js integration</Link>
+        <Link href="/docs/defining">Define notifications</Link>
+      </div>
 
       <div className="page-nav">
         <Link href="/">

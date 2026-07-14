@@ -8,14 +8,15 @@ import type {
   RecipientPreference,
 } from "@notifykitjs/core";
 import type { ClientState, ClientStatus, RealtimeStatus } from "./client.js";
+import { getClientSnapshot } from "./store.js";
 import { useNotifyKitClient } from "./provider.js";
 
 function useClientState<T>(select: (state: ClientState) => T): T {
   const client = useNotifyKitClient();
   return useSyncExternalStore(
     client.subscribe,
-    () => select(client.getState()),
-    () => select(client.getState()),
+    () => select(getClientSnapshot(client)),
+    () => select(getClientSnapshot(client)),
   );
 }
 

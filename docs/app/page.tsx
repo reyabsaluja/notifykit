@@ -131,58 +131,74 @@ export const notify = createNotifyKit({
           <p className="landing-result-sub">
             One <code>send()</code> call, multiple delivery surfaces — each respecting the recipient&apos;s preferences.
           </p>
-          <div className="landing-result-grid">
-            <div className="landing-result-card">
-              <h3>In-app inbox</h3>
-              <div className="landing-result-preview">
-                <div className="landing-result-item">
-                  <strong>Rey mentioned you</strong>
-                  <span>In Launch Plan</span>
-                </div>
-                <div className="landing-result-item landing-result-item-read">
-                  <strong>Sam assigned you a task</strong>
-                  <span>Review the API docs</span>
+          <div className="landing-result-stage" aria-label="Notification delivery surfaces">
+            <span className="landing-result-gridlines" aria-hidden="true" />
+            <span className="landing-result-beam landing-result-beam-inbox" aria-hidden="true" />
+            <span className="landing-result-beam landing-result-beam-email" aria-hidden="true" />
+            <span className="landing-result-beam landing-result-beam-pref" aria-hidden="true" />
+            <span className="landing-result-beam landing-result-beam-badge" aria-hidden="true" />
+            <span className="landing-result-beam landing-result-beam-digest" aria-hidden="true" />
+
+            <div className="landing-result-core">
+              <span className="landing-result-core-kicker">notify.send</span>
+              <strong>comment.mentioned</strong>
+              <span>payload resolved once</span>
+            </div>
+
+            <article className="landing-result-object landing-result-object-inbox">
+              <div className="landing-result-object-inner">
+                <span className="landing-result-tag">In-app inbox</span>
+                <strong>Rey mentioned you</strong>
+                <span>In Launch Plan</span>
+                <div className="landing-result-status">
+                  <span className="landing-result-status-dot" />
+                  Realtime unread +1
                 </div>
               </div>
-              <p>Realtime via SSE. Mark read, archive, delete. Unread count badge.</p>
-            </div>
-            <div className="landing-result-card">
-              <h3>Email</h3>
-              <div className="landing-result-preview">
-                <div className="landing-result-email">
-                  <span className="landing-result-email-subject">Rey mentioned you in Launch Plan</span>
-                  <span className="landing-result-email-body">Open /posts/42 to reply.</span>
-                  <span className="landing-result-email-unsub">Unsubscribe</span>
-                </div>
+            </article>
+
+            <article className="landing-result-object landing-result-object-email">
+              <div className="landing-result-object-inner">
+                <span className="landing-result-tag">Email</span>
+                <strong>Rey mentioned you in Launch Plan</strong>
+                <span>Open /posts/42 to reply.</span>
+                <small>Signed unsubscribe included</small>
               </div>
-              <p>Templated from payload. HMAC-signed unsubscribe. RFC 8058 one-click.</p>
-            </div>
-            <div className="landing-result-card">
-              <h3>Preferences</h3>
-              <div className="landing-result-preview">
-                <div className="landing-result-pref">
+            </article>
+
+            <article className="landing-result-object landing-result-object-pref">
+              <div className="landing-result-object-inner">
+                <span className="landing-result-tag">Preferences</span>
+                <div className="landing-result-pref-row">
                   <span>Comment mentions</span>
-                  <span className="landing-result-pref-toggles">
-                    <span className="landing-result-toggle landing-result-toggle-on">Inbox</span>
-                    <span className="landing-result-toggle landing-result-toggle-on">Email</span>
-                  </span>
+                  <span className="landing-result-switch landing-result-switch-on" />
                 </div>
-                <div className="landing-result-pref">
-                  <span>New followers</span>
-                  <span className="landing-result-pref-toggles">
-                    <span className="landing-result-toggle landing-result-toggle-on">Inbox</span>
-                    <span className="landing-result-toggle landing-result-toggle-off">Email</span>
-                  </span>
+                <div className="landing-result-pref-row">
+                  <span>Marketing updates</span>
+                  <span className="landing-result-switch" />
                 </div>
               </div>
-              <p>Per-channel, per-notification. Auto-generated from definitions.</p>
-            </div>
+            </article>
+
+            <aside className="landing-result-object landing-result-object-badge" aria-label="Unread count badge">
+              <div className="landing-result-object-inner">
+                <span>Unread badge</span>
+                <strong>3</strong>
+              </div>
+            </aside>
+
+            <aside className="landing-result-object landing-result-object-digest" aria-label="Digest delivery">
+              <div className="landing-result-object-inner">
+                <span>Digest</span>
+                <strong>5 comments batched</strong>
+                <small>delivers at 9:00</small>
+              </div>
+            </aside>
           </div>
         </div>
       </section>
 
       <section className="landing-flow">
-        <h2>Three steps. Full lifecycle.</h2>
         <div className="landing-flow-grid">
           <div className="landing-flow-step">
             <div className="landing-flow-header">
@@ -193,8 +209,9 @@ export const notify = createNotifyKit({
               filename="lib/notifications.ts"
               code={`export const invite = notification({
   id: "invite",
+  payload: { name: "string" },
   channels: [inbox({ title: "{{name}} invited you" }),
-             email({ subject: "You're invited" })],
+             email({ subject: "You're invited", body: "Open the app to respond." })],
 })`}
             />
           </div>
@@ -205,8 +222,9 @@ export const notify = createNotifyKit({
             </div>
             <Code
               filename="app/api/invite/route.ts"
-              code={`await notify.send("invite", {
-  userId: "user_123",
+              code={`await notify.send({
+  recipientId: "user_123",
+  notificationId: "invite",
   payload: { name: "Rey" },
 })`}
             />

@@ -33,6 +33,45 @@ export default function ChannelsPage() {
         through the full pipeline: queue, retry, quiet hours, fallback.
       </div>
 
+      <h2>At a glance</h2>
+      <p>
+        Minimal working config for each channel type. Copy the one you need,
+        then scroll down for options and advanced patterns:
+      </p>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Inbox</h3>
+          <p>Pull channel — writes a row, user fetches it.</p>
+          <code style={{ fontSize: "0.8em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`inbox({
+  title: "{{actorName}} mentioned you",
+  body: "In {{postTitle}}",
+  actionUrl: "{{postUrl}}",
+})`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>Email</h3>
+          <p>Push channel — queued to your email provider.</p>
+          <code style={{ fontSize: "0.8em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`email({
+  subject: "{{actorName}} mentioned you",
+  body: "Open {{postUrl}}\\n\\n{{_unsubscribeUrl}}",
+})`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>SMS</h3>
+          <p>Push channel — sent via Twilio/Vonage/etc.</p>
+          <code style={{ fontSize: "0.8em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`sms({
+  body: "Your code is {{code}}",
+})`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>Webhook</h3>
+          <p>Push channel — signed POST to a URL.</p>
+          <code style={{ fontSize: "0.8em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`webhook({
+  url: "https://hooks.slack.com/...",
+})`}</code>
+        </div>
+      </div>
+
       <h2>Inbox</h2>
       <p>
         The inbox channel writes a row to your database. It&apos;s user-pulled
@@ -88,7 +127,7 @@ email({
   body: "Open {{postUrl}} to reply.\\n\\nUnsubscribe: {{_unsubscribeUrl}}",
 })`}
       />
-      <div className="callout">
+      <div className="callout callout-warn">
         <strong>Built-in variable.</strong> <code>{`{{_unsubscribeUrl}}`}</code> is
         injected automatically — it links to the one-click unsubscribe handler.
         Always include it in email bodies.
@@ -173,6 +212,197 @@ webhook({
         </div>
       </div>
 
+      <h3>Webhook payload format</h3>
+      <p>
+        Every webhook delivery POSTs a JSON envelope with a consistent shape.
+        Your receiver can rely on this structure regardless of the notification
+        type:
+      </p>
+      <Code
+        code={`// What your endpoint receives:
+{
+  "event": "notification.delivered",
+  "notificationId": "deploy_completed",
+  "recipientId": "user_123",
+  "payload": {
+    "projectName": "api-gateway",
+    "status": "succeeded",
+    "sha": "abc123f"
+  },
+  "metadata": {
+    "sentAt": "2026-06-27T14:30:00.000Z",
+    "deliveryId": "del_abc123",
+    "attempt": 1
+  }
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>event</code></td><td><code>string</code></td><td>Always <code>&quot;notification.delivered&quot;</code> for webhook deliveries</td></tr>
+          <tr><td><code>notificationId</code></td><td><code>string</code></td><td>The notification definition ID — use for routing on the receiver</td></tr>
+          <tr><td><code>recipientId</code></td><td><code>string</code></td><td>Who this notification is for</td></tr>
+          <tr><td><code>payload</code></td><td><code>object</code></td><td>Your full typed payload, as passed to <code>send()</code></td></tr>
+          <tr><td><code>metadata.sentAt</code></td><td><code>ISO 8601</code></td><td>When the delivery was dispatched</td></tr>
+          <tr><td><code>metadata.deliveryId</code></td><td><code>string</code></td><td>Unique delivery ID — use for idempotency on the receiver</td></tr>
+          <tr><td><code>metadata.attempt</code></td><td><code>number</code></td><td>Retry attempt (1 = first try, 2+ = retry)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Verifying signatures (receiver code)</h3>
+      <p>
+        When your webhook provider has a <code>secret</code> configured, verify
+        the <code>x-notifykit-signature</code> header before processing:
+      </p>
+      <Code
+        code={`// Your webhook receiver (any framework)
+import { createHmac, timingSafeEqual } from "node:crypto"
+
+const WEBHOOK_SECRET = process.env.NOTIFYKIT_WEBHOOK_SECRET!
+
+function verifySignature(rawBody: string, signatureHeader: string): boolean {
+  const expected = createHmac("sha256", WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest("hex")
+
+  const received = signatureHeader.replace("sha256=", "")
+
+  return timingSafeEqual(
+    Buffer.from(expected, "hex"),
+    Buffer.from(received, "hex"),
+  )
+}
+
+// Express / Node.js example:
+app.post("/webhooks/notifykit", (req, res) => {
+  const signature = req.headers["x-notifykit-signature"]
+  if (!signature || !verifySignature(req.rawBody, signature)) {
+    return res.status(401).json({ error: "Invalid signature" })
+  }
+
+  const { notificationId, payload, metadata } = req.body
+  // Process the webhook...
+  res.status(200).json({ received: true })
+})
+
+// Next.js Route Handler:
+export async function POST(request: Request) {
+  const rawBody = await request.text()
+  const signature = request.headers.get("x-notifykit-signature")
+
+  if (!signature || !verifySignature(rawBody, signature)) {
+    return Response.json({ error: "Invalid signature" }, { status: 401 })
+  }
+
+  const body = JSON.parse(rawBody)
+  // Process...
+  return Response.json({ received: true })
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Security detail</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>timingSafeEqual</code></td><td>Prevents timing attacks — a naive <code>===</code> comparison leaks info about which bytes matched</td></tr>
+          <tr><td>Verify on raw body</td><td>The HMAC is computed over the raw string, not a parsed-and-re-serialized object</td></tr>
+          <tr><td>Return 401 on failure</td><td>NotifyKit retries on 5xx but not 4xx — a 401 tells it to stop immediately</td></tr>
+          <tr><td>Check <code>metadata.deliveryId</code></td><td>Use as an idempotency key on the receiver to handle retries gracefully</td></tr>
+        </tbody>
+      </table>
+      <div className="callout callout-warn">
+        <strong>Always use the raw body for verification.</strong> If your
+        framework parses the body before you can access the raw string (e.g.
+        Express with <code>json()</code> middleware), configure a raw body
+        parser for your webhook route. Parsing and re-serializing can change
+        key ordering or whitespace, breaking the signature.
+      </div>
+
+      <h3>Formatting for external services</h3>
+      <p>
+        External services like Slack and Discord expect specific payload shapes.
+        Use <code>render()</code> on the webhook channel to transform your
+        payload into the format each service expects:
+      </p>
+      <Code
+        code={`// Slack: expects { text } or { blocks }
+notification({
+  id: "deploy_completed",
+  payload: {
+    projectName: "string",
+    status: "string",
+    sha: "string",
+    actorName: "string",
+  },
+  channels: [
+    inbox({ title: "Deploy {{status}}: {{projectName}}" }),
+    webhook({
+      url: "https://hooks.slack.com/services/T.../B.../xxx",
+      render: (payload) => ({
+        body: JSON.stringify({
+          text: \`Deploy *\${payload.status}*: \${payload.projectName} (\${payload.sha.slice(0, 7)})\`,
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: \`*\${payload.projectName}* deployed by \${payload.actorName}\`,
+              },
+            },
+            {
+              type: "context",
+              elements: [
+                { type: "mrkdwn", text: \`Status: \${payload.status} | SHA: \\\`\${payload.sha.slice(0, 7)}\\\`\` },
+              ],
+            },
+          ],
+        }),
+      }),
+    }),
+  ],
+})
+
+// Discord: expects { content } or { embeds }
+webhook({
+  url: "https://discord.com/api/webhooks/123/abc",
+  render: (payload) => ({
+    body: JSON.stringify({
+      content: \`Deploy **\${payload.status}**: \${payload.projectName}\`,
+      embeds: [{
+        title: payload.projectName,
+        description: \`Deployed by \${payload.actorName}\`,
+        color: payload.status === "succeeded" ? 0x00ff00 : 0xff0000,
+        fields: [
+          { name: "SHA", value: \`\\\`\${payload.sha.slice(0, 7)}\\\`\`, inline: true },
+          { name: "Status", value: payload.status, inline: true },
+        ],
+      }],
+    }),
+  }),
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Service</th><th>Required field</th><th>Rich formatting</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Slack</strong></td><td><code>text</code> (fallback)</td><td><code>blocks</code> array with Block Kit elements</td></tr>
+          <tr><td><strong>Discord</strong></td><td><code>content</code> (plain text)</td><td><code>embeds</code> array with title, description, color, fields</td></tr>
+          <tr><td><strong>Microsoft Teams</strong></td><td><code>text</code> or <code>@type: MessageCard</code></td><td>Adaptive Cards via <code>attachments</code></td></tr>
+          <tr><td><strong>Custom endpoint</strong></td><td>Whatever your API expects</td><td>Full control via <code>render()</code></td></tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Per-user webhook URLs.</strong> For integrations where each
+        user configures their own endpoint (like a Slack incoming webhook per
+        workspace), store the URL on the recipient or in the payload and use{" "}
+        <code>{`url: "{{webhookUrl}}"`}</code> with a <code>condition</code>{" "}
+        that skips when no URL is set. See{" "}
+        <Link href="#conditional-channels">conditional channels</Link> below.
+      </div>
+
       <h2>Channel behavior during send</h2>
       <div className="callout callout-tip">
         <strong>Key insight.</strong> Inbox always delivers immediately (it&apos;s
@@ -235,41 +465,170 @@ webhook({
       <h2>Choosing channels for your notifications</h2>
       <p>
         Not every notification needs every channel. Match urgency to
-        intrusiveness:
+        intrusiveness — higher urgency means more channels and less user
+        control:
       </p>
-      <table>
-        <thead>
-          <tr><th>Urgency</th><th>Channels</th><th>Examples</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>Critical — act now</strong></td>
-            <td>Email + SMS + inbox</td>
-            <td>Security alert, 2FA code, payment failed</td>
-          </tr>
-          <tr>
-            <td><strong>Important — act soon</strong></td>
-            <td>Email + inbox</td>
-            <td>Team invite, comment mention, task assigned</td>
-          </tr>
-          <tr>
-            <td><strong>Informational — FYI</strong></td>
-            <td>Inbox only</td>
-            <td>New follower, post liked, deploy succeeded</td>
-          </tr>
-          <tr>
-            <td><strong>System-to-system</strong></td>
-            <td>Webhook (+ inbox as audit trail)</td>
-            <td>Slack integration, external service sync, analytics event</td>
-          </tr>
-        </tbody>
-      </table>
-      <div className="callout">
+      <div className="features">
+        <div className="feature-card">
+          <h3>Critical</h3>
+          <p><strong>Act now.</strong> User must see this immediately regardless of context. Multiple channels ensure delivery.</p>
+          <table style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <tbody>
+              <tr><td>Channels</td><td>Email + SMS + Inbox</td></tr>
+              <tr><td>Config</td><td><code>required: true</code> + fallback</td></tr>
+              <tr><td>Examples</td><td>Security alert, 2FA, payment failed</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="feature-card">
+          <h3>Important</h3>
+          <p><strong>Act soon.</strong> User should know within minutes but can choose how they&apos;re reached.</p>
+          <table style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <tbody>
+              <tr><td>Channels</td><td>Email + Inbox</td></tr>
+              <tr><td>Config</td><td>Default — user can opt out</td></tr>
+              <tr><td>Examples</td><td>Team invite, mention, task assigned</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="feature-card">
+          <h3>Informational</h3>
+          <p><strong>FYI.</strong> Nice to know but not worth an interruption. User checks on their own time.</p>
+          <table style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <tbody>
+              <tr><td>Channels</td><td>Inbox only</td></tr>
+              <tr><td>Config</td><td><code>defaultChannels: {`{ email: false }`}</code></td></tr>
+              <tr><td>Examples</td><td>New follower, post liked, deploy OK</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="feature-card">
+          <h3>System-to-system</h3>
+          <p><strong>Machine consumer.</strong> No human reads this directly — it triggers automation or syncs state.</p>
+          <table style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <tbody>
+              <tr><td>Channels</td><td>Webhook (+ Inbox as audit)</td></tr>
+              <tr><td>Config</td><td>Rate-limited, signed payload</td></tr>
+              <tr><td>Examples</td><td>Slack alert, CI webhook, analytics</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="callout callout-tip">
         <strong>Start with inbox + email, expand from there.</strong> Most
         apps only need two channels at launch. Add SMS when you have time-critical
         notifications, and webhooks when you integrate with external services.
         Users can always turn off channels they don&apos;t want via{" "}
         <Link href="/docs/preferences">preferences</Link>.
+      </div>
+
+      <h2 id="conditional-channels">Conditional channels</h2>
+      <p>
+        Sometimes a channel should only fire based on runtime data — SMS only
+        for high-severity alerts, webhook only when a URL is configured, or
+        email only for external users. Use a <code>condition</code> function
+        on any channel to gate delivery at send time:
+      </p>
+      <Code
+        code={`notification({
+  id: "incident_alert",
+  payload: {
+    severity: "string",    // "low" | "medium" | "high" | "critical"
+    title: "string",
+    dashboardUrl: "string",
+  },
+  channels: [
+    // Inbox: always fires
+    inbox({
+      title: "Incident: {{title}}",
+      actionUrl: "{{dashboardUrl}}",
+    }),
+
+    // Email: fires for medium+ severity
+    email({
+      condition: (payload) => payload.severity !== "low",
+      subject: "[{{severity}}] {{title}}",
+      body: "View dashboard: {{dashboardUrl}}\\n\\nUnsubscribe: {{_unsubscribeUrl}}",
+    }),
+
+    // SMS: fires only for critical
+    sms({
+      condition: (payload) => payload.severity === "critical",
+      body: "CRITICAL: {{title}} — check dashboard immediately",
+    }),
+  ],
+})`}
+      />
+      <p>
+        When a condition returns <code>false</code>, the channel is skipped with{" "}
+        <code>reason: &quot;condition_false&quot;</code> in the result — no delivery
+        attempt, no retry, no fallback trigger.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>Condition</th><th>Use case</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Severity escalation</strong></td>
+            <td><code>{`(p) => p.severity === "critical"`}</code></td>
+            <td>Only page oncall for critical incidents, not every warning</td>
+          </tr>
+          <tr>
+            <td><strong>Feature flag</strong></td>
+            <td><code>{`(p) => p.smsEnabled === true`}</code></td>
+            <td>Gradually roll out SMS to users who opted into the beta</td>
+          </tr>
+          <tr>
+            <td><strong>Payload presence</strong></td>
+            <td><code>{`(p) => !!p.webhookUrl`}</code></td>
+            <td>Only POST webhook if the user has configured an endpoint</td>
+          </tr>
+          <tr>
+            <td><strong>User type</strong></td>
+            <td><code>{`(p) => p.userType === "external"`}</code></td>
+            <td>Email external collaborators but only inbox internal team</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <Code
+        code={`// Dynamic webhook URL from payload:
+notification({
+  id: "deploy_completed",
+  payload: {
+    projectName: "string",
+    status: "string",
+    webhookUrl: "string",  // empty string if not configured
+  },
+  channels: [
+    inbox({
+      title: "Deploy {{status}}: {{projectName}}",
+    }),
+    webhook({
+      condition: (payload) => !!payload.webhookUrl,
+      url: "{{webhookUrl}}",   // dynamic — comes from payload
+    }),
+  ],
+})`}
+      />
+
+      <div className="callout callout-tip">
+        <strong>Conditions vs preferences.</strong> Conditions are developer-controlled
+        routing logic (&quot;only SMS for critical&quot;). Preferences are user-controlled
+        opt-in/out (&quot;I don&apos;t want email&quot;). Both are checked at send time —
+        conditions first, then preferences. A channel that fails its condition is never
+        checked against preferences.
+      </div>
+
+      <div className="callout callout-warn">
+        <strong>Conditions don&apos;t trigger fallbacks.</strong> A{" "}
+        <code>condition_false</code> skip is intentional routing, not a failure.
+        Fallbacks only fire on delivery failures (<code>channel.failed</code>) or
+        missing destinations (<code>missing_address</code>). If you need a backup
+        for a conditionally-skipped channel, define the backup as a separate
+        channel with the inverse condition.
       </div>
 
       <h2>Putting it together</h2>
@@ -513,7 +872,7 @@ Unsubscribe: {{_unsubscribeUrl}}\`,
   ],
 })`}
       />
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>render() and templates can mix.</strong> Inside a{" "}
         <code>render()</code> return value, you can still use{" "}
         <code>{`{{_unsubscribeUrl}}`}</code> — built-in variables are
@@ -617,6 +976,152 @@ notification({
         database queries or API calls inside it. Load all the data you need
         into the payload at send time, then render from that. This keeps the
         delivery pipeline fast and predictable.
+      </div>
+
+      <h2>Testing channels</h2>
+      <p>
+        Template strings and <code>render()</code> functions are the most common
+        source of notification bugs — a typo in a variable name produces a blank
+        field silently. Test at three levels:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Level</th><th>What you verify</th><th>How</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Unit</strong></td>
+            <td><code>render()</code> output for edge-case payloads</td>
+            <td>Call the function directly in a test file</td>
+          </tr>
+          <tr>
+            <td><strong>Integration</strong></td>
+            <td>Full template resolution including built-in variables</td>
+            <td><code>explain()</code> with a real payload — no delivery</td>
+          </tr>
+          <tr>
+            <td><strong>E2E</strong></td>
+            <td>Actual delivery reaches the destination</td>
+            <td>Dev mode with test providers (console sink, Mailpit, etc.)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Unit-testing render() functions</h3>
+      <p>
+        Extract <code>render()</code> functions so they&apos;re importable, then
+        test edge cases directly:
+      </p>
+      <Code
+        code={`// notifications/order-shipped.ts
+export const orderShippedInbox = (payload) => ({
+  title: \`Order \${payload.orderNumber} shipped\`,
+  body: payload.itemCount === 1
+    ? "1 item on the way"
+    : \`\${payload.itemCount} items on the way\`,
+  actionUrl: payload.trackingUrl,
+})
+
+// notifications/order-shipped.test.ts
+import { orderShippedInbox } from "./order-shipped"
+
+test("singular item text", () => {
+  const result = orderShippedInbox({
+    orderNumber: "ABC-123",
+    itemCount: 1,
+    trackingUrl: "/track/abc",
+    expedited: false,
+  })
+  expect(result.body).toBe("1 item on the way")
+})
+
+test("plural item text", () => {
+  const result = orderShippedInbox({
+    orderNumber: "ABC-123",
+    itemCount: 5,
+    trackingUrl: "/track/abc",
+    expedited: false,
+  })
+  expect(result.body).toBe("5 items on the way")
+})`}
+      />
+
+      <h3>Integration testing with explain()</h3>
+      <p>
+        <code>explain()</code> dry-runs the full pipeline — template resolution,
+        preference checks, channel evaluation — without writing any records or
+        triggering providers. Use it to verify the final rendered output:
+      </p>
+      <Code
+        code={`import { notify } from "./notifykit"
+
+test("comment_mentioned resolves all template variables", async () => {
+  const result = await notify.explain({
+    recipientId: "user_test",
+    notificationId: "comment_mentioned",
+    payload: { actorName: "Rey", postTitle: "Launch Plan", postUrl: "/posts/42" },
+  })
+
+  // Verify no unresolved {{variables}} remain
+  const inboxChannel = result.channels.find(c => c.name === "inbox")
+  expect(inboxChannel.rendered.title).toBe("Rey mentioned you")
+  expect(inboxChannel.rendered.title).not.toMatch(/\\{\\{/)
+
+  // Verify channel was not skipped
+  expect(inboxChannel.status).toBe("would_deliver")
+})`}
+      />
+      <div className="callout callout-tip">
+        <strong>Catch blank fields in CI.</strong> Add an assertion that no
+        rendered field is empty or contains <code>{`{{`}</code> — this catches
+        payload/template mismatches before they reach users. Pattern:{" "}
+        <code>{`expect(rendered.title).not.toMatch(/\\{\\{|^$/)`}</code>
+      </div>
+
+      <h3>Dev mode: inspect without real providers</h3>
+      <p>
+        In dev mode, channel deliveries are logged to the console instead of
+        hitting real providers. This lets you iterate on templates visually:
+      </p>
+      <Code
+        code={`// notifykit.config.ts
+import { createNotifyKit } from "@notifykitjs/core"
+import { memoryAdapter } from "@notifykitjs/adapter-memory"
+
+export const notify = createNotifyKit({
+  database: memoryAdapter(),
+  devMode: process.env.NODE_ENV !== "production",
+  // In dev mode:
+  // - Email renders to console (subject + body)
+  // - SMS renders to console (body)
+  // - Webhook logs the full payload without POSTing
+  // - Inbox writes to the in-memory DB as normal
+})`}
+      />
+      <p>
+        Sample dev mode console output:
+      </p>
+      <Code
+        code={`// Console when devMode is enabled:
+// ┌─────────────────────────────────────────────────
+// │ 📧 EMAIL → user_123
+// │ Subject: Rey mentioned you in Launch Plan
+// │ Body: Open /posts/42 to reply.
+// │
+// │ Unsubscribe: http://localhost:3000/unsubscribe?token=dev_xxx
+// └─────────────────────────────────────────────────
+// ┌─────────────────────────────────────────────────
+// │ 📥 INBOX → user_123
+// │ Title: Rey mentioned you
+// │ Body: In Launch Plan
+// │ Action: /posts/42
+// └─────────────────────────────────────────────────`}
+      />
+      <div className="callout callout-tip">
+        <strong>Dev mode still runs the full pipeline.</strong> Preferences,
+        quiet hours, deduplication, and digests all apply — only the final
+        provider call is replaced with a console log. This means dev mode
+        catches pipeline bugs, not just template bugs.
       </div>
 
       <h2>Debugging channel delivery</h2>
@@ -757,6 +1262,12 @@ if (result.deferredChannels.length > 0) {
         renders an empty string — no error is thrown. If your messages look
         blank or incomplete, verify the payload fields match your template
         variables exactly.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/preferences" className="primary">User preferences</Link>
+        <Link href="/docs/providers">Email providers</Link>
+        <Link href="/docs/fallbacks">Fallback channels</Link>
       </div>
 
       <div className="page-nav">

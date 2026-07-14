@@ -32,6 +32,25 @@ export default function ProvidersPage() {
         just makes the request.
       </div>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>Automatic retries</h3>
+          <p>Exponential backoff with configurable max attempts. Transient errors retry; permanent errors fail fast.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Provider failover</h3>
+          <p>Chain multiple providers per channel. If Resend is down, Postmark picks up — same email, no user impact.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Durable queues</h3>
+          <p>Plug in BullMQ or SQS for deliveries that survive deploys and crashes. Or use inline for simplicity.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Environment switching</h3>
+          <p>Fake providers in dev and test, sandbox in staging, live keys in production — one config pattern.</p>
+        </div>
+      </div>
+
       <h2>Choosing an email provider</h2>
       <p>
         Haven&apos;t picked a provider yet? Here&apos;s a quick comparison of
@@ -68,27 +87,18 @@ export default function ProvidersPage() {
           </tr>
         </tbody>
       </table>
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Need to ship fast?</strong>
-            <p>Use Resend — first-party package, one import, generous free tier. Swap later if needed.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Need to ship fast?</h3>
+          <p>Use Resend — first-party package, one import, generous free tier. Swap later if needed.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Sending 100k+ emails/month?</strong>
-            <p>Use SES for cost, or Postmark for deliverability. Consider <Link href="/docs/fallbacks">failover</Link> with two providers.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Sending 100k+ emails/month?</h3>
+          <p>Use SES for cost, or Postmark for deliverability. Consider <Link href="/docs/fallbacks">failover</Link> with two providers.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Not ready to pick?</strong>
-            <p>Use <code>fakeEmailProvider()</code> — zero config, logs to console. Swap to a real provider with one line when ready.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Not ready to pick?</h3>
+          <p>Use <code>fakeEmailProvider()</code> — zero config, logs to console. Swap to a real provider with one line when ready.</p>
         </div>
       </div>
 
@@ -98,6 +108,7 @@ export default function ProvidersPage() {
         code={`npm install @notifykitjs/resend`}
       />
       <Code
+        filename="lib/notifykit.ts"
         code={`import { resendProvider } from "@notifykitjs/resend"
 
 export const notify = createNotifyKit({
@@ -129,7 +140,7 @@ export const notify = createNotifyKit({
           <tr><td><code>send(input)</code></td><td><code>async</code></td><td>Make the API call. Throw on failure. Return <code>{`{ providerMessageId? }`}</code> on success.</td></tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Error contract.</strong> Throw any error to trigger retries.
         NotifyKit catches it, records it in the timeline, and retries per your{" "}
         <code>retry</code> config. You don&apos;t need try/catch inside your
@@ -139,6 +150,7 @@ export const notify = createNotifyKit({
         Wrap Postmark, SES, SendGrid, or any HTTP service in ~20 lines:
       </p>
       <Code
+        filename="lib/providers/postmark.ts"
         code={`import type { EmailProvider } from "@notifykitjs/core"
 
 export function postmarkProvider(opts: {
@@ -176,6 +188,7 @@ export function postmarkProvider(opts: {
         envelope:
       </p>
       <Code
+        filename="lib/notifykit.ts"
         code={`import { webhookProvider } from "@notifykitjs/core"
 
 createNotifyKit({
@@ -195,6 +208,7 @@ createNotifyKit({
 
       <h3>Verifying webhooks on the receiving end</h3>
       <Code
+        filename="routes/webhooks.ts"
         code={`import { verifyWebhookSignature } from "@notifykitjs/core"
 
 app.post("/webhooks/notifykit", (req, res) => {
@@ -211,6 +225,7 @@ app.post("/webhooks/notifykit", (req, res) => {
         interface:
       </p>
       <Code
+        filename="lib/providers/twilio.ts"
         code={`import type { SmsProvider } from "@notifykitjs/core"
 
 export function twilioProvider(opts: {
@@ -359,11 +374,139 @@ const bullQueue: Queue = {
   },
 }`}
       />
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Retries live in the engine, not the queue.</strong> A queue&apos;s
         only job is to decide <em>when</em> a worker runs. Every queue
         implementation gets retries and fallback channels for free.
       </div>
+
+      <h3>Complete BullMQ implementation</h3>
+      <p>
+        The stub above shows the contract. Here&apos;s a production-ready
+        implementation with Redis connection, worker setup, and graceful
+        shutdown — copy this into your project:
+      </p>
+      <Code
+        filename="lib/queue.ts"
+        code={`import { Queue as BullQueue } from "bullmq"
+import type { Queue as NotifyKitQueue } from "@notifykitjs/core"
+
+const connection = { host: process.env.REDIS_HOST!, port: 6379 }
+
+const deliveryQueue = new BullQueue("notifykit-deliveries", {
+  connection,
+  defaultJobOptions: {
+    removeOnComplete: 1000,  // keep last 1000 completed jobs for debugging
+    removeOnFail: 5000,      // keep last 5000 failed for investigation
+  },
+})
+
+export const bullMQQueue: NotifyKitQueue = {
+  async enqueue(job) {
+    await deliveryQueue.add("deliver", job, {
+      jobId: job.deliveryId, // prevents duplicate jobs on retry
+    })
+  },
+  async drain() {
+    await deliveryQueue.close()
+  },
+}`}
+      />
+      <Code
+        filename="worker.ts"
+        code={`import { Worker } from "bullmq"
+import { notify } from "./lib/notifykit"
+
+const connection = { host: process.env.REDIS_HOST!, port: 6379 }
+
+const worker = new Worker(
+  "notifykit-deliveries",
+  async (job) => {
+    await notify.processDeliveryJob(job.data)
+  },
+  {
+    connection,
+    concurrency: 10,           // parallel deliveries
+    limiter: { max: 50, duration: 1000 }, // 50 jobs/sec max
+  },
+)
+
+worker.on("failed", (job, err) => {
+  console.error(\`Delivery \${job?.id} failed: \${err.message}\`)
+})
+
+// Graceful shutdown
+process.on("SIGTERM", async () => {
+  await worker.close()
+  process.exit(0)
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Design choice</th><th>Why</th><th>Adjust when</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>jobId: job.deliveryId</code></td>
+            <td>Prevents duplicate queue entries if <code>send()</code> retries enqueue</td>
+            <td>Remove if you want BullMQ to generate IDs (rare)</td>
+          </tr>
+          <tr>
+            <td><code>concurrency: 10</code></td>
+            <td>Processes 10 deliveries in parallel per worker instance</td>
+            <td>Increase for high volume, decrease if providers rate-limit you</td>
+          </tr>
+          <tr>
+            <td><code>removeOnComplete: 1000</code></td>
+            <td>Keeps Redis memory bounded while allowing debug inspection</td>
+            <td>Decrease on memory-constrained Redis, increase for longer audit trail</td>
+          </tr>
+          <tr>
+            <td>Separate worker process</td>
+            <td>Deliveries survive web server restarts and deploys</td>
+            <td>Run in-process if you only have one server and want simplicity</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>The worker must import the same <code>notify</code> instance.</strong>{" "}
+        It needs access to the same notification definitions, providers, and
+        retry config. Extract your <code>createNotifyKit()</code> setup into a
+        shared <code>lib/notifykit.ts</code> and import it from both the web
+        server and the worker.
+      </div>
+
+      <h3>Choosing your queue</h3>
+      <p>
+        Use this decision table based on what you can tolerate:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Question</th><th>If no</th><th>If yes</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Can you lose in-flight deliveries on crash?</td>
+            <td>Use BullMQ/SQS (durable)</td>
+            <td>Use <code>setTimeoutQueue()</code></td>
+          </tr>
+          <tr>
+            <td>Does response latency matter for the send caller?</td>
+            <td>Use <code>inlineQueue()</code> — simplest</td>
+            <td>Use <code>setTimeoutQueue()</code> or BullMQ</td>
+          </tr>
+          <tr>
+            <td>Are you on serverless (Vercel, Lambda)?</td>
+            <td>Any queue works</td>
+            <td>Use <code>inlineQueue()</code> or external queue with a worker</td>
+          </tr>
+          <tr>
+            <td>Do you need delivery metrics and job inspection?</td>
+            <td>Any queue works</td>
+            <td>Use BullMQ — comes with Bull Board UI for free</td>
+          </tr>
+        </tbody>
+      </table>
 
       <h2>Retry configuration</h2>
       <Code
@@ -516,6 +659,7 @@ export function myProvider(opts): EmailProvider {
         that tries each in order:
       </p>
       <Code
+        filename="lib/providers/failover.ts"
         code={`import type { EmailProvider } from "@notifykitjs/core"
 
 export function failoverEmailProvider(
@@ -544,8 +688,8 @@ export function failoverEmailProvider(
 }`}
       />
       <Code
-        code={`// Usage: Resend primary, Postmark backup
-import { resendProvider } from "@notifykitjs/resend"
+        filename="lib/notifykit.ts"
+        code={`import { resendProvider } from "@notifykitjs/resend"
 
 const notify = createNotifyKit({
   // ...
@@ -621,6 +765,200 @@ const notify = createNotifyKit({
         whole failover chain on the next attempt. This means with 2 providers
         and 3 retry attempts, you get up to 6 total provider calls before
         giving up.
+      </div>
+
+      <h2>Environment-based provider switching</h2>
+      <p>
+        Most apps need different providers per environment — fake in dev,
+        a sandbox key in staging, production keys in prod. Wire this with a
+        simple function that reads the environment:
+      </p>
+      <Code
+        filename="lib/providers.ts"
+        code={`import { fakeEmailProvider } from "@notifykitjs/core"
+import { resendProvider } from "@notifykitjs/resend"
+
+export function emailProvider() {
+  switch (process.env.NODE_ENV) {
+    case "production":
+      return resendProvider({
+        apiKey: process.env.RESEND_API_KEY!,
+        from: process.env.EMAIL_FROM!,
+      })
+
+    case "test":
+      return fakeEmailProvider() // logs only, no network
+
+    default: // development
+      return process.env.RESEND_API_KEY
+        ? resendProvider({ apiKey: process.env.RESEND_API_KEY, from: "dev@localhost" })
+        : fakeEmailProvider()
+  }
+}
+
+// lib/notifykit.ts
+import { emailProvider } from "./providers"
+
+export const notify = createNotifyKit({
+  notifications: [...] as const,
+  database: adapter(),
+  providers: { email: emailProvider() },
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Environment</th><th>Provider</th><th>Behavior</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Development</strong> (no key)</td>
+            <td><code>fakeEmailProvider()</code></td>
+            <td>Logs the subject, recipient, and body to the terminal. No network calls.</td>
+          </tr>
+          <tr>
+            <td><strong>Development</strong> (with key)</td>
+            <td>Real provider in sandbox mode</td>
+            <td>Sends to your own email for visual verification. Useful for testing templates.</td>
+          </tr>
+          <tr>
+            <td><strong>Test</strong> (CI)</td>
+            <td><code>fakeEmailProvider()</code></td>
+            <td>Deterministic — never hits the network. Tests run offline and fast.</td>
+          </tr>
+          <tr>
+            <td><strong>Staging</strong></td>
+            <td>Real provider, sandbox/test key</td>
+            <td>Validates the full delivery path without sending to real users.</td>
+          </tr>
+          <tr>
+            <td><strong>Production</strong></td>
+            <td>Real provider, live key</td>
+            <td>Full delivery to recipients. Requires verified domain.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Use <code>devMode: true</code> as a safety net.</strong> Even if
+        you accidentally load a real provider in development, <code>devMode</code>{" "}
+        blocks all actual sends and logs what would have happened. Set it from
+        the environment:{" "}
+        <code>devMode: process.env.NODE_ENV !== &quot;production&quot;</code>.
+      </div>
+      <div className="callout callout-warn">
+        <strong>Never commit API keys.</strong> Use <code>.env.local</code>{" "}
+        (gitignored) for local keys and your hosting platform&apos;s secret
+        management for staging/production. The <code>!</code> assertion
+        (<code>process.env.RESEND_API_KEY!</code>) will throw at startup if the
+        var is missing — which is what you want in production.
+      </div>
+
+      <h2>Monitoring provider health</h2>
+      <p>
+        A provider that worked at deploy time can degrade silently — rate limits
+        tighten, API keys expire, DNS flaps. Use{" "}
+        <Link href="/docs/hooks">hooks</Link> to track delivery outcomes and
+        surface problems before users notice:
+      </p>
+      <Code
+        filename="lib/notifykit.ts"
+        code={`createNotifyKit({
+  // ...
+  on: {
+    "delivery.sent": ({ delivery }) => {
+      metrics.inc("notifykit.delivery.sent", {
+        provider: delivery.provider,
+        channel: delivery.channel,
+      })
+      metrics.histogram("notifykit.delivery.latency_ms", delivery.latencyMs, {
+        provider: delivery.provider,
+      })
+    },
+    "delivery.failed": ({ delivery }) => {
+      metrics.inc("notifykit.delivery.failed", {
+        provider: delivery.provider,
+        channel: delivery.channel,
+        permanent: String(delivery.permanent),
+      })
+      // Alert if failure rate spikes
+      if (delivery.attempts >= 3) {
+        alerting.warn(\`Provider \${delivery.provider} failing after \${delivery.attempts} attempts: \${delivery.error}\`)
+      }
+    },
+    "delivery.retrying": ({ delivery }) => {
+      metrics.inc("notifykit.delivery.retry", {
+        provider: delivery.provider,
+        attempt: String(delivery.attempts),
+      })
+    },
+  },
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Metric</th><th>Healthy range</th><th>Alert when</th><th>Likely cause</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Delivery success rate</strong></td>
+            <td>&gt; 99%</td>
+            <td>&lt; 95% for 5 min</td>
+            <td>Provider outage, expired API key, domain verification lost</td>
+          </tr>
+          <tr>
+            <td><strong>Delivery latency (p95)</strong></td>
+            <td>&lt; 2s for email, &lt; 1s for SMS</td>
+            <td>&gt; 5s sustained</td>
+            <td>Provider under load, network congestion, DNS resolution slow</td>
+          </tr>
+          <tr>
+            <td><strong>Retry rate</strong></td>
+            <td>&lt; 5% of sends</td>
+            <td>&gt; 20% for 10 min</td>
+            <td>Provider rate limiting you, intermittent 5xx errors</td>
+          </tr>
+          <tr>
+            <td><strong>Permanent failure rate</strong></td>
+            <td>&lt; 2%</td>
+            <td>Spike above baseline</td>
+            <td>Bad recipient data (bounces), payload validation changes upstream</td>
+          </tr>
+          <tr>
+            <td><strong>Failover activations</strong></td>
+            <td>0 in normal operation</td>
+            <td>Any sustained failover</td>
+            <td>Primary provider degraded — investigate before backup budget drains</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Baseline</strong>
+            <p>After first deploy, observe metrics for 48h to establish normal ranges for your volume and provider.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Alert on deviation</strong>
+            <p>Set thresholds relative to your baseline. A 10k/day app alerting at 95% catches 500+ lost emails.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Diagnose with timeline</strong>
+            <p>When alerts fire, use <Link href="/docs/timeline">timeline</Link> to see exact error sequences and <Link href="/docs/explain">explain()</Link> to dry-run the failing payload.</p>
+          </div>
+        </div>
+      </div>
+      <div className="callout callout-tip">
+        <strong>Start with the <code>delivery.failed</code> hook alone.</strong>{" "}
+        It catches 90% of production issues — expired keys, bounced addresses,
+        provider outages. Add latency tracking and retry metrics when you need
+        to distinguish &quot;slow but working&quot; from &quot;about to
+        fail.&quot;
       </div>
 
       <div className="page-nav">

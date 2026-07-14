@@ -46,6 +46,25 @@ export default function MultiTenancyPage() {
         </div>
       </div>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>Data isolation</h3>
+          <p>Every inbox, preference, and delivery is scoped by tenant. No shared state between organizations.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Workspace hierarchies</h3>
+          <p>Two-level scoping (org + project) for apps with nested contexts like repos, channels, or boards.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Tenant-level defaults</h3>
+          <p>Org admins control default channel states for their members. Users can still override individually.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Safe migration path</h3>
+          <p>Move from single-tenant to multi-tenant without losing existing data or disrupting active users.</p>
+        </div>
+      </div>
+
       <h2>Scoping sends</h2>
       <p>
         Pass the tenant/workspace scope with every send:
@@ -70,6 +89,7 @@ export default function MultiTenancyPage() {
         <code>identify()</code>:
       </p>
       <Code
+        filename="app/api/notifykit/[...notifykit]/route.ts"
         code={`createRouteHandler({
   notifykit: notify,
   identify: async (request) => {
@@ -91,12 +111,63 @@ export default function MultiTenancyPage() {
         set.
       </p>
 
+      <h2>Integration checklist</h2>
+      <p>
+        Every place <code>tenantId</code> must appear. Miss one and you get
+        silent cross-tenant leaks:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Where</th><th>How</th><th>If you miss it</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>send()</code></td>
+            <td>Pass <code>tenantId</code> on every call</td>
+            <td>Records are unscoped — visible to all orgs or invisible to the correct one</td>
+          </tr>
+          <tr>
+            <td><code>identify()</code></td>
+            <td>Return <code>tenantId</code> from session</td>
+            <td>Handler queries are unscoped — users see cross-org data</td>
+          </tr>
+          <tr>
+            <td><code>upsertRecipient()</code></td>
+            <td>Include <code>tenantId</code> per-org</td>
+            <td>Preferences and inbox are shared across orgs for the same user</td>
+          </tr>
+          <tr>
+            <td><code>preferences.update()</code></td>
+            <td>Include <code>tenantId</code> in scope</td>
+            <td>Preference changes in one org bleed into another</td>
+          </tr>
+          <tr>
+            <td>Unsubscribe config</td>
+            <td>Scope is encoded in the HMAC token automatically</td>
+            <td>N/A — handled by the engine if <code>send()</code> has the scope</td>
+          </tr>
+          <tr>
+            <td>Realtime (SSE)</td>
+            <td>Scoped via <code>identify()</code> return</td>
+            <td>Users receive events from other orgs in their stream</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-warn">
+        <strong>The most common bug: forgetting <code>tenantId</code> on{" "}
+        <code>send()</code>.</strong> The handler scopes reads via{" "}
+        <code>identify()</code>, so the inbox <em>appears</em> to work in
+        testing. But without scope on writes, production data lands in an
+        unscoped bucket — invisible to the correctly-scoped handler.
+      </div>
+
       <h2>Tenant-level preference defaults</h2>
       <p>
         Different tenants may want different default channel states. Use{" "}
         <code>tenantDefaults</code> to override app-level defaults per tenant:
       </p>
       <Code
+        filename="lib/notifykit.ts"
         code={`const notify = createNotifyKit({
   // ...
   defaults: {
@@ -142,27 +213,18 @@ export default function MultiTenancyPage() {
       <p>
         Use these questions to decide how many scope levels you need:
       </p>
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Can a user be in multiple organizations?</strong>
-            <p>Yes → you need <code>tenantId</code> so each org gets its own inbox and preferences. No → you can skip tenancy entirely.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Can a user be in multiple organizations?</h3>
+          <p>Yes → you need <code>tenantId</code> so each org gets its own inbox and preferences. No → you can skip tenancy entirely.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Within an org, are there sub-contexts with separate notification rules?</strong>
-            <p>Yes (e.g. projects, channels, repos) → add <code>workspaceId</code>. No → <code>tenantId</code> alone is enough.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Are there sub-contexts with separate notification rules?</h3>
+          <p>Yes (e.g. projects, channels, repos) → add <code>workspaceId</code>. No → <code>tenantId</code> alone is enough.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Should users manage preferences per sub-context?</strong>
-            <p>Yes (e.g. mute one project but not another) → <code>workspaceId</code> is essential. No → keep it simple with just <code>tenantId</code>.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Should users manage preferences per sub-context?</h3>
+          <p>Yes (e.g. mute one project but not another) → <code>workspaceId</code> is essential. No → keep it simple with just <code>tenantId</code>.</p>
         </div>
       </div>
       <table>
@@ -194,6 +256,265 @@ await notify.upsertRecipient({ id: user.id, tenantId: "org_globex", email: user.
         preferences, and different unsubscribe state. The{" "}
         <code>tenantId</code> from <code>identify()</code> controls which
         org&apos;s data she sees.
+      </div>
+
+      <h2>Workspace scoping in practice</h2>
+      <p>
+        When your app has two levels of hierarchy (org → project, team → channel,
+        company → repository), use <code>workspaceId</code> for the inner scope.
+        This lets users mute one project without affecting their notifications
+        elsewhere in the org.
+      </p>
+      <Code
+        code={`// Project management app: user gets task notifications per-project
+await notify.send({
+  recipientId: user.id,
+  tenantId: org.id,              // "Acme Inc"
+  workspaceId: project.id,       // "Backend Refactor"
+  notificationId: "task_assigned",
+  payload: { taskTitle: "Fix auth bug", assignerName: "Rey" },
+})
+
+// Same user, same org, different project:
+await notify.send({
+  recipientId: user.id,
+  tenantId: org.id,              // "Acme Inc"
+  workspaceId: anotherProject.id, // "Mobile App"
+  notificationId: "task_assigned",
+  payload: { taskTitle: "Add dark mode", assignerName: "Sam" },
+})`}
+      />
+
+      <h3>Per-workspace preferences</h3>
+      <p>
+        Users can mute notifications for a specific workspace without
+        affecting their preferences in other workspaces within the same org:
+      </p>
+      <Code
+        code={`// User mutes email for "Backend Refactor" but keeps it on elsewhere
+await notify.preferences.update({
+  recipientId: user.id,
+  tenantId: org.id,
+  workspaceId: "proj_backend_refactor",
+  notificationId: "task_assigned",
+  channels: { email: false },
+})
+
+// "Mobile App" still sends email — workspace preferences are independent
+const explanation = await notify.explain({
+  recipientId: user.id,
+  tenantId: org.id,
+  workspaceId: "proj_mobile_app",
+  notificationId: "task_assigned",
+  payload: { taskTitle: "Test", assignerName: "Test" },
+})
+// explanation.channels.email.outcome → "deliver"`}
+      />
+      <table>
+        <thead>
+          <tr><th>Scope combination</th><th>Inbox shows</th><th>Preferences apply from</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>tenantId</code> only</td>
+            <td>All items in that org (all workspaces)</td>
+            <td>Org-level preferences</td>
+          </tr>
+          <tr>
+            <td><code>tenantId</code> + <code>workspaceId</code></td>
+            <td>Only items in that specific workspace</td>
+            <td>Workspace-level preferences (falls through to org-level if unset)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Building a &quot;mute this project&quot; UI</h3>
+      <p>
+        The most common workspace feature is a per-project mute toggle.
+        Here&apos;s the pattern — a single button that suppresses all
+        notifications from one workspace:
+      </p>
+      <Code
+        filename="components/mute-project-button.tsx"
+        code={`import { usePreferences } from "@notifykitjs/react"
+
+function MuteProjectButton({ workspaceId, workspaceName }: {
+  workspaceId: string
+  workspaceName: string
+}) {
+  const { isEnabled, update } = usePreferences()
+  const isMuted = !isEnabled("*", "inbox", { workspaceId })
+
+  return (
+    <button onClick={() => update({
+      notificationId: "*",
+      workspaceId,
+      channels: { inbox: !isMuted, email: !isMuted },
+    })}>
+      {isMuted ? \`Unmute \${workspaceName}\` : \`Mute \${workspaceName}\`}
+    </button>
+  )
+}`}
+      />
+      <div className="callout callout-tip">
+        <strong>Workspace mute uses the wildcard.</strong> Setting{" "}
+        <code>notificationId: &quot;*&quot;</code> with a <code>workspaceId</code>{" "}
+        disables all notifications for that workspace. The user can still
+        override specific notifications back to &quot;on&quot; if they want —
+        most-specific-wins resolution applies at the workspace level too.
+      </div>
+
+      <h2>Dynamic tenant settings</h2>
+      <p>
+        The <code>tenantDefaults</code> example above uses a static plan check.
+        Real B2B apps need org admins to control notification settings at runtime
+        — without a code deploy. Back the function with a database lookup:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>When to use</th><th>Trade-off</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Static function</strong></td>
+            <td>Defaults differ by plan tier only</td>
+            <td>Simple but requires a deploy to change</td>
+          </tr>
+          <tr>
+            <td><strong>Database-backed</strong></td>
+            <td>Org admins toggle channels from a settings panel</td>
+            <td>Flexible but adds a DB query per send</td>
+          </tr>
+          <tr>
+            <td><strong>Cached database</strong></td>
+            <td>High-volume sends where the extra query matters</td>
+            <td>Best of both — stale for up to cache TTL</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        filename="lib/notifykit.ts"
+        code={`const notify = createNotifyKit({
+  // ...
+  tenantDefaults: async (tenantId) => {
+    // Look up this org's admin-configured defaults
+    const settings = await db.query.tenantNotificationSettings.findMany({
+      where: eq(tenantNotificationSettings.tenantId, tenantId),
+    })
+
+    if (settings.length === 0) return null // fall through to app defaults
+
+    // Merge global ("*") and notification-specific settings
+    const global = settings.find(s => s.notificationId === "*")
+    return global?.channels ?? null
+  },
+})`}
+      />
+      <h3>Admin endpoint for org settings</h3>
+      <p>
+        Expose an API route where org admins toggle channels for their
+        organization. Individual users can still override via their own
+        preferences — most-specific-wins applies.
+      </p>
+      <Code
+        filename="app/api/admin/notification-settings/route.ts"
+        code={`import { auth } from "@/lib/auth"
+import { db } from "@/lib/db"
+import { tenantNotificationSettings } from "@/lib/schema"
+import { eq, and } from "drizzle-orm"
+
+export async function POST(request: Request) {
+  const session = await auth(request)
+  if (!session?.isOrgAdmin) return Response.json({ error: "Forbidden" }, { status: 403 })
+
+  const { notificationId, channels } = await request.json()
+
+  await db
+    .insert(tenantNotificationSettings)
+    .values({
+      tenantId: session.organizationId,
+      notificationId, // "*" for org-wide, or specific ID
+      channels,
+    })
+    .onConflictDoUpdate({
+      target: [tenantNotificationSettings.tenantId, tenantNotificationSettings.notificationId],
+      set: { channels },
+    })
+
+  return Response.json({ ok: true })
+}`}
+      />
+      <Code
+        filename="components/org-notification-settings.tsx"
+        code={`function OrgNotificationSettings({ notifications }) {
+  const orgId = useCurrentOrg().id
+
+  async function toggleChannel(notificationId: string, channel: string, enabled: boolean) {
+    await fetch("/api/admin/notification-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        notificationId,
+        channels: { [channel]: enabled },
+      }),
+    })
+  }
+
+  return (
+    <div>
+      <h2>Organization notification defaults</h2>
+      <p>These apply to all members unless they override in their own settings.</p>
+      <table>
+        <thead>
+          <tr><th>Notification</th><th>Inbox</th><th>Email</th></tr>
+        </thead>
+        <tbody>
+          {notifications.map(n => (
+            <tr key={n.id}>
+              <td>{n.description}</td>
+              <td><input type="checkbox" onChange={e => toggleChannel(n.id, "inbox", e.target.checked)} /></td>
+              <td><input type="checkbox" onChange={e => toggleChannel(n.id, "email", e.target.checked)} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}`}
+      />
+      <div className="callout callout-tip">
+        <strong>Cache for high-volume sends.</strong> The{" "}
+        <code>tenantDefaults</code> function runs on every <code>send()</code>.
+        For apps sending 100+ notifications/second, cache the result per tenant
+        with a short TTL (30–60 seconds). Admin changes take effect after the
+        cache expires — acceptable for default-level settings that change rarely.
+      </div>
+      <table>
+        <thead>
+          <tr><th>What the admin controls</th><th>What users still control</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Org-wide default: email on or off for each notification</td>
+            <td>Individual override: a user can still enable email even if the org turned it off</td>
+          </tr>
+          <tr>
+            <td>Which channels are available to org members</td>
+            <td>Per-notification and per-workspace toggles within the available set</td>
+          </tr>
+          <tr>
+            <td>Global org mute (all channels off during an incident)</td>
+            <td>Nothing — global off at the tenant layer suppresses everything except <code>required</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-warn">
+        <strong>Tenant OFF + no user preference = no delivery.</strong> An
+        absent user preference doesn&apos;t override a tenant setting — it means
+        &quot;I haven&apos;t chosen.&quot; For the user to get email after the
+        org admin disables it, they must explicitly set{" "}
+        <code>email: true</code> in their own preferences. Communicate this
+        in your admin UI: &quot;Members can still enable this individually.&quot;
       </div>
 
       <h2>Common pitfalls</h2>
@@ -236,6 +557,7 @@ await notify.upsertRecipient({ id: user.id, tenantId: "org_globex", email: user.
         missing scope in handlers, and broken preference scoping:
       </p>
       <Code
+        filename="tests/tenant-isolation.test.ts"
         code={`import { createNotifyKit, memoryAdapter, fakeEmailProvider } from "@notifykitjs/core"
 import { createHandler } from "@notifykitjs/core"
 
@@ -308,32 +630,41 @@ expect(acmeItems).toHaveLength(1) // ✓ correct isolation`}
       <p>
         If your app already has NotifyKit running without tenancy and
         you&apos;re adding organizations, you need to backfill existing
-        records. Here&apos;s the safe migration path:
+        records. The order below is critical — backfill data <em>before</em>{" "}
+        deploying scoped handlers, or users will see empty inboxes until
+        the migration catches up.
       </p>
       <div className="overview-flow">
         <div className="overview-flow-step">
           <span className="overview-flow-number">1</span>
           <div>
-            <strong>Add tenantId to identify()</strong>
-            <p>Start returning the org scope from your handler. New data is scoped from this point forward.</p>
+            <strong>Drain in-flight sends</strong>
+            <p>Call <code>notify.drain()</code> so queued sends land before you start migrating. Anything in-flight won&apos;t have a tenantId.</p>
           </div>
         </div>
         <div className="overview-flow-step">
           <span className="overview-flow-number">2</span>
           <div>
-            <strong>Add tenantId to all send() calls</strong>
-            <p>Every send must include the scope. Missing it creates unscoped records that leak across orgs.</p>
+            <strong>Backfill existing records</strong>
+            <p>Assign a tenantId to all existing recipients, inbox items, and preferences. Query for <code>tenantId IS NULL</code> after — count must be zero.</p>
           </div>
         </div>
         <div className="overview-flow-step">
           <span className="overview-flow-number">3</span>
           <div>
-            <strong>Backfill existing records</strong>
-            <p>Assign a tenantId to existing recipients, inbox items, and preferences. Run a migration script.</p>
+            <strong>Add tenantId to all send() calls</strong>
+            <p>Every send must include the scope. Deploy this first — new data goes out scoped while reads still work unscoped.</p>
           </div>
         </div>
         <div className="overview-flow-step">
           <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Add tenantId to identify()</strong>
+            <p>Deploy the scoped handler. Now reads filter by tenant — safe because all data already has a tenantId from steps 2–3.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">5</span>
           <div>
             <strong>Verify isolation</strong>
             <p>Log in as two different orgs and confirm inbox, preferences, and SSE are fully separated.</p>
@@ -341,8 +672,8 @@ expect(acmeItems).toHaveLength(1) // ✓ correct isolation`}
         </div>
       </div>
       <Code
-        code={`// Migration script: backfill tenantId on existing records
-import { notifyKitSchema } from "@notifykitjs/drizzle"
+        filename="scripts/backfill-tenancy.ts"
+        code={`import { notifyKitSchema } from "@notifykitjs/drizzle"
 import { isNull, eq } from "drizzle-orm"
 
 const { recipients, inboxItems, preferences } = notifyKitSchema
@@ -373,9 +704,14 @@ for (const { userId, orgId } of userOrgs) {
         </thead>
         <tbody>
           <tr>
+            <td>Deploy scoped reads before backfill</td>
+            <td>Users see empty inboxes — handler filters by tenantId but records have <code>NULL</code></td>
+            <td>Complete step 2 (backfill) before step 4 (scoped handler). Follow the order exactly.</td>
+          </tr>
+          <tr>
             <td>Unscoped records remain</td>
             <td>Old inbox items visible to all orgs (or invisible to all)</td>
-            <td>Query for <code>tenantId IS NULL</code> after migration — count should be zero</td>
+            <td>Query for <code>tenantId IS NULL</code> after step 2 — count must be zero before proceeding</td>
           </tr>
           <tr>
             <td>Users in multiple orgs</td>
@@ -383,23 +719,23 @@ for (const { userId, orgId } of userOrgs) {
             <td>Create scoped recipient records per org membership, not per user</td>
           </tr>
           <tr>
-            <td>Preferences lost</td>
-            <td>Scoped query finds no match for existing unscoped pref</td>
-            <td>Backfill preferences before switching identify() to return scope</td>
-          </tr>
-          <tr>
             <td>In-flight sends unscoped</td>
             <td>Sends queued before migration land without tenantId</td>
-            <td>Drain the queue (<code>notify.drain()</code>) before deploying the scoped handler</td>
+            <td>Step 1: drain the queue before starting the backfill</td>
           </tr>
         </tbody>
       </table>
       <div className="callout callout-warn">
-        <strong>Order matters.</strong> Backfill records (step 3) before
-        deploying the scoped handler (step 1). If you deploy scoping first,
-        users will see empty inboxes until the migration runs — because the
-        handler queries with <code>tenantId</code> but existing records
-        have <code>NULL</code>.
+        <strong>Don&apos;t skip the drain.</strong> Sends queued before step 2
+        land without a tenantId. If you backfill and then an old job writes
+        an unscoped record, it becomes invisible to the scoped handler.{" "}
+        <code>notify.drain()</code> ensures the queue is empty before you start.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/preferences" className="primary">Preference resolution</Link>
+        <Link href="/docs/security">Security model</Link>
+        <Link href="/docs/explain">Debug with explain()</Link>
       </div>
 
       <div className="page-nav">

@@ -14,6 +14,21 @@ export default function DigestsPage() {
         Both are configured per-notification with two fields.
       </p>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>Digests</h3>
+          <p>Buffer rapid-fire events into a single delivery. &quot;5 new comments&quot; instead of 5 separate emails.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Rate limits</h3>
+          <p>Hard cap on sends per recipient per window. Excess is permanently dropped — a safety valve against spam loops.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Composable</h3>
+          <p>Use both together: rate limits cap the buffer size, digests collapse what passes into one notification.</p>
+        </div>
+      </div>
+
       <table>
         <thead>
           <tr><th></th><th>Digest</th><th>Rate limit</th></tr>
@@ -78,6 +93,7 @@ export default function DigestsPage() {
         can fire many times in quick succession (comments, likes, updates).
       </p>
       <Code
+        filename="lib/notifications/comments.ts"
         code={`notification({
   id: "new_comments",
   payload: {
@@ -93,13 +109,8 @@ export default function DigestsPage() {
     }),
   ],
   digest: {
-    // Buffer sends for 5 minutes before flushing
     windowMs: 5 * 60_000,
-
-    // Group by post — different posts get separate digests
     key: ({ payload }) => payload.postTitle,
-
-    // Combine buffered payloads into one final payload
     render: ({ payloads, count }) => ({
       actorName: payloads[payloads.length - 1]!.actorName,
       postTitle: payloads[0]!.postTitle,
@@ -165,6 +176,91 @@ export default function DigestsPage() {
         boundary. Two different recipients always get separate digests.
       </div>
 
+      <h3>Designing your digest key</h3>
+      <p>
+        The <code>key</code> function controls which sends get batched together.
+        A bad key either groups unrelated events (confusing summaries) or splits
+        related events (still noisy). Think of it as: &quot;what should the user
+        see as one notification?&quot;
+      </p>
+      <table>
+        <thead>
+          <tr><th>Key too broad</th><th>Key too narrow</th><th>Key just right</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>All comments → one digest</td>
+            <td>Each comment → its own digest (no batching)</td>
+            <td>Comments <em>on the same post</em> → one digest per post</td>
+          </tr>
+          <tr>
+            <td>&quot;8 things happened&quot; — user can&apos;t tell what or where</td>
+            <td>8 separate emails — same as no digest</td>
+            <td>&quot;8 new comments on Launch Plan&quot; — clear and actionable</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        Match the key to the entity the user cares about:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Notification type</th><th>Key returns</th><th>User sees</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Comments on a post</td>
+            <td><code>payload.postId</code></td>
+            <td>&quot;5 new comments on Launch Plan&quot;</td>
+          </tr>
+          <tr>
+            <td>Reactions on any content</td>
+            <td><code>{`\`\${payload.targetType}:\${payload.targetId}\``}</code></td>
+            <td>&quot;12 reactions on your comment&quot;</td>
+          </tr>
+          <tr>
+            <td>Task updates in a project</td>
+            <td><code>payload.projectId</code></td>
+            <td>&quot;7 task updates in Backend Refactor&quot;</td>
+          </tr>
+          <tr>
+            <td>New followers</td>
+            <td><code>&quot;followers&quot;</code> (constant)</td>
+            <td>&quot;4 new followers this week&quot;</td>
+          </tr>
+          <tr>
+            <td>Deploy status per service</td>
+            <td><code>payload.serviceName</code></td>
+            <td>&quot;3 deploys to api-gateway (latest: succeeded)&quot;</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        filename="lib/notifications/comments.ts"
+        code={`digest: {
+  windowMs: 5 * 60_000,
+
+  // Comments: group by post
+  key: ({ payload }) => payload.postId,
+
+  // Reactions: group by target
+  // key: ({ payload }) => \`\${payload.targetType}:\${payload.targetId}\`,
+
+  // Followers: constant key — all follows batch into one
+  // key: () => "followers",
+
+  render: ({ payloads, count }) => ({ /* ... */ }),
+}`}
+      />
+
+      <div className="callout callout-warn">
+        <strong>Don&apos;t include the actor in the key.</strong> If your key is{" "}
+        <code>{`\`\${postId}:\${actorId}\``}</code>, each commenter gets a separate
+        digest — defeating the purpose. The actor should vary <em>within</em>{" "}
+        a digest (&quot;Rey, Sam, and 3 others&quot;), not define the boundary.
+      </div>
+
       <h3>Flush scheduling</h3>
       <table>
         <thead>
@@ -184,14 +280,15 @@ export default function DigestsPage() {
         buffered.
       </p>
       <Code
+        filename="lib/notifications/mentions.ts"
         code={`notification({
   id: "comment_mentioned",
   payload: { actorName: "string", postUrl: "string" },
   channels: [inbox({ title: "{{actorName}} mentioned you" })],
   rateLimit: {
-    max: 20,              // at most 20 sends...
-    windowMs: 60 * 60_000, // ...per hour
-    scope: "recipient",    // per-recipient (default)
+    max: 20,
+    windowMs: 60 * 60_000,
+    scope: "recipient",
   },
 })`}
       />
@@ -217,7 +314,7 @@ export default function DigestsPage() {
       </table>
 
       <h3>Evaluation order</h3>
-      <div className="callout">
+      <div className="callout callout-warn">
         <strong>Rate limit runs before digest.</strong> If a send exceeds the
         limit, it&apos;s dropped before it ever enters the digest buffer. This
         prevents attackers from flooding a user&apos;s digest bucket.
@@ -293,13 +390,12 @@ export default function DigestsPage() {
         they cap both the storage cost and the user interruption.
       </div>
       <Code
+        filename="lib/notifications/activity.ts"
         code={`notification({
   id: "activity_feed",
   payload: { summary: "string", count: "number" },
   channels: [inbox({ title: "{{count}} new activities" })],
-  // Hard cap: no more than 100 raw sends per hour
   rateLimit: { max: 100, windowMs: 60 * 60_000 },
-  // Of the ones that pass, batch into 10-minute digests
   digest: {
     windowMs: 10 * 60_000,
     render: ({ payloads, count }) => ({
@@ -377,8 +473,8 @@ export default function DigestsPage() {
         </tbody>
       </table>
       <Code
-        code={`// Pattern 1: environment-aware window
-notification({
+        filename="lib/notifications/comments.ts"
+        code={`notification({
   id: "new_comments",
   // ...
   digest: {
@@ -386,14 +482,14 @@ notification({
     key: ({ payload }) => payload.postUrl,
     render: ({ payloads, count }) => ({ /* ... */ }),
   },
-})
-
-// Pattern 2: test with manual flush
-import { describe, it, expect } from "vitest"
+})`}
+      />
+      <Code
+        filename="tests/digests.test.ts"
+        code={`import { describe, it, expect } from "vitest"
 
 describe("comment digest", () => {
   it("batches 3 mentions into one delivery", async () => {
-    // Send 3 rapid-fire mentions
     for (const actor of ["Rey", "Sam", "Ava"]) {
       const result = await testNotify.send({
         recipientId: "user_1",
@@ -401,13 +497,12 @@ describe("comment digest", () => {
         payload: { actorName: actor, postTitle: "Launch", postUrl: "/p/1", count: 1 },
       })
       expect(result.digested).toBe(true)
-      expect(result.deliveries).toHaveLength(0) // nothing delivered yet
+      expect(result.deliveries).toHaveLength(0)
     }
 
-    // Force flush — simulates the window expiring
     const flushed = await testNotify.flushDigests()
 
-    expect(flushed).toHaveLength(1) // one combined notification
+    expect(flushed).toHaveLength(1)
     expect(flushed[0].deliveries.length).toBeGreaterThan(0)
   })
 })`}
@@ -417,6 +512,136 @@ describe("comment digest", () => {
         A zero window means every send flushes immediately — it&apos;s the
         same as having no digest at all. Only use it in test environments
         where you call <code>flushDigests()</code> manually.
+      </div>
+
+      <h2>Retrofitting digests to a live notification</h2>
+      <p>
+        You shipped a notification without a digest. Now it&apos;s noisy —
+        users get 15 emails an hour during active threads. Adding a digest
+        to a live notification is safe, but the deploy sequence matters.
+      </p>
+
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Add payload fields for the digest summary</strong>
+            <p>Your <code>render()</code> needs to return the full payload shape. If your current payload lacks a <code>count</code> or <code>summary</code> field, add it as optional first.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Deploy with digest config</strong>
+            <p>Add <code>digest</code> to the notification definition. From this moment, new sends buffer instead of delivering immediately.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Ensure flush is running</strong>
+            <p>If you use <code>inlineQueue()</code> or a custom queue, add a <code>flushDigests()</code> call to your cron. <code>setTimeoutQueue()</code> handles this automatically.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Monitor the first few windows</strong>
+            <p>Watch items-per-flush in logs. If most digests contain only 1 item, the window is too short for your traffic pattern.</p>
+          </div>
+        </div>
+      </div>
+
+      <Code
+        filename="lib/notifications/mentions.ts"
+        code={`// BEFORE: direct delivery, noisy during active threads
+notification({
+  id: "comment_mentioned",
+  payload: { actorName: "string", postTitle: "string", postUrl: "string" },
+  channels: [
+    inbox({ title: "{{actorName}} mentioned you in {{postTitle}}" }),
+    email({ subject: "{{actorName}} mentioned you", body: "Open {{postUrl}}" }),
+  ],
+})`}
+      />
+      <Code
+        filename="lib/notifications/mentions.ts"
+        code={`// AFTER: digested — one email per 5 minutes instead of one per comment
+notification({
+  id: "comment_mentioned",
+  payload: {
+    actorName: "string",
+    postTitle: "string",
+    postUrl: "string",
+    count: "number",
+  },
+  channels: [
+    inbox({ title: "{{actorName}} mentioned you in {{postTitle}}" }),
+    email({
+      subject: "{{count}} new mentions in {{postTitle}}",
+      body: "Latest from {{actorName}}. Open {{postUrl}} to catch up.",
+    }),
+  ],
+  digest: {
+    windowMs: 5 * 60_000,
+    key: ({ payload }) => payload.postUrl,
+    render: ({ payloads, count }) => ({
+      actorName: payloads[payloads.length - 1]!.actorName,
+      postTitle: payloads[0]!.postTitle,
+      postUrl: payloads[0]!.postUrl,
+      count,
+    }),
+  },
+})`}
+      />
+
+      <table>
+        <thead>
+          <tr><th>Concern</th><th>What happens</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Sends already in flight</strong></td>
+            <td>They don&apos;t have <code>count</code> in their payload</td>
+            <td>Make <code>count</code> optional in the schema. Handle missing values in <code>render()</code> with a default.</td>
+          </tr>
+          <tr>
+            <td><strong>Inbox items</strong></td>
+            <td>Inbox still delivers per-send (not batched)</td>
+            <td>Expected — inbox is pull-based. Only push channels (email/SMS) digest.</td>
+          </tr>
+          <tr>
+            <td><strong>Existing preferences</strong></td>
+            <td>User opt-outs still apply to the digested send</td>
+            <td>No change needed — preferences resolve on the flushed send, not on buffering.</td>
+          </tr>
+          <tr>
+            <td><strong>Rate limits</strong></td>
+            <td>Rate limit counts individual sends (before buffering)</td>
+            <td>You may want to increase the rate limit now that digests reduce actual delivery volume.</td>
+          </tr>
+          <tr>
+            <td><strong>User experience during deploy</strong></td>
+            <td>First digest window after deploy may contain only 1 item</td>
+            <td>Normal — the window starts counting from the first send after deploy. Subsequent windows batch properly.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-warn">
+        <strong>Update all <code>send()</code> callers to pass <code>count: 1</code>.</strong>{" "}
+        The digest <code>render()</code> produces a payload with <code>count</code>,
+        but individual sends (that arrive outside a window, or when only 1 event fires)
+        also need it. Without it, a single-item &quot;digest&quot; renders with an empty
+        count. Set <code>count: 1</code> at every call site.
+      </div>
+
+      <div className="callout callout-tip">
+        <strong>Rollback is instant.</strong> If the digest window feels wrong
+        (too long, too short, users confused), remove the <code>digest</code> field
+        and redeploy. Sends go back to direct delivery immediately. Any buffered
+        payloads in the current window will flush on the next <code>flushDigests()</code>{" "}
+        call — they won&apos;t be lost.
       </div>
 
       <h2>Render function patterns</h2>
@@ -453,7 +678,8 @@ describe("comment digest", () => {
         </tbody>
       </table>
       <Code
-        code={`// Pattern 1: Latest actor + count
+        filename="lib/notifications/render-examples.ts"
+        code={`// Latest actor + count
 render: ({ payloads, count }) => ({
   actorName: payloads[payloads.length - 1]!.actorName,
   summary: count === 1
@@ -463,7 +689,7 @@ render: ({ payloads, count }) => ({
   count,
 })
 
-// Pattern 2: Actor list (truncated to 2 names)
+// Actor list (truncated to 2 names)
 render: ({ payloads, count }) => {
   const unique = [...new Set(payloads.map(p => p.actorName))]
   const names = unique.slice(0, 2)
@@ -479,7 +705,7 @@ render: ({ payloads, count }) => {
   }
 }
 
-// Pattern 3: Summary count only
+// Summary count only
 render: ({ payloads, count }) => ({
   summary: \`\${count} new updates\`,
   projectName: payloads[0]!.projectName,
@@ -487,7 +713,7 @@ render: ({ payloads, count }) => ({
   count,
 })
 
-// Pattern 4: Most recent event + tail count
+// Most recent event + tail count
 render: ({ payloads, count }) => ({
   latest: payloads[payloads.length - 1]!.message,
   count,
@@ -569,12 +795,11 @@ render: ({ payloads, count }) => ({
         </tbody>
       </table>
       <Code
-        code={`// Monitor digest health with hooks
-createNotifyKit({
+        filename="lib/notifykit.ts"
+        code={`createNotifyKit({
   // ...
   on: {
     "notification.created": ({ notification }) => {
-      // Track when a digest flush actually delivers
       if (notification.digestedCount && notification.digestedCount > 0) {
         metrics.histogram("notifykit.digest.items_per_flush", notification.digestedCount, {
           notification: notification.notificationId,
@@ -582,21 +807,139 @@ createNotifyKit({
       }
     },
   },
-})
-
-// Alert if flushDigests returns empty for too long
-// (means either nothing is buffered — good — or flush isn't finding expired buckets — bad)
-const flushed = await notify.flushDigests()
+})`}
+      />
+      <Code
+        filename="scripts/flush-cron.ts"
+        code={`const flushed = await notify.flushDigests()
 metrics.gauge("notifykit.digest.last_flush_count", flushed.length)`}
       />
 
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Digest + rate limit interaction recap.</strong> Rate limits run
         before digest buffering. If 100 sends hit a notification with{" "}
         <code>rateLimit: {`{ max: 50 }`}</code> and a 5-minute digest, only 50
         enter the buffer — the other 50 are permanently dropped. Monitor both
         the rate-limited count and the digest count to understand the full
         picture.
+      </div>
+
+      <h2>Debugging digest issues</h2>
+      <p>
+        Digests add a time-delayed step to the send pipeline. When they
+        misbehave, the symptoms are confusing — sends appear to succeed
+        (no error) but notifications never arrive. Use this table to
+        trace the problem:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Symptom</th><th>Likely cause</th><th>How to verify</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Notification never arrives (no email, no inbox item from digest)</td>
+            <td><code>flushDigests()</code> isn&apos;t running</td>
+            <td>Check your cron logs or <code>setTimeoutQueue</code> health. Call <code>flushDigests()</code> manually — if items arrive, the timer is broken.</td>
+            <td>Add <code>flushDigests()</code> to a cron (every 30s) or switch to <code>setTimeoutQueue()</code> which auto-flushes.</td>
+          </tr>
+          <tr>
+            <td>Digest delivers but with wrong content (e.g. count is 0, missing fields)</td>
+            <td><code>render()</code> function has a bug</td>
+            <td>Log the <code>payloads</code> array passed to render. Check that your return shape matches the payload schema exactly.</td>
+            <td>Fix the render logic. Common issues: accessing <code>payloads[0]</code> without <code>!</code>, not handling the single-item case, returning fields not in the schema.</td>
+          </tr>
+          <tr>
+            <td>Some sends digest, others deliver immediately</td>
+            <td>Digest <code>key</code> function returns different values for events you expected to group</td>
+            <td>Log the key return value for each send. Different keys = separate digest buckets, each flushing independently.</td>
+            <td>Ensure your key function returns the same string for events that should batch. Don&apos;t include actor IDs or timestamps in the key.</td>
+          </tr>
+          <tr>
+            <td>Digest flushes but user gets a validation error (notification not delivered)</td>
+            <td><code>render()</code> returns a shape that doesn&apos;t match the payload schema</td>
+            <td>Check error logs around flush time. The engine validates the rendered payload the same way it validates a normal <code>send()</code>.</td>
+            <td>Ensure <code>render()</code> returns every required field from your payload schema with the correct type.</td>
+          </tr>
+          <tr>
+            <td>Digest always contains only 1 item</td>
+            <td>Window is too short, or events are too spread out</td>
+            <td>Log <code>count</code> in your render function. If consistently 1, the window expires before a second event arrives.</td>
+            <td>Increase <code>windowMs</code> (try 10–15 min), or remove digest entirely if events don&apos;t actually burst.</td>
+          </tr>
+          <tr>
+            <td><code>send()</code> returns <code>digested: true</code> but inbox item appears immediately</td>
+            <td>This is correct — inbox delivers per-send, only push channels (email/SMS) are digested</td>
+            <td>Check <code>result.inboxItems</code> vs <code>result.deliveries</code>. Inbox items write immediately; email delivery waits for flush.</td>
+            <td>No fix needed — this is by design. Inbox is pull-based (user opens it when ready), so batching adds no value there.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Check if sends enter the buffer</strong>
+            <p>After <code>send()</code>, check <code>result.digested === true</code>. If false, the notification doesn&apos;t have a digest config — or dedup/rate-limit intercepted it earlier.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Check if flush runs</strong>
+            <p>Call <code>flushDigests()</code> manually from a script. If it returns results, your automatic flush mechanism is broken. If empty, nothing has expired yet — wait for <code>windowMs</code> to pass.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Check render output</strong>
+            <p>If flush runs but delivery fails, the issue is in <code>render()</code>. Add temporary logging to see what payloads and count look like, then verify your return matches the schema.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Check downstream pipeline</strong>
+            <p>The flushed send goes through preferences, quiet hours, and delivery — same as a normal send. Use <Link href="/docs/explain">explain()</Link> with the rendered payload to check if another stage blocks it.</p>
+          </div>
+        </div>
+      </div>
+      <Code
+        filename="scripts/diagnose-digest.ts"
+        code={`import { notify } from "@/lib/notifykit"
+
+async function diagnoseDigest() {
+  const result = await notify.send({
+    recipientId: "test_user",
+    notificationId: "new_comments",
+    payload: { actorName: "Debug", postTitle: "Test", postUrl: "/test", count: 1 },
+  })
+  console.log("Digested:", result.digested)
+
+  const flushed = await notify.flushDigests()
+  console.log("Flushed count:", flushed.length)
+  if (flushed.length > 0) {
+    console.log("Deliveries:", flushed[0].deliveries.length)
+  } else {
+    console.log("Nothing to flush — window hasn't expired yet")
+  }
+}
+
+diagnoseDigest()`}
+      />
+      <div className="callout callout-tip">
+        <strong>Most digest bugs are flush bugs.</strong> If <code>send()</code>{" "}
+        returns <code>digested: true</code>, the buffering works. The problem is
+        almost always that nothing is calling <code>flushDigests()</code> after
+        the window expires. With <code>setTimeoutQueue()</code> this is automatic;
+        with any other queue, you need a cron or worker loop.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/quiet-hours" className="primary">Quiet hours</Link>
+        <Link href="/docs/hooks">Hooks & observability</Link>
+        <Link href="/docs/explain">Explain & dry run</Link>
       </div>
 
       <div className="page-nav">

@@ -13,7 +13,7 @@
     "@basementstudio/shader-lab": "^1.3.14",
     "@notifykitjs/core": "^0.0.1",
     "@notifykitjs/react": "^0.0.1",
-    "next": "^15.0.0",
+    "next": "^15.5.20",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "shiki": "^4.0.2",

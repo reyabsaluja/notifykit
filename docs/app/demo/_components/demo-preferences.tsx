@@ -37,6 +37,7 @@ export function DemoPreferences() {
                 {n.channels.includes(ch) ? (
                   <input
                     type="checkbox"
+                    aria-label={`${n.id} ${ch}`}
                     checked={isEnabled(n.id, ch)}
                     onChange={(e) =>
                       void update({

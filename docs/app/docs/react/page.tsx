@@ -26,27 +26,18 @@ export default function ReactPage() {
       </table>
 
       <h2>Which approach fits?</h2>
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Do you need a custom design?</strong>
-            <p>Yes → use <strong>hooks</strong> (<code>useInbox</code>, <code>usePreferences</code>). No → use <strong>components</strong> (<code>&lt;Inbox /&gt;</code>, <code>&lt;NotificationBell /&gt;</code>) for instant UI.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Do you need a custom design?</h3>
+          <p>Yes → use <strong>hooks</strong> (<code>useInbox</code>, <code>usePreferences</code>). No → use <strong>components</strong> (<code>&lt;Inbox /&gt;</code>, <code>&lt;NotificationBell /&gt;</code>) for instant UI.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Are you using React?</strong>
-            <p>Yes → hooks or components (both work). No → use <strong>createNotifyKitClient</strong> directly — same HTTP layer, no React dependency.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Are you using React?</h3>
+          <p>Yes → hooks or components (both work). No → use <strong>createNotifyKitClient</strong> directly — same HTTP layer, no React dependency.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Do you need realtime updates?</strong>
-            <p>Configure a <Link href="/docs/realtime">realtime adapter</Link> server-side. Hooks connect automatically — no client config needed.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Do you need realtime updates?</h3>
+          <p>Configure a <Link href="/docs/realtime">realtime adapter</Link> server-side. Hooks connect automatically — no client config needed.</p>
         </div>
       </div>
 
@@ -60,12 +51,43 @@ export default function ReactPage() {
         <Link href="/docs/nextjs">Next.js integration</Link>):
       </p>
       <Code
+        filename="app/layout.tsx"
         code={`import { NotifyKitProvider } from "@notifykitjs/react"
 
 <NotifyKitProvider options={{ baseUrl: "/api/notifykit" }}>
   {children}
 </NotifyKitProvider>`}
       />
+
+      <h2>Hook quick reference</h2>
+      <p>Every hook and its key methods on one screen. Find what you need, then scroll down for full docs and examples:</p>
+      <div className="features">
+        <div className="feature-card">
+          <h3>useInbox()</h3>
+          <p>Full inbox state + mutations. Returns <code>items</code>, <code>unreadCount</code>, <code>status</code>, <code>realtimeStatus</code>.</p>
+          <code style={{ fontSize: "0.75em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`markRead(id)\nmarkAllRead()\narchive(id)\ndeleteItem(id)\nrefresh()`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>usePreferences()</h3>
+          <p>Channel toggles for the current user. Returns <code>items</code>, <code>status</code>, <code>error</code>.</p>
+          <code style={{ fontSize: "0.75em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`isEnabled(id, channel)\nupdate({ notificationId,\n  channels })\nrefresh()`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>useUnreadCount()</h3>
+          <p>Just the badge number. Lighter than <code>useInbox</code> when you only need the count.</p>
+          <code style={{ fontSize: "0.75em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`{ unreadCount: number }`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>createNotifyKitClient()</h3>
+          <p>Non-React SDK. Same HTTP layer, no hooks. Works with Vue, Svelte, vanilla JS.</p>
+          <code style={{ fontSize: "0.75em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`client.inbox.list()\nclient.preferences.list()\nclient.notifications.list()`}</code>
+        </div>
+      </div>
+      <div className="callout callout-tip">
+        <strong>All hooks share state through the provider.</strong> If{" "}
+        <code>useInbox()</code> marks an item as read, <code>useUnreadCount()</code>{" "}
+        decrements automatically — no manual coordination needed between components.
+      </div>
 
       <h2>useInbox()</h2>
       <p>
@@ -92,6 +114,7 @@ export default function ReactPage() {
       </table>
 
       <Code
+        filename="components/inbox.tsx"
         code={`import { useInbox } from "@notifykitjs/react"
 
 function InboxPage() {
@@ -187,6 +210,7 @@ useEffect(() => { inbox.refresh() }, [])`}
       </table>
 
       <Code
+        filename="components/notification-settings.tsx"
         code={`import { usePreferences } from "@notifykitjs/react"
 
 function NotificationSettings() {
@@ -314,6 +338,67 @@ function NotificationPreferencesPage() {
         checkbox reverts. No loading spinners needed for individual toggles.
       </div>
 
+      <h2>useUnreadCount()</h2>
+      <p>
+        A lightweight hook that returns only the unread notification count.
+        Use it when you need a badge number but don&apos;t need the full inbox
+        payload — it skips fetching items entirely, so it&apos;s cheaper on
+        bandwidth and renders faster.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Return field</th><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>unreadCount</code></td><td><code>number</code></td><td>Current unread notification count</td></tr>
+          <tr><td><code>status</code></td><td><code>&quot;idle&quot; | &quot;loading&quot; | &quot;ready&quot; | &quot;error&quot;</code></td><td>Fetch state</td></tr>
+          <tr><td><code>error</code></td><td><code>string | null</code></td><td>Error message if the count request failed</td></tr>
+          <tr><td><code>refresh()</code></td><td><code>Promise&lt;number&gt;</code></td><td>Manually re-fetch the count</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Options</h3>
+      <table>
+        <thead>
+          <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>pollInterval</code></td><td><code>number | false</code></td><td><code>false</code></td><td>Milliseconds between automatic re-fetches. Set to <code>false</code> to rely on realtime updates only.</td></tr>
+        </tbody>
+      </table>
+
+      <Code
+        code={`import { useUnreadCount } from "@notifykitjs/react"
+
+function NotificationBadge() {
+  const { unreadCount } = useUnreadCount({ pollInterval: 10_000 })
+
+  if (unreadCount === 0) return null
+
+  return (
+    <span className="badge">{unreadCount > 99 ? "99+" : unreadCount}</span>
+  )
+}`}
+      />
+
+      <h3>When to use useUnreadCount() vs useInbox()</h3>
+      <div className="features" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="feature-card">
+          <h3>useUnreadCount()</h3>
+          <p>You only need the badge number — nav bars, tab titles, app icons. Skips fetching full items.</p>
+        </div>
+        <div className="feature-card">
+          <h3>useInbox().unreadCount</h3>
+          <p>You already render the inbox list. No extra request — the count comes free with the items payload.</p>
+        </div>
+      </div>
+      <div className="callout callout-info">
+        <strong>Both stay in sync.</strong> If you mount both hooks on the same
+        page, they share the same realtime connection. Marking an item read
+        via <code>useInbox</code> decrements <code>useUnreadCount</code> automatically.
+      </div>
+
       <h2>Pre-built components</h2>
       <table>
         <thead>
@@ -372,7 +457,7 @@ function NotificationPreferencesPage() {
       </div>
 
       <h2>Client SDK (advanced)</h2>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Not using React?</strong> The client SDK is the same HTTP
         layer that powers the hooks — just without the React state management.
         Use it with Vue, Svelte, vanilla JS, or server-side scripts.
@@ -471,7 +556,7 @@ function NotificationCenter() {
           <tr><td><code>&quot;disconnected&quot;</code></td><td>No realtime adapter configured</td><td>Falls back to polling on <code>refresh()</code></td></tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>No config needed client-side.</strong> The React hooks
         detect the SSE endpoint automatically. If the server has a
         realtime adapter, the client connects. If not, everything works
@@ -547,6 +632,107 @@ function NotificationCenter() {
 }`}
       />
 
+      <h3>Rendering by notification type</h3>
+      <p>
+        Real inboxes render different notification types with different UIs —
+        a team invite needs action buttons, a comment mention shows a preview,
+        and a deploy notification shows a status badge. Use{" "}
+        <code>item.notificationId</code> to branch:
+      </p>
+      <Code
+        code={`function TypedNotificationCard({ item, markRead }: {
+  item: InboxItem
+  markRead: (id: string) => Promise<InboxItem>
+}) {
+  switch (item.notificationId) {
+    case "team_invite":
+      return (
+        <div className="notification-card notification-card--invite">
+          <strong>{item.title}</strong>
+          <div className="notification-actions">
+            <button onClick={() => acceptInvite(item)}>Accept</button>
+            <button onClick={() => declineInvite(item)}>Decline</button>
+          </div>
+        </div>
+      )
+
+    case "comment_mentioned":
+      return (
+        <div className="notification-card notification-card--mention">
+          <strong>{item.title}</strong>
+          {item.body && <blockquote>{item.body}</blockquote>}
+          <a href={item.actionUrl ?? "#"}>View thread</a>
+        </div>
+      )
+
+    case "deploy_succeeded":
+    case "deploy_failed":
+      return (
+        <div className="notification-card notification-card--deploy">
+          <span className={item.notificationId === "deploy_succeeded" ? "badge-green" : "badge-red"}>
+            {item.notificationId === "deploy_succeeded" ? "✓" : "✗"}
+          </span>
+          <strong>{item.title}</strong>
+          {item.actionUrl && <a href={item.actionUrl}>View logs</a>}
+        </div>
+      )
+
+    default:
+      return (
+        <div className="notification-card">
+          <strong>{item.title}</strong>
+          {item.body && <p>{item.body}</p>}
+          {!item.readAt && (
+            <button onClick={() => markRead(item.id)}>Dismiss</button>
+          )}
+        </div>
+      )
+  }
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>When to use</th><th>Consideration</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Switch on <code>notificationId</code></strong></td>
+            <td>3–10 notification types with distinct UIs</td>
+            <td>Simple and explicit. Add a <code>default</code> case for unknown types to avoid blank cards after deploys.</td>
+          </tr>
+          <tr>
+            <td><strong>Registry object</strong></td>
+            <td>10+ types or dynamic rendering (plugins, third-party)</td>
+            <td>Map <code>notificationId → Component</code>. Scales without long switch blocks.</td>
+          </tr>
+          <tr>
+            <td><strong>Feature-based branching</strong></td>
+            <td>Shared structure with small variations (badge color, icon)</td>
+            <td>One component with conditional props. Best when types differ only in accent, not layout.</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        code={`// Registry pattern — scales to many types without a long switch
+const RENDERERS: Record<string, React.ComponentType<{ item: InboxItem }>> = {
+  team_invite: InviteCard,
+  comment_mentioned: MentionCard,
+  deploy_succeeded: DeployCard,
+  deploy_failed: DeployCard,
+}
+
+function NotificationCard({ item }: { item: InboxItem }) {
+  const Renderer = RENDERERS[item.notificationId] ?? GenericCard
+  return <Renderer item={item} />
+}`}
+      />
+      <div className="callout callout-tip">
+        <strong>Always include a default renderer.</strong> When you add a new
+        notification type server-side, users with an older client bundle will
+        receive items with an unrecognized <code>notificationId</code>. The
+        default case prevents blank cards between deploys.
+      </div>
+
       <h3>Infinite scroll / load more</h3>
       <Code
         code={`function PaginatedInbox() {
@@ -602,6 +788,112 @@ function NotificationCenter() {
         no extra network requests. For server-side filtering (large inboxes),
         pass <code>?archived=true</code> or <code>?limit=50</code> to the REST
         API directly via <code>createNotifyKitClient()</code>.
+      </div>
+
+      <h2>Toast notifications on new items</h2>
+      <p>
+        The inbox list shows history — but users want to <em>know immediately</em>{" "}
+        when something new arrives. A toast (temporary popup) bridges that gap.
+        Here&apos;s how to react to new realtime items and show a transient
+        notification:
+      </p>
+      <Code
+        code={`import { useInbox } from "@notifykitjs/react"
+import { useEffect, useRef, useState } from "react"
+
+function useNotificationToast() {
+  const { items } = useInbox()
+  const [toast, setToast] = useState<{ id: string; title: string } | null>(null)
+  const prevCount = useRef(items.length)
+
+  useEffect(() => {
+    // Only trigger on new items (count increased), not on initial load
+    if (items.length > prevCount.current && prevCount.current > 0) {
+      const newest = items[0]
+      setToast({ id: newest.id, title: newest.title })
+
+      // Auto-dismiss after 5 seconds
+      const timer = setTimeout(() => setToast(null), 5000)
+      return () => clearTimeout(timer)
+    }
+    prevCount.current = items.length
+  }, [items.length])
+
+  return { toast, dismiss: () => setToast(null) }
+}
+
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const { toast, dismiss } = useNotificationToast()
+
+  return (
+    <>
+      {children}
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          <span>{toast.title}</span>
+          <button onClick={dismiss} aria-label="Dismiss">×</button>
+        </div>
+      )}
+    </>
+  )
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Decision</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Check <code>prevCount &gt; 0</code></td>
+            <td>Prevents a toast on initial page load — only triggers for live arrivals</td>
+          </tr>
+          <tr>
+            <td>Use <code>items[0]</code> as the newest</td>
+            <td>Items are sorted newest-first by default. If you re-sort, adjust the index.</td>
+          </tr>
+          <tr>
+            <td>Auto-dismiss after 5 seconds</td>
+            <td>Toasts shouldn&apos;t require action. Persistent popups become banner blindness.</td>
+          </tr>
+          <tr>
+            <td><code>role=&quot;status&quot;</code> + <code>aria-live=&quot;polite&quot;</code></td>
+            <td>Screen readers announce the toast without interrupting the current task</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Stacking multiple toasts</h3>
+      <p>
+        When notifications arrive in rapid succession (e.g. during a broadcast),
+        queue them instead of replacing:
+      </p>
+      <Code
+        code={`function useToastQueue(maxVisible = 3) {
+  const { items } = useInbox()
+  const [toasts, setToasts] = useState<Array<{ id: string; title: string }>>([])
+  const prevCount = useRef(items.length)
+
+  useEffect(() => {
+    if (items.length > prevCount.current && prevCount.current > 0) {
+      const newest = items[0]
+      setToasts(prev => [{ id: newest.id, title: newest.title }, ...prev].slice(0, maxVisible))
+
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== newest.id))
+      }, 5000)
+    }
+    prevCount.current = items.length
+  }, [items.length])
+
+  return { toasts, dismiss: (id: string) => setToasts(prev => prev.filter(t => t.id !== id)) }
+}`}
+      />
+      <div className="callout callout-tip">
+        <strong>Cap visible toasts at 3.</strong> More than three stacked toasts
+        overwhelm the screen. If a burst arrives (5 notifications in 2 seconds),
+        show the first 3 and let them auto-dismiss — the inbox list has the rest.
+        For digest-worthy bursts, consider showing &quot;3 new notifications&quot;
+        as a single toast instead.
       </div>
 
       <h2>Accessibility</h2>
@@ -675,6 +967,317 @@ function NotificationCenter() {
         stealing focus. Then tab through the list and confirm every action
         is reachable and labeled.
       </div>
+
+      <h2>Testing components</h2>
+      <p>
+        Components that use NotifyKit hooks need a provider wrapper in tests.
+        The provider talks to a real (in-memory) NotifyKit instance — no
+        HTTP mocking needed.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>Speed</th><th>What it tests</th><th>Best for</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>In-memory handler</strong></td>
+            <td>Sub-millisecond</td>
+            <td>Full round-trip: hook → API → database → response</td>
+            <td>Most component tests — realistic without network</td>
+          </tr>
+          <tr>
+            <td><strong>Mock fetch</strong></td>
+            <td>Instant</td>
+            <td>Component rendering given specific API responses</td>
+            <td>Edge cases (errors, empty states, malformed data)</td>
+          </tr>
+          <tr>
+            <td><strong>E2E (Playwright/Cypress)</strong></td>
+            <td>Seconds</td>
+            <td>Real browser, real server, real SSE</td>
+            <td>Smoke tests, realtime behavior, cross-browser</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <Code
+        code={`import { render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { describe, it, expect, beforeEach } from "vitest"
+import { NotifyKitProvider } from "@notifykitjs/react"
+import { createNotifyKit, memoryAdapter, fakeEmailProvider, createHandler } from "@notifykitjs/core"
+import { commentMentioned } from "@/lib/notifications"
+import { InboxPage } from "./inbox-page" // your component
+
+// 1. Create a test NotifyKit instance with in-memory everything
+const testNotify = createNotifyKit({
+  notifications: [commentMentioned] as const,
+  database: memoryAdapter(),
+  providers: { email: fakeEmailProvider() },
+})
+
+// 2. Create a handler that the provider will call
+const handler = createHandler(testNotify, {
+  identify: async () => ({ recipientId: "test_user" }),
+})
+
+// 3. Wrapper that intercepts fetch and routes to the handler
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <NotifyKitProvider
+      options={{ baseUrl: "/api/notifykit", fetcher: (url, init) => handler(new Request(url, init)) }}
+    >
+      {children}
+    </NotifyKitProvider>
+  )
+}
+
+describe("InboxPage", () => {
+  beforeEach(async () => {
+    await testNotify.upsertRecipient({ id: "test_user", email: "test@test.com" })
+  })
+
+  it("renders inbox items after send", async () => {
+    await testNotify.send({
+      recipientId: "test_user",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+
+    render(<InboxPage />, { wrapper: TestWrapper })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Rey mentioned you/)).toBeInTheDocument()
+    })
+  })
+
+  it("marks item as read on click", async () => {
+    await testNotify.send({
+      recipientId: "test_user",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Sam", postUrl: "/p/2" },
+    })
+
+    render(<InboxPage />, { wrapper: TestWrapper })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sam mentioned you/)).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByRole("button", { name: /mark.*read/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /mark.*read/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it("shows empty state when inbox is empty", async () => {
+    render(<InboxPage />, { wrapper: TestWrapper })
+
+    await waitFor(() => {
+      expect(screen.getByText(/no notifications/i)).toBeInTheDocument()
+    })
+  })
+})`}
+      />
+
+      <h3>Testing preferences toggles</h3>
+      <Code
+        code={`import { PreferencesPage } from "./preferences-page"
+
+it("toggles email off for a notification", async () => {
+  render(<PreferencesPage />, { wrapper: TestWrapper })
+
+  await waitFor(() => {
+    expect(screen.getByLabelText(/email.*comment/i)).toBeChecked()
+  })
+
+  await userEvent.click(screen.getByLabelText(/email.*comment/i))
+
+  await waitFor(() => {
+    expect(screen.getByLabelText(/email.*comment/i)).not.toBeChecked()
+  })
+
+  // Verify the preference persisted
+  const e = await testNotify.explain({
+    recipientId: "test_user",
+    notificationId: "comment_mentioned",
+    payload: { actorName: "Rey", postUrl: "/p/1" },
+  })
+  expect(e.channels.email.outcome).toBe("disabled")
+})`}
+      />
+
+      <h3>Testing error states</h3>
+      <Code
+        code={`// For testing error UI, use a mock fetcher that rejects
+function ErrorWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <NotifyKitProvider
+      options={{
+        baseUrl: "/api/notifykit",
+        fetcher: () => Promise.resolve(new Response(null, { status: 401 })),
+      }}
+    >
+      {children}
+    </NotifyKitProvider>
+  )
+}
+
+it("shows error state on 401", async () => {
+  render(<InboxPage />, { wrapper: ErrorWrapper })
+
+  await waitFor(() => {
+    expect(screen.getByText(/failed to load/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument()
+  })
+})`}
+      />
+
+      <table>
+        <thead>
+          <tr><th>What to test</th><th>How</th><th>Catches</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Items render after send</td>
+            <td>Send via <code>testNotify</code>, assert DOM</td>
+            <td>Broken data mapping, missing fields, template errors</td>
+          </tr>
+          <tr>
+            <td>Mark read updates UI</td>
+            <td>Click button, assert item changes visually</td>
+            <td>Optimistic update bugs, missing API calls</td>
+          </tr>
+          <tr>
+            <td>Empty state shows</td>
+            <td>Render with no items, assert placeholder</td>
+            <td>Conditional rendering bugs, flash of wrong state</td>
+          </tr>
+          <tr>
+            <td>Error state with retry</td>
+            <td>Mock 401 response, click retry</td>
+            <td>Missing error handling, broken retry logic</td>
+          </tr>
+          <tr>
+            <td>Preference toggle persists</td>
+            <td>Click checkbox, verify via <code>explain()</code></td>
+            <td>Optimistic revert, scope mismatch, wrong API payload</td>
+          </tr>
+          <tr>
+            <td>Unread count badge</td>
+            <td>Send items, assert count in DOM</td>
+            <td>Stale count, count not updating after markRead</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-tip">
+        <strong>No HTTP mocking library needed.</strong> The{" "}
+        <code>fetcher</code> option on the provider accepts a custom fetch
+        function. Point it at your in-memory handler and your tests exercise
+        the real API contract — serialization, status codes, and all — without
+        network I/O or <code>msw</code> setup.
+      </div>
+
+      <h2>Troubleshooting</h2>
+      <p>
+        Most hook issues come from provider misconfiguration or timing
+        mismatches between server sends and client state. Match your symptom
+        to the fix:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>useInbox()</code> returns empty <code>items</code> forever</td>
+            <td><code>&lt;NotifyKitProvider&gt;</code> missing or <code>baseUrl</code> wrong</td>
+            <td>Wrap your layout in the provider. Check DevTools Network tab — you should see a request to <code>/api/notifykit/inbox</code>.</td>
+          </tr>
+          <tr>
+            <td>Hook returns <code>status: &quot;error&quot;</code> with no details</td>
+            <td><code>identify()</code> returns <code>null</code> — user isn&apos;t authenticated</td>
+            <td>The handler returns 401 when identity can&apos;t be resolved. Verify session cookies are sent (<code>credentials: &quot;include&quot;</code> is set by the SDK).</td>
+          </tr>
+          <tr>
+            <td>Items appear on refresh but not in realtime</td>
+            <td>No realtime adapter configured server-side</td>
+            <td>Check <code>realtimeStatus</code> — if <code>&quot;disconnected&quot;</code>, add a realtime adapter to <code>createNotifyKit()</code>. See <Link href="/docs/realtime">Realtime</Link>.</td>
+          </tr>
+          <tr>
+            <td>SSE reconnects every few seconds in dev</td>
+            <td>Next.js HMR or React Strict Mode remounting the component</td>
+            <td>Expected in development — the hook cleans up and reconnects on remount. Doesn&apos;t happen in production builds.</td>
+          </tr>
+          <tr>
+            <td><code>markRead()</code> works visually but reverts after 1 second</td>
+            <td>Server rejected the mutation (wrong recipient or tenant scope)</td>
+            <td>Check the Network tab for a non-200 response. The <code>identify()</code> scope must match the item&apos;s scope.</td>
+          </tr>
+          <tr>
+            <td>Preferences toggle doesn&apos;t persist across page reloads</td>
+            <td><code>tenantId</code> mismatch between client and server contexts</td>
+            <td>If your app uses multi-tenancy, ensure <code>identify()</code> returns the same <code>tenantId</code> as the original <code>send()</code>.</td>
+          </tr>
+          <tr>
+            <td>Unread count badge doesn&apos;t update when <code>useInbox()</code> marks items read</td>
+            <td>Using <code>useUnreadCount()</code> in a component outside the same provider tree</td>
+            <td>Both hooks must share the same <code>&lt;NotifyKitProvider&gt;</code> ancestor. One provider per app, usually in the root layout.</td>
+          </tr>
+          <tr>
+            <td>TypeScript error: <code>Cannot find module &apos;@notifykitjs/react&apos;</code></td>
+            <td>Package not installed, or <code>moduleResolution</code> is too restrictive</td>
+            <td>Run <code>npm install @notifykitjs/react</code>. Ensure <code>tsconfig.json</code> uses <code>&quot;moduleResolution&quot;: &quot;bundler&quot;</code> or <code>&quot;node16&quot;</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Debug with the Network tab first.</strong> Hooks are thin
+        wrappers around HTTP calls to your handler. If the Network tab shows
+        successful responses with data, the issue is in your rendering logic.
+        If it shows errors or empty responses, the issue is server-side
+        (auth, routing, or missing data).
+      </div>
+
+      <h3>Development vs production behavior</h3>
+      <p>
+        Some behaviors differ between development and production. Know which
+        &quot;bugs&quot; are just dev-mode artifacts:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Behavior</th><th>In development</th><th>In production</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>SSE connects twice on mount</td>
+            <td>Yes (React Strict Mode)</td>
+            <td>No — single connection</td>
+            <td>Strict Mode mounts → unmounts → remounts to catch cleanup bugs</td>
+          </tr>
+          <tr>
+            <td>Inbox flashes empty then loads</td>
+            <td>More noticeable (slower HMR rebuild)</td>
+            <td>Sub-100ms in production</td>
+            <td>Dev server is slower; production serves from cache</td>
+          </tr>
+          <tr>
+            <td>Console warning about unmounted state update</td>
+            <td>Occasionally during HMR</td>
+            <td>Never</td>
+            <td>HMR swaps components while async operations are in-flight</td>
+          </tr>
+          <tr>
+            <td>Data resets between saves</td>
+            <td>Yes (if using <code>memoryAdapter()</code>)</td>
+            <td>No — persistent database</td>
+            <td>In-memory adapter loses state on server restart. Use SQLite for persistent dev data.</td>
+          </tr>
+        </tbody>
+      </table>
 
       <div className="page-nav">
         <Link href="/docs/nextjs">

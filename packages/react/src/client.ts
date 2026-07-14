@@ -4,6 +4,7 @@ import type {
   NotificationClassification,
   RecipientPreference,
 } from "@notifykitjs/core";
+import { registerClientSnapshot } from "./store.js";
 
 export type ClientStatus = "idle" | "loading" | "ready" | "error";
 
@@ -579,7 +580,7 @@ export function createNotifyKitClient(
     };
   }
 
-  return {
+  const client: NotifyKitClient = {
     getState() {
       return cloneState(state);
     },
@@ -986,4 +987,6 @@ export function createNotifyKitClient(
       },
     },
   };
+  registerClientSnapshot(client, () => state);
+  return client;
 }

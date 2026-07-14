@@ -15,7 +15,26 @@ export default function PreferencesPage() {
         <code>result.skipped</code> with a reason.
       </p>
 
-      <div className="callout">
+      <div className="features">
+        <div className="feature-card">
+          <h3>Per-channel granularity</h3>
+          <p>Users disable email for one notification while keeping inbox on — no all-or-nothing toggles.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Layered resolution</h3>
+          <p>App defaults → category → notification → tenant → user. Most specific wins, with a full audit trail.</p>
+        </div>
+        <div className="feature-card">
+          <h3>One-click unsubscribe</h3>
+          <p>HMAC-signed email links that work without a session. RFC 8058 compliant for mail client support.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Global &amp; category toggles</h3>
+          <p>Master switches for &quot;turn off all email&quot; or &quot;mute social notifications&quot; — with per-notification overrides.</p>
+        </div>
+      </div>
+
+      <div className="callout callout-tip">
         <strong>Preferences are per-channel, per-notification.</strong> A user
         can disable email for &quot;comment mentions&quot; while keeping inbox
         on — and still receive emails for &quot;order shipped.&quot; No
@@ -120,7 +139,7 @@ const grouped = Object.groupBy(meta, n => n.category ?? "other")
           </tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-warn">
         <strong>CAN-SPAM compliance.</strong> If you send marketing emails,
         use <code>classification: &quot;marketing&quot;</code> to distinguish
         them from transactional emails. Marketing notifications should always
@@ -240,13 +259,12 @@ email({
             <p>Global → category → notification-specific. The most specific user choice always wins.</p>
           </div>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">!</span>
-          <div>
-            <strong>Overrides</strong>
-            <p><code>required: true</code> forces delivery regardless of preferences. Missing destination (no email/phone) always skips.</p>
-          </div>
-        </div>
+      </div>
+      <div className="callout callout-warn">
+        <strong>Overrides bypass the hierarchy.</strong>{" "}
+        <code>required: true</code> forces delivery regardless of preferences.
+        Missing destination (no email/phone) always skips — even for required
+        notifications.
       </div>
 
       <h2>Building a full settings page</h2>
@@ -500,11 +518,257 @@ function SettingsPage() {
         they expect.
       </div>
 
+      <h2>Testing preference resolution</h2>
+      <p>
+        Preference bugs are invisible until a user reports &quot;I never got
+        that email.&quot; Write tests that cover your resolution hierarchy
+        before that happens. Use <code>preferences.explain()</code> for the
+        full trail, or <code>explain()</code> (the send dry-run) to verify
+        the combined effect on delivery.
+      </p>
+
+      <Code
+        code={`import { describe, it, expect, beforeEach } from "vitest"
+import { createNotifyKit, memoryAdapter, fakeEmailProvider, notification, channel } from "@notifykitjs/core"
+
+const inbox = channel.inbox()
+const email = channel.email()
+
+const commentMentioned = notification({
+  id: "comment_mentioned",
+  category: "activity",
+  payload: { actorName: "string", postUrl: "string" },
+  channels: [
+    inbox({ title: "{{actorName}} mentioned you" }),
+    email({ subject: "{{actorName}} mentioned you", body: "Open {{postUrl}}" }),
+  ],
+})
+
+const passwordReset = notification({
+  id: "password_reset",
+  payload: { resetUrl: "string" },
+  channels: [email({ subject: "Reset password", body: "{{resetUrl}}" })],
+  required: true,
+})
+
+function createTestNotify(opts = {}) {
+  return createNotifyKit({
+    notifications: [commentMentioned, passwordReset] as const,
+    database: memoryAdapter(),
+    providers: { email: fakeEmailProvider() },
+    ...opts,
+  })
+}
+
+describe("preference resolution", () => {
+  let notify: ReturnType<typeof createTestNotify>
+
+  beforeEach(async () => {
+    notify = createTestNotify()
+    await notify.upsertRecipient({ id: "user_1", email: "a@test.com" })
+  })
+
+  it("delivers all channels by default (no preferences set)", async () => {
+    const e = await notify.explain({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+    expect(e.channels.inbox.outcome).toBe("deliver")
+    expect(e.channels.email.outcome).toBe("deliver")
+  })
+
+  it("user opt-out disables a single channel", async () => {
+    await notify.preferences.update({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      channels: { email: false },
+    })
+
+    const e = await notify.explain({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+    expect(e.channels.email.outcome).toBe("disabled")
+    expect(e.channels.inbox.outcome).toBe("deliver") // unaffected
+  })
+
+  it("required notifications ignore user opt-out", async () => {
+    await notify.preferences.update({
+      recipientId: "user_1",
+      notificationId: "password_reset",
+      channels: { email: false },
+    })
+
+    const e = await notify.explain({
+      recipientId: "user_1",
+      notificationId: "password_reset",
+      payload: { resetUrl: "/reset/abc" },
+    })
+    expect(e.channels.email.outcome).toBe("deliver") // required overrides
+  })
+
+  it("global OFF disables email for all non-required notifications", async () => {
+    await notify.preferences.update({
+      recipientId: "user_1",
+      notificationId: "*",
+      channels: { email: false },
+    })
+
+    const mention = await notify.explain({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+    expect(mention.channels.email.outcome).toBe("disabled")
+
+    const reset = await notify.explain({
+      recipientId: "user_1",
+      notificationId: "password_reset",
+      payload: { resetUrl: "/reset/abc" },
+    })
+    expect(reset.channels.email.outcome).toBe("deliver") // required wins
+  })
+
+  it("per-notification ON overrides global OFF", async () => {
+    // Global: email off
+    await notify.preferences.update({
+      recipientId: "user_1",
+      notificationId: "*",
+      channels: { email: false },
+    })
+    // Exception: this specific notification stays on
+    await notify.preferences.update({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      channels: { email: true },
+    })
+
+    const e = await notify.explain({
+      recipientId: "user_1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+    expect(e.channels.email.outcome).toBe("deliver")
+  })
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Test case</th><th>What it catches</th><th>Common mistake</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Default delivery (no prefs set)</td>
+            <td>App defaults are correct</td>
+            <td><code>defaultChannels</code> accidentally set to <code>false</code></td>
+          </tr>
+          <tr>
+            <td>Single channel opt-out</td>
+            <td>Granular control works</td>
+            <td>Opt-out disabling all channels instead of just the target</td>
+          </tr>
+          <tr>
+            <td>Required bypasses opt-out</td>
+            <td>Transactional notifications always deliver</td>
+            <td><code>required</code> not being checked before preferences</td>
+          </tr>
+          <tr>
+            <td>Global OFF applies broadly</td>
+            <td>Wildcard preference works</td>
+            <td>Wildcard only matching literal <code>&quot;*&quot;</code> ID</td>
+          </tr>
+          <tr>
+            <td>Specific overrides global</td>
+            <td>Most-specific-wins resolution</td>
+            <td>Global preference taking precedence over specific</td>
+          </tr>
+        </tbody>
+      </table>
       <div className="callout callout-tip">
-        <strong>Can&apos;t figure out why a channel fired or didn&apos;t?</strong>{" "}
-        Use <code>notify.preferences.explain()</code> to see the full resolution
-        trail for any (recipient, notification) pair. See{" "}
-        <Link href="/docs/explain">Explain &amp; dry run</Link>.
+        <strong>Add tenant tests if you use multi-tenancy.</strong> The hierarchy
+        adds a tenant layer between defaults and user preferences. Test that:
+        tenant OFF + user ON = delivers (user wins), and tenant OFF + no user
+        preference = doesn&apos;t deliver (tenant wins over app default). See{" "}
+        <Link href="/docs/multi-tenancy">Multi-tenancy</Link> for the full
+        isolation test pattern.
+      </div>
+
+      <h3>Debugging with preferences.explain()</h3>
+      <p>
+        When a test fails or a user reports unexpected behavior, use{" "}
+        <code>preferences.explain()</code> to see the full resolution trail —
+        every layer that was checked, which one won, and why:
+      </p>
+      <Code
+        code={`const trail = await notify.preferences.explain({
+  recipientId: "user_1",
+  notificationId: "comment_mentioned",
+})
+
+// trail.email → {
+//   outcome: "disabled",
+//   resolvedBy: "user_notification",   ← which layer decided
+//   trail: [
+//     { layer: "app_default",          value: true },
+//     { layer: "notification_default", value: true },
+//     { layer: "tenant_setting",       value: null },   ← no tenant override
+//     { layer: "user_global",          value: null },   ← no global pref
+//     { layer: "user_notification",    value: false },  ← ✓ this one won
+//   ]
+// }`}
+      />
+      <table>
+        <thead>
+          <tr><th><code>resolvedBy</code> value</th><th>Meaning</th><th>How to fix (if unexpected)</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>app_default</code></td>
+            <td>No overrides at any level — using the base config</td>
+            <td>Check <code>defaults.channels</code> in <code>createNotifyKit()</code></td>
+          </tr>
+          <tr>
+            <td><code>notification_default</code></td>
+            <td>The notification&apos;s <code>defaultChannels</code> overrode the app default</td>
+            <td>Check the notification definition&apos;s <code>defaultChannels</code> field</td>
+          </tr>
+          <tr>
+            <td><code>tenant_setting</code></td>
+            <td>The tenant&apos;s <code>tenantDefaults()</code> function overrode</td>
+            <td>Check what <code>tenantDefaults(tenantId)</code> returns for this org</td>
+          </tr>
+          <tr>
+            <td><code>user_global</code></td>
+            <td>User has a wildcard (<code>*</code>) preference set</td>
+            <td>User turned off all email — check their global settings page</td>
+          </tr>
+          <tr>
+            <td><code>user_category</code></td>
+            <td>User toggled the entire category off</td>
+            <td>User disabled all &quot;social&quot; or &quot;activity&quot; notifications</td>
+          </tr>
+          <tr>
+            <td><code>user_notification</code></td>
+            <td>User explicitly set this specific (notification, channel) pair</td>
+            <td>This is intentional — user made a specific choice</td>
+          </tr>
+          <tr>
+            <td><code>required_override</code></td>
+            <td>Notification is <code>required: true</code> — all preferences ignored</td>
+            <td>Expected for transactional notifications</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Wire this into your support tooling.</strong> When a support
+        agent investigates &quot;user didn&apos;t get the email,&quot; they can
+        call <code>preferences.explain()</code> from an admin endpoint and
+        immediately see which layer blocked delivery — no guesswork, no checking
+        multiple database tables manually. See{" "}
+        <Link href="/docs/explain">Explain &amp; dry run</Link> for the full
+        send-level dry run.
       </div>
 
       <div className="page-nav">

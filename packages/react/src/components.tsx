@@ -80,7 +80,11 @@ function DefaultInboxRow({
         <a href={item.actionUrl} rel="noopener noreferrer">Open</a>
       ) : null}
       {!item.readAt ? (
-        <button type="button" onClick={() => void markRead(item.id)}>
+        <button
+          type="button"
+          aria-label={`Mark “${item.title}” as read`}
+          onClick={() => void markRead(item.id)}
+        >
           Mark read
         </button>
       ) : null}

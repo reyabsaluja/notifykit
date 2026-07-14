@@ -31,6 +31,12 @@ await notify.send({
         your app. You own the infrastructure and the data.
       </div>
 
+      <div className="button-row">
+        <Link href="/docs/quickstart" className="primary">Quickstart (5 min)</Link>
+        <Link href="/docs/installation">Add to existing app</Link>
+        <Link href="/docs/api">API reference</Link>
+      </div>
+
       <h2>How it works</h2>
 
       <div className="overview-flow">
@@ -83,34 +89,22 @@ await notify.send({
         where each piece lives in a typical deployment:
       </p>
 
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">S</span>
-          <div>
-            <strong>Your server code</strong>
-            <p>Server actions, API routes, background jobs. Calls <code>notify.send()</code> and <code>upsertRecipient()</code>.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Your server code</h3>
+          <p>Server actions, API routes, background jobs. Calls <code>notify.send()</code> and <code>upsertRecipient()</code>.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">E</span>
-          <div>
-            <strong>NotifyKit engine</strong>
-            <p>Runs in-process. Resolves preferences, applies rate limits, renders templates, queues deliveries.</p>
-          </div>
+        <div className="feature-card">
+          <h3>NotifyKit engine</h3>
+          <p>Runs in-process. Resolves preferences, applies rate limits, renders templates, queues deliveries.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">D</span>
-          <div>
-            <strong>Your database</strong>
-            <p>Inbox items, preferences, delivery records, and timeline — all in tables you own.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Your database</h3>
+          <p>Inbox items, preferences, delivery records, and timeline — all in tables you own.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">P</span>
-          <div>
-            <strong>Providers</strong>
-            <p>Resend, Postmark, Twilio, or your own. NotifyKit calls them — they deliver to the user.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Providers</h3>
+          <p>Resend, Postmark, Twilio, or your own. NotifyKit calls them — they deliver to the user.</p>
         </div>
       </div>
 
@@ -177,7 +171,7 @@ await notify.send({
           <tr><td>10. Fallback</td><td>Fire alternate channel if primary fails</td><td><Link href="/docs/fallbacks">Fallbacks</Link></td></tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Order matters for debugging.</strong> If a send returns{" "}
         <code>rateLimited: true</code>, it never reached preferences or
         delivery. Use <Link href="/docs/explain">explain()</Link> to see
@@ -276,27 +270,18 @@ await notify.send({
         NotifyKit adapts to different app types. Answer these questions to find
         your starting point:
       </p>
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Do users need to see notifications in the app?</strong>
-            <p>Yes → you need an inbox channel. No → transactional-only (email/SMS).</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Do users need to see notifications in the app?</h3>
+          <p>Yes → you need an inbox channel. No → transactional-only (email/SMS).</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Will you send more than 10 notifications/user/hour?</strong>
-            <p>Yes → enable digests and rate limits. No → direct delivery is fine.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Will you send more than 10 notifications/user/hour?</h3>
+          <p>Yes → enable digests and rate limits. No → direct delivery is fine.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Do you have multiple organizations/tenants?</strong>
-            <p>Yes → add <code>tenantId</code> scoping. No → single-tenant is simpler.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Do you have multiple organizations/tenants?</h3>
+          <p>Yes → add <code>tenantId</code> scoping. No → single-tenant is simpler.</p>
         </div>
       </div>
       <p>
@@ -364,37 +349,37 @@ await notify.send({
         </thead>
         <tbody>
           <tr>
-            <td><strong>1. Validate</strong></td>
+            <td><strong>Stage 1 — Validate</strong></td>
             <td>Payload passes — <code>actorName</code> and <code>postUrl</code> are present</td>
             <td>—</td>
           </tr>
           <tr>
-            <td><strong>2. Dedup</strong></td>
+            <td><strong>Stage 3 — Dedup</strong></td>
             <td>Key <code>mention:post_42:rey</code> not seen → passes</td>
             <td>—</td>
           </tr>
           <tr>
-            <td><strong>3. Rate limit</strong></td>
+            <td><strong>Stage 4 — Rate limit</strong></td>
             <td>Under threshold (3 of 20/hour used) → passes</td>
             <td>—</td>
           </tr>
           <tr>
-            <td><strong>4. Digest</strong></td>
+            <td><strong>Stage 5 — Digest</strong></td>
             <td>Email has a 5-min digest window → buffered, no email yet</td>
             <td><code>digested: true</code></td>
           </tr>
           <tr>
-            <td><strong>5. Preferences</strong></td>
+            <td><strong>Stage 6 — Preferences</strong></td>
             <td>SMS disabled by user → skipped. Inbox + email allowed.</td>
             <td><code>skipped: [{`{channel: "sms", reason: "preferences_disabled"}`}]</code></td>
           </tr>
           <tr>
-            <td><strong>6. Quiet hours</strong></td>
+            <td><strong>Stage 7 — Quiet hours</strong></td>
             <td>11:02 PM is inside the window → email deferred to 8 AM</td>
             <td><code>deferredChannels: [&quot;email&quot;]</code></td>
           </tr>
           <tr>
-            <td><strong>7. Inbox</strong></td>
+            <td><strong>Stage 8 — Deliver</strong></td>
             <td>Inbox is a pull channel — writes immediately regardless of quiet hours</td>
             <td><code>inboxItems: [...]</code></td>
           </tr>
@@ -479,17 +464,133 @@ await notify.send({
         after the fact for production debugging.
       </div>
 
-      <h2>Where to start</h2>
+      <h2>Quick debugging reference</h2>
+      <p>
+        When a notification doesn&apos;t arrive, pick the tool that matches what
+        you know. Each answers a different question:
+      </p>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Can you reproduce the scenario?</h3>
+          <p>Yes → use <Link href="/docs/explain">explain()</Link> to dry-run the send with zero side effects. See which stage blocked it.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Do you have the notification record ID?</h3>
+          <p>Yes → use <Link href="/docs/timeline">timeline()</Link> to see every event that happened during that send.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Did your code just call send()?</h3>
+          <p>Yes → inspect the <code>SendResult</code> fields: <code>skipped</code>, <code>deferredChannels</code>, <code>rateLimited</code>, <code>digested</code>.</p>
+        </div>
+      </div>
       <table>
         <thead>
-          <tr><th>Goal</th><th>Start here</th></tr>
+          <tr><th>User reports</th><th>Most likely cause</th><th>Check</th><th>Docs</th></tr>
         </thead>
         <tbody>
-          <tr><td>Try it out in 5 minutes</td><td><Link href="/docs/quickstart">Quickstart</Link></td></tr>
-          <tr><td>Add to an existing app</td><td><Link href="/docs/installation">Installation</Link></td></tr>
-          <tr><td>Understand the notification model</td><td><Link href="/docs/defining">Defining notifications</Link></td></tr>
-          <tr><td>Build a notification UI</td><td><Link href="/docs/react">React hooks &amp; components</Link></td></tr>
-          <tr><td>Debug delivery issues</td><td><Link href="/docs/explain">Explain &amp; dry run</Link></td></tr>
+          <tr>
+            <td>&quot;I never got the email&quot;</td>
+            <td>Opted out via preferences, or quiet hours deferred it</td>
+            <td><code>explain().channels.email.outcome</code></td>
+            <td><Link href="/docs/explain">Explain</Link></td>
+          </tr>
+          <tr>
+            <td>&quot;Email arrived hours late&quot;</td>
+            <td>Quiet hours held the delivery until the window ended</td>
+            <td><code>result.deferredChannels</code> or timeline <code>quiet_hours.deferred</code></td>
+            <td><Link href="/docs/quiet-hours">Quiet hours</Link></td>
+          </tr>
+          <tr>
+            <td>&quot;I got the same notification twice&quot;</td>
+            <td>Missing <code>idempotencyKey</code> on a retryable trigger</td>
+            <td>Add a unique key per logical event</td>
+            <td><Link href="/docs/deduplication">Dedup</Link></td>
+          </tr>
+          <tr>
+            <td>&quot;Nothing shows in my inbox&quot;</td>
+            <td><code>upsertRecipient()</code> not called, or wrong <code>recipientId</code></td>
+            <td><code>timeline()</code> — look for <code>recipient.resolved</code></td>
+            <td><Link href="/docs/timeline">Timeline</Link></td>
+          </tr>
+          <tr>
+            <td>&quot;Notifications stopped entirely&quot;</td>
+            <td>Rate limit reached, or provider key expired</td>
+            <td><code>result.rateLimited</code> or <code>delivery.failed</code> hook</td>
+            <td><Link href="/docs/hooks">Hooks</Link></td>
+          </tr>
+          <tr>
+            <td>&quot;Inbox updates but no email&quot;</td>
+            <td>Recipient has no <code>email</code> field, or email channel disabled</td>
+            <td><code>result.skipped</code> — look for <code>missing_destination</code></td>
+            <td><Link href="/docs/channels">Channels</Link></td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Rule of thumb:</strong> run <code>explain()</code> first. It costs
+        nothing (no records written, no emails sent) and shows the full pipeline
+        resolution in one call. If the issue is intermittent and you can&apos;t
+        reproduce, pull the <Link href="/docs/timeline">timeline</Link> for the
+        specific notification record.
+      </div>
+
+      <h2>Learning paths</h2>
+      <p>
+        Pick the path that matches where you are. Each is a sequence — read
+        them in order for a guided walkthrough of that area:
+      </p>
+      <div className="features">
+        <div className="feature-card">
+          <h3>First time here</h3>
+          <p>Get a working setup, send your first notification, see it in the UI.</p>
+          <p style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <Link href="/docs/quickstart">Quickstart</Link> →{" "}
+            <Link href="/docs/defining">Defining</Link> →{" "}
+            <Link href="/docs/sending">Sending</Link> →{" "}
+            <Link href="/docs/react">React hooks</Link>
+          </p>
+        </div>
+        <div className="feature-card">
+          <h3>Adding to an existing app</h3>
+          <p>Install, wire auth, connect your database and email provider.</p>
+          <p style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <Link href="/docs/installation">Installation</Link> →{" "}
+            <Link href="/docs/nextjs">Next.js</Link> →{" "}
+            <Link href="/docs/database">Database</Link> →{" "}
+            <Link href="/docs/providers">Providers</Link>
+          </p>
+        </div>
+        <div className="feature-card">
+          <h3>Reducing noise</h3>
+          <p>Stop flooding users — add digests, rate limits, dedup, and quiet hours.</p>
+          <p style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <Link href="/docs/digests">Digests &amp; rate limits</Link> →{" "}
+            <Link href="/docs/deduplication">Dedup</Link> →{" "}
+            <Link href="/docs/quiet-hours">Quiet hours</Link> →{" "}
+            <Link href="/docs/preferences">Preferences</Link>
+          </p>
+        </div>
+        <div className="feature-card">
+          <h3>Going to production</h3>
+          <p>Observability, security, multi-tenancy, and scaling realtime.</p>
+          <p style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <Link href="/docs/hooks">Hooks</Link> →{" "}
+            <Link href="/docs/security">Security</Link> →{" "}
+            <Link href="/docs/multi-tenancy">Multi-tenancy</Link> →{" "}
+            <Link href="/docs/realtime">Realtime</Link>
+          </p>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>I want to&hellip;</th><th>Go directly to</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Debug why a notification didn&apos;t arrive</td><td><Link href="/docs/explain">Explain &amp; dry run</Link></td></tr>
+          <tr><td>See what happened to a past send</td><td><Link href="/docs/timeline">Timeline</Link></td></tr>
+          <tr><td>Look up the API for a specific method</td><td><Link href="/docs/api">API reference</Link></td></tr>
+          <tr><td>Understand the TypeScript types</td><td><Link href="/docs/types">Types</Link></td></tr>
+          <tr><td>See all handler routes and their shapes</td><td><Link href="/docs/handler-routes">Handler routes</Link></td></tr>
         </tbody>
       </table>
 

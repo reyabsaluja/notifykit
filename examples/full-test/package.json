@@ -1,0 +1,13 @@
+{
+  "name": "notifykit-full-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@notifykitjs/core": "workspace:*",
+    "@notifykitjs/testing": "workspace:*",
+    "@notifykitjs/nodemailer": "workspace:*"
+  }
+}

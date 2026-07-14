@@ -11,8 +11,27 @@ export default function RealtimePage() {
       <p>
         NotifyKit supports real-time updates so inbox items and unread counts
         appear instantly in the client. Three adapters are available — pick based
-        on your deployment:
+        on your deployment.
       </p>
+
+      <div className="features">
+        <div className="feature-card">
+          <h3>Instant inbox updates</h3>
+          <p>New items appear in the client the moment they&apos;re created — no polling, no manual refresh.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Live unread counts</h3>
+          <p>Badge counts update instantly when items are read, archived, or created across tabs and devices.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Automatic reconnection</h3>
+          <p>Built-in exponential backoff with gap-fill on reconnect. No events lost during network drops.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Tenant-scoped events</h3>
+          <p>Events are isolated by identity and scope. Cross-tenant data never leaks through the event stream.</p>
+        </div>
+      </div>
 
       <table>
         <thead>
@@ -49,6 +68,7 @@ export default function RealtimePage() {
         scaling):
       </p>
       <Code
+        filename="lib/notifykit.ts"
         code={`import { memoryRealtimeAdapter } from "@notifykitjs/core"
 
 const notify = createNotifyKit({
@@ -71,6 +91,7 @@ const notify = createNotifyKit({
         code={`npm install @notifykitjs/realtime-pg`}
       />
       <Code
+        filename="lib/notifykit.ts"
         code={`import { pgRealtimeAdapter } from "@notifykitjs/realtime-pg"
 import { Pool } from "pg"
 
@@ -119,6 +140,7 @@ const notify = createNotifyKit({
         code={`npm install @notifykitjs/realtime-ws`}
       />
       <Code
+        filename="lib/realtime.ts"
         code={`import { webSocketRealtimeAdapter } from "@notifykitjs/realtime-ws"
 
 const realtime = webSocketRealtimeAdapter({
@@ -139,8 +161,8 @@ const realtime = webSocketRealtimeAdapter({
 
       <h3>Handling connections</h3>
       <Code
-        code={`// In your WebSocket server (e.g. with Bun, Node ws, or Deno):
-server.on("upgrade", async (request, ws) => {
+        filename="server.ts"
+        code={`server.on("upgrade", async (request, ws) => {
   const identity = await realtime.handleUpgrade(request, ws)
   if (!identity) {
     ws.close(4001, "Unauthorized")
@@ -249,7 +271,7 @@ server.on("upgrade", async (request, ws) => {
           </div>
         </div>
       </div>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Swapping adapters is a one-line change.</strong> The{" "}
         <code>realtime</code> option in <code>createNotifyKit()</code> is the
         only thing that changes — no client code, no schema migrations, no
@@ -374,8 +396,8 @@ server.on("upgrade", async (request, ws) => {
         </tbody>
       </table>
       <Code
-        code={`// Custom client: robust SSE with reconnection
-function connectSSE(baseUrl, { onEvent, onStatusChange }) {
+        filename="lib/connect-sse.ts"
+        code={`function connectSSE(baseUrl, { onEvent, onStatusChange }) {
   let retryDelay = 1000
   let es = null
 
@@ -491,8 +513,8 @@ function connectSSE(baseUrl, { onEvent, onStatusChange }) {
         </tbody>
       </table>
       <Code
-        code={`// Monitoring connections with hooks
-createNotifyKit({
+        filename="lib/notifykit.ts"
+        code={`createNotifyKit({
   // ...
   on: {
     "realtime.connected": ({ recipientId }) => {
@@ -546,6 +568,190 @@ createNotifyKit({
         terminate the connection after ~25 seconds. For Hobby deployments, fall
         back to polling via <code>refresh()</code> on an interval instead of
         relying on realtime.
+      </div>
+
+      <h2>Polling fallback for serverless</h2>
+      <p>
+        When SSE isn&apos;t available — Vercel Hobby, Cloudflare Workers, or any
+        serverless function with short timeouts — use interval-based polling as
+        a drop-in replacement. The inbox stays fresh without a persistent connection.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>Freshness</th><th>Best for</th><th>Trade-off</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>SSE (default)</strong></td>
+            <td>Instant (&lt;100ms)</td>
+            <td>Long-running servers, Vercel Pro+</td>
+            <td>Requires persistent process</td>
+          </tr>
+          <tr>
+            <td><strong>Polling (interval)</strong></td>
+            <td>Up to N seconds stale</td>
+            <td>Serverless, Hobby plans, edge functions</td>
+            <td>More requests, slight delay</td>
+          </tr>
+          <tr>
+            <td><strong>Hybrid</strong></td>
+            <td>Instant when connected, polled on disconnect</td>
+            <td>Apps that deploy across mixed infra</td>
+            <td>Extra code, but best of both worlds</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Basic polling with useInbox</h3>
+      <p>
+        The React SDK&apos;s <code>useInbox()</code> accepts a{" "}
+        <code>pollInterval</code> option. When set, it fetches the inbox on a
+        timer instead of relying on SSE — no other code changes needed:
+      </p>
+      <Code
+        filename="components/notification-bell.tsx"
+        code={`"use client"
+import { useInbox, useUnreadCount } from "@notifykitjs/react"
+
+function NotificationBell() {
+  // Poll every 10 seconds instead of SSE
+  const { items, markAsRead } = useInbox({ pollInterval: 10_000 })
+  const { unreadCount } = useUnreadCount({ pollInterval: 10_000 })
+
+  return (
+    <div>
+      <button>🔔 {unreadCount > 0 && <span>{unreadCount}</span>}</button>
+      <ul>
+        {items.map(item => (
+          <li key={item.id} onClick={() => markAsRead(item.id)}>
+            {item.title}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}`}
+      />
+
+      <h3>Adaptive polling: fast after activity, slow when idle</h3>
+      <p>
+        Fixed polling wastes requests when nothing is happening and feels slow
+        during active conversations. Use adaptive polling — poll fast right
+        after a new item arrives, then slow down when idle:
+      </p>
+      <Code
+        filename="components/notification-bell.tsx"
+        code={`"use client"
+import { useInbox, useUnreadCount } from "@notifykitjs/react"
+import { useState, useEffect, useCallback } from "react"
+
+function useAdaptivePolling() {
+  const [interval, setInterval] = useState(30_000) // start slow (30s)
+
+  const onNewItems = useCallback(() => {
+    setInterval(5_000) // speed up on activity (5s)
+  }, [])
+
+  // Slow down after 2 minutes of no new items
+  useEffect(() => {
+    const slowDown = setTimeout(() => setInterval(30_000), 120_000)
+    return () => clearTimeout(slowDown)
+  }, [interval])
+
+  return { interval, onNewItems }
+}
+
+function NotificationBell() {
+  const { interval, onNewItems } = useAdaptivePolling()
+  const { items } = useInbox({
+    pollInterval: interval,
+    onNewItems, // called when new items appear
+  })
+  const { unreadCount } = useUnreadCount({ pollInterval: interval })
+
+  // ...render
+}`}
+      />
+
+      <h3>Environment-based: SSE in dev, polling in production</h3>
+      <p>
+        If you develop locally with a persistent server but deploy to serverless,
+        switch the strategy based on the environment:
+      </p>
+      <Code
+        filename="lib/realtime-config.ts"
+        code={`export const realtimeConfig = {
+  usePolling: process.env.NEXT_PUBLIC_USE_POLLING === "true",
+  pollInterval: 10_000,
+}`}
+      />
+      <Code
+        filename="components/notification-bell.tsx"
+        code={`import { realtimeConfig } from "@/lib/realtime-config"
+
+function NotificationBell() {
+  const inboxOptions = realtimeConfig.usePolling
+    ? { pollInterval: realtimeConfig.pollInterval }
+    : {} // use SSE (default)
+
+  const { items } = useInbox(inboxOptions)
+  // ...
+}`}
+      />
+      <Code
+        filename=".env.production"
+        code={`# Set in your Vercel project settings (or hosting platform)
+NEXT_PUBLIC_USE_POLLING=true`}
+      />
+
+      <table>
+        <thead>
+          <tr><th>Poll interval</th><th>Requests/user/hour</th><th>Freshness</th><th>Good for</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>5s</strong></td>
+            <td>720</td>
+            <td>Near real-time</td>
+            <td>Chat-like apps, active collaboration — but consider upgrading to SSE</td>
+          </tr>
+          <tr>
+            <td><strong>10s</strong></td>
+            <td>360</td>
+            <td>Acceptable</td>
+            <td>Most apps. Users notice a 10s delay but don&apos;t complain.</td>
+          </tr>
+          <tr>
+            <td><strong>30s</strong></td>
+            <td>120</td>
+            <td>Noticeable</td>
+            <td>Low-traffic apps, dashboards checked periodically</td>
+          </tr>
+          <tr>
+            <td><strong>60s</strong></td>
+            <td>60</td>
+            <td>Stale</td>
+            <td>Background tools, admin panels — users don&apos;t expect instant</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-tip">
+        <strong>Start at 10 seconds.</strong> It&apos;s a good balance — fresh
+        enough that users don&apos;t notice the delay, light enough that you
+        won&apos;t overload your API. If you see performance issues, increase
+        to 30s. If users complain about delays, decrease to 5s or upgrade your
+        hosting to support SSE.
+      </div>
+
+      <div className="callout callout-tip">
+        <strong>Polling still uses the same API.</strong> The{" "}
+        <code>pollInterval</code> option makes <code>useInbox()</code> call
+        <code> GET /api/notifykit/inbox</code> on a timer. No server-side changes
+        needed — the same handler that serves SSE also handles REST fetches.
+        Mutations (<code>markAsRead</code>, <code>archive</code>) work identically
+        in both modes.
       </div>
 
       <h2>Verify your setup</h2>
@@ -626,6 +832,209 @@ curl -N -H "Cookie: session=..." http://localhost:3000/api/notifykit/events
         events but your React UI doesn&apos;t update, the issue is client-side
         (provider wiring, component mount). If curl shows nothing, the issue is
         server-side (adapter config, auth, proxy).
+      </div>
+
+      <h2>Testing realtime</h2>
+      <p>
+        Realtime events are easy to verify manually with curl, but you need
+        automated assertions to prevent regressions. The memory adapter runs
+        in-process — no WebSocket server, no Postgres — so events fire
+        synchronously after <code>send()</code> resolves.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>What to test</th><th>Assertion</th><th>Catches</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Event fires on send</td>
+            <td>Subscriber receives <code>inbox.created</code> with correct item</td>
+            <td>Broken adapter wiring, missing <code>realtime</code> config</td>
+          </tr>
+          <tr>
+            <td>Scoped delivery</td>
+            <td>Subscriber for org B does <strong>not</strong> receive org A&apos;s event</td>
+            <td>Cross-tenant event leaks in pub/sub layer</td>
+          </tr>
+          <tr>
+            <td>Mark-read propagates</td>
+            <td>Subscriber receives <code>inbox.updated</code> with <code>readAt</code> set</td>
+            <td>Mutation hooks not calling <code>realtime.publish()</code></td>
+          </tr>
+          <tr>
+            <td>Bulk mark-all-read</td>
+            <td>Subscriber receives <code>inbox.all_read</code> with correct count</td>
+            <td>Bulk operation bypassing realtime publish</td>
+          </tr>
+          <tr>
+            <td>Delete propagates</td>
+            <td>Subscriber receives <code>inbox.deleted</code> with item ID</td>
+            <td>Delete path missing realtime call</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Pattern: subscribe before send</h3>
+      <Code
+        filename="tests/realtime.test.ts"
+        code={`import { describe, it, expect, vi } from "vitest"
+import { createNotifyKit, memoryAdapter, memoryRealtimeAdapter, fakeEmailProvider } from "@notifykitjs/core"
+import { commentMentioned } from "./notifications"
+
+describe("realtime events", () => {
+  function setup() {
+    const realtime = memoryRealtimeAdapter()
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: fakeEmailProvider() },
+      realtime,
+    })
+    return { notify, realtime }
+  }
+
+  it("fires inbox.created when a notification is sent", async () => {
+    const { notify, realtime } = setup()
+    const received = vi.fn()
+
+    await notify.upsertRecipient({ id: "alice", email: "a@test.com" })
+
+    // Subscribe BEFORE sending — mimics an open SSE connection
+    realtime.subscribe("alice", {}, (event) => received(event))
+
+    await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+
+    expect(received).toHaveBeenCalledTimes(1)
+    expect(received).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "inbox.created",
+        payload: expect.objectContaining({ title: expect.any(String) }),
+      })
+    )
+  })
+
+  it("scopes events by tenant — no cross-org leaks", async () => {
+    const { notify, realtime } = setup()
+    const orgAEvents = vi.fn()
+    const orgBEvents = vi.fn()
+
+    await notify.upsertRecipient({ id: "alice", tenantId: "org_a", email: "a@test.com" })
+    await notify.upsertRecipient({ id: "alice", tenantId: "org_b", email: "a@test.com" })
+
+    realtime.subscribe("alice", { tenantId: "org_a" }, orgAEvents)
+    realtime.subscribe("alice", { tenantId: "org_b" }, orgBEvents)
+
+    await notify.send({
+      recipientId: "alice",
+      tenantId: "org_a",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+
+    expect(orgAEvents).toHaveBeenCalledTimes(1)
+    expect(orgBEvents).toHaveBeenCalledTimes(0) // ✓ isolated
+  })
+
+  it("fires inbox.updated on mark-read", async () => {
+    const { notify, realtime } = setup()
+    const received = vi.fn()
+
+    await notify.upsertRecipient({ id: "alice", email: "a@test.com" })
+    const result = await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+
+    realtime.subscribe("alice", {}, received)
+    await notify.inbox.markReadForRecipient(result.inboxItems[0].id, "alice")
+
+    expect(received).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "inbox.updated",
+        payload: expect.objectContaining({ readAt: expect.any(Date) }),
+      })
+    )
+  })
+})`}
+      />
+
+      <h3>Testing reconnection gaps</h3>
+      <p>
+        The hardest realtime bug to catch: events missed during a disconnect
+        window. Verify that a client re-fetching after reconnect sees items
+        created during the gap:
+      </p>
+      <Code
+        code={`it("gap-fill: items created while disconnected appear on re-fetch", async () => {
+  const { notify } = setup()
+  await notify.upsertRecipient({ id: "alice", email: "a@test.com" })
+
+  // Simulate: client was connected, then disconnected
+  // (no subscriber active during this send)
+  await notify.send({
+    recipientId: "alice",
+    notificationId: "comment_mentioned",
+    payload: { actorName: "Sam", postUrl: "/p/2" },
+  })
+
+  // Client reconnects and re-fetches inbox (gap-fill strategy)
+  const items = await notify.inbox.list("alice")
+  expect(items).toHaveLength(1)
+  expect(items[0].title).toContain("Sam")
+})`}
+      />
+
+      <div className="callout callout-tip">
+        <strong>Memory adapter makes tests instant.</strong> No WebSocket
+        server to start, no Postgres LISTEN to set up, no timers to
+        advance. Events fire synchronously in the same process —
+        subscribe, send, assert. Use integration tests against Postgres
+        NOTIFY only when you&apos;re specifically testing the adapter swap.
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Test level</th><th>Adapter</th><th>What it proves</th><th>Speed</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Unit</strong></td>
+            <td>Memory</td>
+            <td>Events fire, scoping works, mutations publish</td>
+            <td>&lt; 50ms per test</td>
+          </tr>
+          <tr>
+            <td><strong>Integration</strong></td>
+            <td>PG NOTIFY / WebSocket</td>
+            <td>Events cross process boundaries, reconnection works</td>
+            <td>~500ms (connection setup)</td>
+          </tr>
+          <tr>
+            <td><strong>E2E</strong></td>
+            <td>Full stack (browser + SSE)</td>
+            <td>React hook updates, unread badge decrements in real UI</td>
+            <td>2–5s (Playwright/Cypress)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-warn">
+        <strong>Don&apos;t skip the scoping test.</strong> Cross-tenant event
+        leaks are silent — the feature &quot;works&quot; in single-tenant
+        testing but leaks data in production. Always test with two tenants
+        subscribed simultaneously and verify isolation.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/react" className="primary">React hooks &amp; components</Link>
+        <Link href="/docs/database">Database adapters</Link>
+        <Link href="/docs/security">Security model</Link>
       </div>
 
       <div className="page-nav">

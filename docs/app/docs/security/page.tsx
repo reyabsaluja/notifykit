@@ -15,20 +15,41 @@ export default function SecurityPage() {
         contract.
       </p>
 
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">S</span>
-          <div>
-            <strong>Server (trusted)</strong>
-            <p><code>notify.send()</code>, <code>notify.explain()</code>, <code>notify.deliveries.list()</code> — full access. Caller provides <code>recipientId</code> directly.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Server (trusted)</h3>
+          <p><code>notify.send()</code>, <code>notify.explain()</code>, <code>notify.deliveries.list()</code> — full access. Caller provides <code>recipientId</code> directly.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">C</span>
-          <div>
-            <strong>Client (untrusted)</strong>
-            <p>React SDK and REST routes — identity resolved via <code>identify()</code>. Cannot specify <code>recipientId</code>. Scoped to the authenticated user.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Client (untrusted)</h3>
+          <p>React SDK and REST routes — identity resolved via <code>identify()</code>. Cannot specify <code>recipientId</code>. Scoped to the authenticated user.</p>
+        </div>
+      </div>
+
+      <div className="features">
+        <div className="feature-card">
+          <h3>Tenant isolation</h3>
+          <p>Every query is scoped by identity. Cross-tenant reads return empty, writes return 403.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Webhook signatures</h3>
+          <p>HMAC-SHA256 on outgoing webhooks, timing-safe verification on incoming ones.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Payload redaction</h3>
+          <p>PII fields are masked in logs, hooks, and timeline — never leaked to external surfaces.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Unsubscribe HMAC</h3>
+          <p>Signed links that work without auth sessions. Bound to recipient, unforgeable, no expiry.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Rate limiting &amp; CORS</h3>
+          <p>Per-identity request caps and origin restrictions prevent abuse from untrusted clients.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Secret rotation</h3>
+          <p>Dual-secret pattern for zero-downtime key rotation without breaking outstanding links.</p>
         </div>
       </div>
 
@@ -41,6 +62,7 @@ export default function SecurityPage() {
         <code>workspaceId</code> in the request body is <strong>ignored</strong>.
       </p>
       <Code
+        filename="app/api/notifykit/[...notifykit]/route.ts"
         code={`createHandler(notify, {
   identify: async (request) => {
     const session = await auth(request)
@@ -227,6 +249,7 @@ channel.webhook({
         the payload. Reject any request with an invalid or missing signature:
       </p>
       <Code
+        filename="lib/verify-webhook.ts"
         code={`import { createHmac, timingSafeEqual } from "crypto"
 
 function verifyWebhookSignature(
@@ -433,6 +456,7 @@ export async function POST(request: Request) {
         from this page. Copy and adapt to your auth layer:
       </p>
       <Code
+        filename="app/api/notifykit/[...notifykit]/route.ts"
         code={`import { createRouteHandler } from "@notifykitjs/next"
 import { notify } from "@/lib/notifykit"
 import { auth } from "@/lib/auth"
@@ -551,8 +575,8 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
       </div>
 
       <Code
-        code={`// lib/notifykit.ts — dual-secret rotation
-import { createNotifyKit } from "@notifykitjs/core"
+        filename="lib/notifykit.ts"
+        code={`import { createNotifyKit } from "@notifykitjs/core"
 
 export const notify = createNotifyKit({
   // ...notifications, database, providers
@@ -614,6 +638,248 @@ export const notify = createNotifyKit({
         channel uses a <code>secret</code> for signing, the receiving service
         must accept both old and new signatures during the transition. Coordinate
         the rotation with the team that owns the webhook receiver.
+      </div>
+
+      <h2>Testing your security configuration</h2>
+      <p>
+        Security configuration that isn&apos;t tested in CI will eventually
+        regress — someone changes the auth middleware, refactors the handler,
+        or updates a dependency. These tests verify the security contract holds
+        across deploys.
+      </p>
+      <table>
+        <thead>
+          <tr><th>What to test</th><th>Why it matters</th><th>Regression risk</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Unauthenticated requests get 401</td>
+            <td>Ensures <code>identify()</code> rejects missing sessions</td>
+            <td>Auth middleware change, cookie format change, missing null check</td>
+          </tr>
+          <tr>
+            <td>Cross-tenant access gets 403 or empty</td>
+            <td>Proves data isolation is enforced at the query layer</td>
+            <td>Scoping WHERE clause removed during refactor</td>
+          </tr>
+          <tr>
+            <td>Invalid unsubscribe token gets 401</td>
+            <td>Confirms HMAC verification rejects forged links</td>
+            <td>Secret env var missing in new environment</td>
+          </tr>
+          <tr>
+            <td>Rate limiting returns 429</td>
+            <td>Verifies abusive clients are throttled</td>
+            <td>Rate limit config removed or misconfigured after handler refactor</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Pattern: security boundary tests</h3>
+      <Code
+        filename="tests/security-boundaries.test.ts"
+        code={`import { describe, it, expect } from "vitest"
+import { createNotifyKit, memoryAdapter, fakeEmailProvider, createHandler } from "@notifykitjs/core"
+import { commentMentioned } from "./notifications"
+
+function setup() {
+  const notify = createNotifyKit({
+    notifications: [commentMentioned] as const,
+    database: memoryAdapter(),
+    providers: { email: fakeEmailProvider() },
+  })
+  return notify
+}
+
+describe("security boundaries", () => {
+  it("rejects unauthenticated requests with 401", async () => {
+    const notify = setup()
+    const handler = createHandler(notify, {
+      identify: async () => null, // no session
+    })
+
+    const res = await handler(new Request("http://localhost/inbox"))
+    expect(res.status).toBe(401)
+
+    const body = await res.json()
+    expect(body.error).toBe("unauthorized")
+  })
+
+  it("rejects cross-tenant inbox access", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "alice", tenantId: "org_a", email: "a@test.com" })
+    await notify.send({
+      recipientId: "alice",
+      tenantId: "org_a",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postUrl: "/p/1" },
+    })
+
+    // Handler scoped to org_b — should NOT see org_a's items
+    const handler = createHandler(notify, {
+      identify: async () => ({ recipientId: "alice", tenantId: "org_b" }),
+    })
+
+    const res = await handler(new Request("http://localhost/inbox"))
+    const items = await res.json()
+    expect(items).toHaveLength(0) // ✓ isolated
+  })
+
+  it("prevents preference writes to another tenant", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "alice", tenantId: "org_a", email: "a@test.com" })
+
+    // Handler scoped to org_b tries to write preferences for org_a
+    const handler = createHandler(notify, {
+      identify: async () => ({ recipientId: "alice", tenantId: "org_b" }),
+    })
+
+    const res = await handler(new Request("http://localhost/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        notificationId: "comment_mentioned",
+        channels: { email: false },
+      }),
+    }))
+
+    // Preference is written to org_b scope (the handler's scope), NOT org_a
+    // Verify org_a's preferences are untouched
+    const prefs = await notify.preferences.list({ recipientId: "alice", tenantId: "org_a" })
+    expect(prefs).toHaveLength(0)
+  })
+
+  it("rejects forged unsubscribe tokens", async () => {
+    const notify = setup()
+    const handler = createHandler(notify, {
+      identify: async () => ({ recipientId: "alice" }),
+      unsubscribeSecret: "real-secret-32-bytes-long-here!!",
+    })
+
+    // Forged token
+    const res = await handler(new Request(
+      "http://localhost/unsubscribe?token=forged_token_value"
+    ))
+    expect(res.status).toBe(401)
+  })
+
+  it("enforces rate limiting with 429", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "alice", email: "a@test.com" })
+
+    const handler = createHandler(notify, {
+      identify: async () => ({ recipientId: "alice" }),
+      requestRateLimit: { max: 3, windowMs: 60_000 },
+    })
+
+    // Fire requests up to the limit
+    for (let i = 0; i < 3; i++) {
+      const res = await handler(new Request("http://localhost/inbox"))
+      expect(res.status).toBe(200)
+    }
+
+    // Next request should be rate-limited
+    const blocked = await handler(new Request("http://localhost/inbox"))
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get("Retry-After")).toBeDefined()
+  })
+})`}
+      />
+
+      <h3>Testing authorization levels</h3>
+      <p>
+        If you use <code>authorize()</code> for admin routes, verify that
+        non-admin users get <code>403</code> while admins pass through:
+      </p>
+      <Code
+        filename="tests/authorization.test.ts"
+        code={`describe("authorization", () => {
+  function handlerWithRole(role: "user" | "admin") {
+    return createHandler(notify, {
+      identify: async () => ({
+        recipientId: "alice",
+        permissions: role === "admin" ? ["admin"] : [],
+      }),
+      authorize: async (ctx, permission) => {
+        if (permission === "deliveries:list") {
+          return ctx.permissions?.includes("admin") ?? false
+        }
+        return true
+      },
+    })
+  }
+
+  it("admin can list deliveries", async () => {
+    const handler = handlerWithRole("admin")
+    const res = await handler(new Request("http://localhost/deliveries"))
+    expect(res.status).toBe(200)
+  })
+
+  it("regular user cannot list deliveries", async () => {
+    const handler = handlerWithRole("user")
+    const res = await handler(new Request("http://localhost/deliveries"))
+    expect(res.status).toBe(403)
+  })
+
+  it("regular user can still access their own inbox", async () => {
+    const handler = handlerWithRole("user")
+    const res = await handler(new Request("http://localhost/inbox"))
+    expect(res.status).toBe(200)
+  })
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Test category</th><th>Catches</th><th>Run frequency</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Auth boundary (401)</strong></td>
+            <td>identify() returning a user when it shouldn&apos;t</td>
+            <td>Every CI run — fast, no external deps</td>
+          </tr>
+          <tr>
+            <td><strong>Tenant isolation (403/empty)</strong></td>
+            <td>Missing WHERE clauses, unscoped queries</td>
+            <td>Every CI run — most critical for multi-tenant apps</td>
+          </tr>
+          <tr>
+            <td><strong>Token verification</strong></td>
+            <td>Broken HMAC, missing secret in env, timing vulnerabilities</td>
+            <td>Every CI run — tests the crypto path</td>
+          </tr>
+          <tr>
+            <td><strong>Rate limiting</strong></td>
+            <td>Rate limit config removed or max set too high</td>
+            <td>Every CI run — verifies the sliding window logic</td>
+          </tr>
+          <tr>
+            <td><strong>Authorization (admin routes)</strong></td>
+            <td>Permission checks bypassed, authorize() not wired up</td>
+            <td>Every CI run — prevents privilege escalation</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Run these on every PR.</strong> Security tests are fast
+        (in-memory adapter, no network) and catch regressions that functional
+        tests miss — a refactored handler that works correctly but forgot to
+        check <code>identify()</code> passes all feature tests while being
+        wide open.
+      </div>
+
+      <div className="callout callout-warn">
+        <strong>Test the negative case, not just the positive.</strong> A test
+        that verifies &quot;admin can list deliveries&quot; passes even if
+        everyone can list deliveries. Always pair it with &quot;non-admin
+        <em>cannot</em> list deliveries&quot; — the denial test is what proves
+        the guard exists.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/handler-routes" className="primary">Handler routes setup</Link>
+        <Link href="/docs/multi-tenancy">Multi-tenancy</Link>
+        <Link href="/docs/preferences">Unsubscribe links</Link>
       </div>
 
       <div className="page-nav">

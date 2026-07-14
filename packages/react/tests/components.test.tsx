@@ -105,6 +105,7 @@ describe("React components", () => {
     );
     expect(html).toContain("Welcome, Alice");
     expect(html).toContain("Mark read");
+    expect(html).toContain("Mark “Welcome, Alice” as read");
   });
 
   test("useNotifyKitClient throws outside provider", () => {

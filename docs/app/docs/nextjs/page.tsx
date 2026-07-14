@@ -45,6 +45,25 @@ export default function NextjsPage() {
         </div>
       </div>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>Zero-config route handler</h3>
+          <p>One catch-all route exposes inbox, preferences, unsubscribe, and SSE. No manual endpoint wiring.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Any auth library</h3>
+          <p>Works with NextAuth, Clerk, Supabase, Lucia — just return the user ID from your session helper.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Server actions support</h3>
+          <p>Read and write notifications from server components and form actions without a client-side SDK.</p>
+        </div>
+        <div className="feature-card">
+          <h3>App Router native</h3>
+          <p>Built for Next.js 14+ App Router. Route groups, layouts, and streaming all work out of the box.</p>
+        </div>
+      </div>
+
       <h2>Install</h2>
       <Code
         lang="bash"
@@ -111,11 +130,103 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
           </tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Only <code>recipientId</code> is required.</strong> Add{" "}
         <code>tenantId</code> or <code>workspaceId</code> when you need scoping.
         Extra fields you return are available in hooks and <code>authorize()</code>{" "}
         but don&apos;t affect routing.
+      </div>
+
+      <h2>Auth library examples</h2>
+      <p>
+        The <code>identify()</code> function is where your auth library meets
+        NotifyKit. Here&apos;s the exact wiring for the most common Next.js
+        auth solutions:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Library</th><th>Session source</th><th>User ID field</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>NextAuth / Auth.js</strong></td><td><code>auth()</code> or <code>getServerSession()</code></td><td><code>session.user.id</code></td></tr>
+          <tr><td><strong>Clerk</strong></td><td><code>auth()</code> from <code>@clerk/nextjs/server</code></td><td><code>userId</code> (direct)</td></tr>
+          <tr><td><strong>Supabase Auth</strong></td><td><code>createRouteHandlerClient</code></td><td><code>user.id</code> from <code>getUser()</code></td></tr>
+          <tr><td><strong>Lucia</strong></td><td><code>lucia.readSessionCookie</code> + <code>validateSession</code></td><td><code>session.userId</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>NextAuth / Auth.js</h3>
+      <Code
+        code={`import { auth } from "@/auth"
+
+export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
+  notifykit: notify,
+  identify: async () => {
+    const session = await auth()
+    if (!session?.user?.id) return null
+    return { recipientId: session.user.id }
+  },
+})`}
+      />
+
+      <h3>Clerk</h3>
+      <p>
+        Clerk exposes <code>orgId</code> directly — pass it as{" "}
+        <code>tenantId</code> to get multi-tenant isolation for free.
+      </p>
+      <Code
+        code={`import { auth } from "@clerk/nextjs/server"
+
+export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
+  notifykit: notify,
+  identify: async () => {
+    const { userId, orgId } = await auth()
+    if (!userId) return null
+    return { recipientId: userId, tenantId: orgId ?? undefined }
+  },
+})`}
+      />
+
+      <h3>Supabase Auth</h3>
+      <Code
+        code={`import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { cookies } from "next/headers"
+
+export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
+  notifykit: notify,
+  identify: async () => {
+    const supabase = createRouteHandlerClient({ cookies })
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+    return { recipientId: user.id }
+  },
+})`}
+      />
+
+      <h3>Lucia</h3>
+      <Code
+        code={`import { lucia } from "@/lib/lucia"
+import { cookies } from "next/headers"
+
+export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
+  notifykit: notify,
+  identify: async () => {
+    const cookieStore = await cookies()
+    const sessionId = lucia.readSessionCookie(cookieStore.toString())
+    if (!sessionId) return null
+    const { session } = await lucia.validateSession(sessionId)
+    if (!session) return null
+    return { recipientId: session.userId }
+  },
+})`}
+      />
+
+      <div className="callout callout-tip">
+        <strong>Match the ID you upsert recipients with.</strong> The value you
+        return as <code>recipientId</code> in <code>identify()</code> must be
+        the same string you pass to <code>upsertRecipient({`{ id }`})</code>
+        when creating recipients. If your auth library uses <code>user_abc123</code>
+        but you upsert with a database UUID, the inbox will be empty.
       </div>
 
       <h2>Server actions</h2>
@@ -187,7 +298,14 @@ export const config = { matcher: "/api/notifykit/:path*" }`}
       <h2>Provider pattern</h2>
       <p>
         Wrap your app in <code>NotifyKitProvider</code> to make hooks work.
-        Point it at the route handler:
+        Point it at the route handler. The provider must only render for
+        authenticated users — it opens an SSE connection that requires a
+        valid session.
+      </p>
+
+      <h3>Basic: single layout</h3>
+      <p>
+        For apps where every page requires auth, wrap at the root:
       </p>
       <Code
         filename="app/layout.tsx"
@@ -205,6 +323,106 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   )
 }`}
       />
+
+      <h3>Recommended: route groups</h3>
+      <p>
+        Most Next.js apps have public pages (landing, login, docs) that
+        don&apos;t need notifications. Use route groups to scope the
+        provider to authenticated routes only:
+      </p>
+      <Code
+        code={`app/
+├── (public)/              ← No provider, no SSE connection
+│   ├── layout.tsx         ← Plain layout (no NotifyKitProvider)
+│   ├── page.tsx           ← Landing page
+│   └── login/page.tsx     ← Login page
+├── (app)/                 ← Provider wraps this group
+│   ├── layout.tsx         ← Has NotifyKitProvider
+│   ├── dashboard/page.tsx
+│   └── settings/page.tsx
+└── api/
+    └── notifykit/[...route]/route.ts`}
+      />
+      <Code
+        filename="app/(app)/layout.tsx"
+        code={`import { NotifyKitProvider } from "@notifykitjs/react"
+import { redirect } from "next/navigation"
+import { auth } from "@/lib/auth"
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth()
+  if (!session) redirect("/login")
+
+  return (
+    <NotifyKitProvider options={{ baseUrl: "/api/notifykit" }}>
+      {children}
+    </NotifyKitProvider>
+  )
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>When to use</th><th>Trade-off</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Root layout</strong></td>
+            <td>Every page requires auth (dashboards, internal tools)</td>
+            <td>Simple, but unauthenticated pages trigger 401s from the SSE connection</td>
+          </tr>
+          <tr>
+            <td><strong>Route groups</strong></td>
+            <td>Mix of public and authenticated pages</td>
+            <td>Slightly more files, but no wasted connections on public pages</td>
+          </tr>
+          <tr>
+            <td><strong>Conditional render</strong></td>
+            <td>Single layout, but some users are logged out</td>
+            <td>Provider mounts/unmounts on auth state change — hooks reset on login</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Conditional render (alternative)</h3>
+      <p>
+        If route groups don&apos;t fit your structure, conditionally render
+        the provider based on session state:
+      </p>
+      <Code
+        filename="app/layout.tsx"
+        code={`import { NotifyKitProvider } from "@notifykitjs/react"
+import { auth } from "@/lib/auth"
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth()
+
+  return (
+    <html>
+      <body>
+        {session ? (
+          <NotifyKitProvider options={{ baseUrl: "/api/notifykit" }}>
+            {children}
+          </NotifyKitProvider>
+        ) : (
+          children
+        )}
+      </body>
+    </html>
+  )
+}`}
+      />
+      <div className="callout callout-warn">
+        <strong>Don&apos;t render the provider without a session.</strong> The
+        provider immediately opens an SSE connection to <code>/events</code>.
+        Without a valid session cookie, every connection attempt returns 401 —
+        creating a retry loop that wastes bandwidth and floods your server logs.
+      </div>
+      <div className="callout callout-tip">
+        <strong>Route groups are the cleanest pattern.</strong> They avoid
+        conditional logic in layouts, prevent SSE connections on public pages,
+        and make the auth boundary explicit in your file tree. Start here unless
+        you have a reason not to.
+      </div>
 
       <h2>Full file tree</h2>
       <table>
@@ -374,6 +592,209 @@ describe("NotifyKit handler", () => {
         <code>(Request) → Response</code> function. Call it directly in tests
         with <code>new Request()</code> — no <code>supertest</code>, no
         server boot, sub-millisecond execution.
+      </div>
+
+      <h2>Deploying</h2>
+      <p>
+        Your local setup uses memory adapters and fake providers. Production
+        needs real credentials and platform-specific config. Here&apos;s what
+        changes per hosting platform:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Platform</th><th>SSE / realtime</th><th>Flush strategy</th><th>Key constraint</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Vercel (Pro/Enterprise)</strong></td>
+            <td>Works — streaming functions support SSE</td>
+            <td>External cron (Vercel Cron or upstream)</td>
+            <td>No persistent process — can&apos;t use <code>setTimeoutQueue</code> or <code>setInterval</code></td>
+          </tr>
+          <tr>
+            <td><strong>Vercel (Hobby)</strong></td>
+            <td>25s timeout — falls back to polling</td>
+            <td>External cron</td>
+            <td>SSE disconnects after ~25s. Use <code>refresh()</code> on an interval instead.</td>
+          </tr>
+          <tr>
+            <td><strong>Self-hosted (Node)</strong></td>
+            <td>Full SSE with no timeout</td>
+            <td><code>setInterval</code> in-process</td>
+            <td>Manage your own process lifecycle, TLS termination, and scaling</td>
+          </tr>
+          <tr>
+            <td><strong>Docker / Railway / Fly</strong></td>
+            <td>Full SSE (long-lived containers)</td>
+            <td><code>setInterval</code> or platform cron</td>
+            <td>Check platform&apos;s health check timeout — must exceed <code>heartbeatMs</code></td>
+          </tr>
+          <tr>
+            <td><strong>AWS Lambda (via SST/OpenNext)</strong></td>
+            <td>No SSE — Lambda times out</td>
+            <td>EventBridge Scheduler or SQS</td>
+            <td>Use polling or an external WebSocket service for realtime</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Environment variables</h3>
+      <p>
+        Set these in your platform&apos;s environment configuration. All are
+        required for a working production deploy:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Purpose</th><th>Where to get it</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>NOTIFYKIT_SECRET</code></td>
+            <td>Signs unsubscribe tokens (HMAC-SHA256)</td>
+            <td>Generate: <code>openssl rand -hex 32</code></td>
+          </tr>
+          <tr>
+            <td><code>DATABASE_URL</code></td>
+            <td>Postgres connection string for the Drizzle adapter</td>
+            <td>Your database provider (Neon, Supabase, RDS, etc.)</td>
+          </tr>
+          <tr>
+            <td><code>RESEND_API_KEY</code></td>
+            <td>Email delivery (or your provider&apos;s equivalent)</td>
+            <td>Provider dashboard → API Keys</td>
+          </tr>
+          <tr>
+            <td><code>RESEND_FROM</code></td>
+            <td>Sender address: <code>App &lt;noreply@yourapp.com&gt;</code></td>
+            <td>Must match a verified domain in your provider</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-warn">
+        <strong>NOTIFYKIT_SECRET must be stable.</strong> Rotating it invalidates
+        all outstanding unsubscribe links in sent emails. If you must rotate,
+        keep the old secret in a <code>NOTIFYKIT_SECRET_PREVIOUS</code> env var
+        and configure both — the handler tries both when verifying tokens.
+      </div>
+
+      <h3>Pre-deploy checklist</h3>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Swap adapters</strong>
+            <p><code>memoryAdapter()</code> → <code>drizzlePostgresAdapter(db)</code>. Run migrations.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Swap providers</strong>
+            <p><code>fakeEmailProvider()</code> → <code>resendProvider()</code>. Test with <Link href="/docs/providers">the smoke test script</Link>.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Wire real auth</strong>
+            <p>Replace any hardcoded <code>identify()</code> with your production session resolver.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Set baseUrl</strong>
+            <p>Update <code>unsubscribe.baseUrl</code> to your production URL (e.g. <code>https://app.com/api/notifykit</code>).</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">5</span>
+          <div>
+            <strong>Verify end-to-end</strong>
+            <p>Send a test notification to yourself. Confirm: inbox item appears, email arrives, unsubscribe link works.</p>
+          </div>
+        </div>
+      </div>
+      <div className="callout callout-tip">
+        <strong>Deploy without email first.</strong> Ship with{" "}
+        <code>fakeEmailProvider()</code> and only <code>inbox</code> channels
+        enabled. Verify the route handler, auth, and database work in production.
+        Then swap in the real email provider in a follow-up deploy — this
+        isolates failures.
+      </div>
+
+      <h2>Cron routes for serverless</h2>
+      <p>
+        Serverless platforms (Vercel, Lambda) have no persistent process to run
+        timers. You need cron-triggered routes that call{" "}
+        <code>flushScheduledSends()</code> and <code>flushDigests()</code> on a
+        schedule. Without these, quiet-hours sends and digests never fire.
+      </p>
+      <Code
+        filename="app/api/cron/notifykit/route.ts"
+        code={`import { notify } from "@/lib/notifykit"
+import { NextResponse } from "next/server"
+
+// Vercel Cron calls this route on a schedule.
+// Protect with CRON_SECRET to prevent public access.
+export async function GET(request: Request) {
+  const authHeader = request.headers.get("authorization")
+  if (authHeader !== \`Bearer \${process.env.CRON_SECRET}\`) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+  }
+
+  const [scheduledResults, digestResults] = await Promise.all([
+    notify.flushScheduledSends(),
+    notify.flushDigests(),
+  ])
+
+  return NextResponse.json({
+    scheduled: scheduledResults.length,
+    digests: digestResults.length,
+    flushedAt: new Date().toISOString(),
+  })
+}`}
+      />
+      <Code
+        filename="vercel.json"
+        code={`{
+  "crons": [
+    {
+      "path": "/api/cron/notifykit",
+      "schedule": "* * * * *"
+    }
+  ]
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Method</th><th>What it flushes</th><th>When it matters</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>flushScheduledSends()</code></td>
+            <td>Sends deferred by quiet hours</td>
+            <td>User has quiet hours 10pm–8am — email queued at 11pm delivers at 8am</td>
+          </tr>
+          <tr>
+            <td><code>flushDigests()</code></td>
+            <td>Digest buckets past their window</td>
+            <td>User gets a single &quot;5 new comments&quot; email instead of 5 separate ones</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-warn">
+        <strong>Protect the cron endpoint.</strong> Without the{" "}
+        <code>CRON_SECRET</code> check, anyone can trigger flushes by hitting
+        the URL. Vercel automatically sends the <code>Authorization</code> header
+        from your environment — set <code>CRON_SECRET</code> in your Vercel
+        project settings to match.
+      </div>
+      <div className="callout callout-tip">
+        <strong>1-minute schedule is fine for most apps.</strong> Cron fires every
+        minute but only processes items whose window has expired. If nothing is
+        pending, the call returns immediately with zero results. The cost is one
+        cold start per minute, not one email per minute.
       </div>
 
       <h2>Troubleshooting</h2>

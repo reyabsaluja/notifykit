@@ -15,27 +15,18 @@ export default function DefiningPage() {
         your app can rely on.
       </p>
 
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">id</span>
-          <div>
-            <strong>Identifier</strong>
-            <p>A unique string like <code>&quot;comment_mentioned&quot;</code>. Used in <code>send()</code>, preferences, and rate limit scoping.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Identifier</h3>
+          <p>A unique string like <code>&quot;comment_mentioned&quot;</code>. Used in <code>send()</code>, preferences, and rate limit scoping.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">{"{}"}</span>
-          <div>
-            <strong>Payload</strong>
-            <p>A typed schema of the data this notification needs. Enforced at compile time and validated at runtime.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Payload</h3>
+          <p>A typed schema of the data this notification needs. Enforced at compile time and validated at runtime.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">[ ]</span>
-          <div>
-            <strong>Channels</strong>
-            <p>Where to deliver — inbox, email, SMS, webhook. Each channel has its own template using <code>{`{{payload}}`}</code> interpolation.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Channels</h3>
+          <p>Where to deliver — inbox, email, SMS, webhook. Each channel has its own template using <code>{`{{payload}}`}</code> interpolation.</p>
         </div>
       </div>
 
@@ -116,7 +107,7 @@ notification({
   channels: [...],
 })`}
       />
-      <div className="callout">
+      <div className="callout callout-warn">
         <strong>Validation runs on every <code>send()</code>.</strong> If the
         payload doesn&apos;t match, the send short-circuits with{" "}
         <code>invalid_payload</code> — no delivery attempts, no records written.
@@ -185,34 +176,22 @@ notification({
         need the first two — add complexity when you observe problems, not
         upfront.
       </p>
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Must it always deliver?</strong>
-            <p>Password resets, 2FA, receipts → set <code>required: true</code>. This bypasses user preference opt-outs.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Must it always deliver?</h3>
+          <p>Password resets, 2FA, receipts → set <code>required: true</code>. This bypasses user preference opt-outs.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Can the same event fire rapidly?</strong>
-            <p>Multiple likes, edits, or comments in seconds → add <code>digest</code> with a window (e.g. 5 min). Users get one email, not twenty.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Can the same event fire rapidly?</h3>
+          <p>Multiple likes, edits, or comments in seconds → add <code>digest</code> with a window (e.g. 5 min). Users get one email, not twenty.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Could a bad actor trigger it in a loop?</strong>
-            <p>Any user-initiated event that targets another user → add <code>rateLimit</code>. Caps sends per recipient per window.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Could a bad actor trigger it in a loop?</h3>
+          <p>Any user-initiated event that targets another user → add <code>rateLimit</code>. Caps sends per recipient per window.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Is delivery failure unacceptable?</strong>
-            <p>Critical alerts where the user must see it → add <code>fallback</code> to a secondary channel (usually inbox).</p>
-          </div>
+        <div className="feature-card">
+          <h3>Is delivery failure unacceptable?</h3>
+          <p>Critical alerts where the user must see it → add <code>fallback</code> to a secondary channel (usually inbox).</p>
         </div>
       </div>
       <table>
@@ -301,6 +280,30 @@ notification({
         your channel templates. Structure it around what the <em>recipient</em>{" "}
         needs to understand — not around your internal data model.
       </p>
+
+      <div className="features">
+        <div className="feature-card">
+          <h3>Actor + target</h3>
+          <p>Someone did something to something. Comments, mentions, reviews, assignments.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Status change</h3>
+          <p>Something changed state. Orders, deployments, approvals, workflow transitions.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Content preview</h3>
+          <p>Someone created content you should see. Messages, posts, document edits.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Threshold alert</h3>
+          <p>A metric crossed a boundary. Usage limits, latency spikes, budget caps.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Action required</h3>
+          <p>The recipient must do something by a deadline. Approvals, reviews, renewals.</p>
+        </div>
+      </div>
+
       <table>
         <thead>
           <tr><th>Pattern</th><th>Shape</th><th>Use for</th><th>Template example</th></tr>
@@ -515,7 +518,7 @@ notification({
           <tr><td><code>redact</code></td><td>Actor email appears in logs as <code>[REDACTED]</code> — only needed for delivery</td></tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Start simple, add features as you need them.</strong> Most
         notifications only need <code>id</code>, <code>payload</code>, and{" "}
         <code>channels</code>. Add rate limiting when you observe spam, digests
@@ -528,27 +531,18 @@ notification({
         Notification definitions live in code and evolve with your app. Use
         this quick matrix to assess changes before you deploy:
       </p>
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">&#10003;</span>
-          <div>
-            <strong>Safe — deploy freely</strong>
-            <p>Change template text, add an optional payload field, add or remove a channel, tweak <code>rateLimit</code> / <code>digest</code> values.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Safe — deploy freely</h3>
+          <p>Change template text, add an optional payload field, add or remove a channel, tweak <code>rateLimit</code> / <code>digest</code> values.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">&#9888;</span>
-          <div>
-            <strong>Risky — review first</strong>
-            <p>Remove a payload field (search all <code>send()</code> sites), delete a notification (wait for in-flight to drain).</p>
-          </div>
+        <div className="feature-card">
+          <h3>Risky — review first</h3>
+          <p>Remove a payload field (search all <code>send()</code> sites), delete a notification (wait for in-flight to drain).</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">&#10007;</span>
-          <div>
-            <strong>Breaking — requires migration</strong>
-            <p>Rename a notification ID (preferences, dedup keys, and rate limit counters reference the old one).</p>
-          </div>
+        <div className="feature-card">
+          <h3>Breaking — requires migration</h3>
+          <p>Rename a notification ID (preferences, dedup keys, and rate limit counters reference the old one).</p>
         </div>
       </div>
       <table>
@@ -723,59 +717,6 @@ export const notify = createNotifyKit({
         the correct payload shape for each.
       </p>
 
-      <h2>File organization</h2>
-      <p>
-        One notification per file keeps things manageable as your count grows.
-        Here are patterns teams use at different scales:
-      </p>
-      <table>
-        <thead>
-          <tr><th>Scale</th><th>Pattern</th><th>File structure</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>1–5 notifications</strong></td>
-            <td>All in one file</td>
-            <td><code>lib/notifykit.ts</code> — definitions + instance together</td>
-          </tr>
-          <tr>
-            <td><strong>5–20 notifications</strong></td>
-            <td>One file per notification</td>
-            <td><code>lib/notifications/comment-mentioned.ts</code>, <code>order-shipped.ts</code>, etc.</td>
-          </tr>
-          <tr>
-            <td><strong>20+ notifications</strong></td>
-            <td>Grouped by category + barrel</td>
-            <td><code>lib/notifications/activity/</code>, <code>billing/</code>, <code>social/</code> with <code>index.ts</code> per folder</td>
-          </tr>
-        </tbody>
-      </table>
-      <Code
-        code={`// Pattern: barrel file for large projects
-// lib/notifications/index.ts
-export { commentMentioned } from "./activity/comment-mentioned"
-export { taskAssigned } from "./activity/task-assigned"
-export { newFollower } from "./social/new-follower"
-export { postLiked } from "./social/post-liked"
-export { invoicePaid } from "./billing/invoice-paid"
-export { passwordReset } from "./billing/password-reset"
-
-// lib/notifykit.ts — single import
-import * as notifications from "./notifications"
-
-export const notify = createNotifyKit({
-  notifications: Object.values(notifications) as const,
-  // ...
-})`}
-      />
-      <div className="callout callout-tip">
-        <strong>Co-locate definitions with the feature that sends them.</strong>{" "}
-        If <code>comment-mentioned</code> is only sent from the comments
-        module, consider keeping the definition there and re-exporting from the
-        barrel. When a feature is deleted, its notification definition goes with
-        it — no orphaned code.
-      </div>
-
       <h2>Safe schema evolution</h2>
       <p>
         Once a notification is in production, changing its payload schema
@@ -900,6 +841,356 @@ notification({
         attempts at exponential backoff, add ~30 seconds for the retry tail.
         For <code>inlineQueue()</code>, there&apos;s no wait — sends resolve
         synchronously.
+      </div>
+
+      <h2>File organization</h2>
+      <p>
+        One notification per file keeps things manageable as your count grows.
+        Scale your structure to match your notification count:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Scale</th><th>Pattern</th><th>File structure</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>1–5 notifications</strong></td>
+            <td>All in one file</td>
+            <td><code>lib/notifykit.ts</code> — definitions + instance together</td>
+          </tr>
+          <tr>
+            <td><strong>5–20 notifications</strong></td>
+            <td>One file per notification</td>
+            <td><code>lib/notifications/comment-mentioned.ts</code>, <code>order-shipped.ts</code>, etc.</td>
+          </tr>
+          <tr>
+            <td><strong>20+ notifications</strong></td>
+            <td>Grouped by domain + barrel</td>
+            <td><code>lib/notifications/activity/</code>, <code>billing/</code>, <code>social/</code> with <code>index.ts</code> per folder</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        code={`// lib/notifications/index.ts — barrel export for all definitions
+export { commentMentioned } from "./activity/comment-mentioned"
+export { taskAssigned } from "./activity/task-assigned"
+export { newFollower } from "./social/new-follower"
+export { invoicePaid } from "./billing/invoice-paid"
+export { passwordReset } from "./billing/password-reset"
+
+// lib/notifykit.ts — single import, wire up
+import * as notifications from "./notifications"
+
+export const notify = createNotifyKit({
+  notifications: Object.values(notifications) as const,
+  database: drizzlePostgresAdapter(db),
+  providers: { email: resendProvider({ ... }) },
+})`}
+      />
+      <div className="callout callout-tip">
+        <strong>One file per notification is the sweet spot.</strong> Each file
+        is self-contained (payload, channels, options), easy to find by ID,
+        and gives clean git blame. Co-locate definitions with the feature that
+        sends them — when a feature is deleted, its notification goes with it.
+      </div>
+
+      <h3>Shared channel builders</h3>
+      <p>
+        When multiple notifications share the same email structure or inbox
+        format, extract a builder to avoid repetition:
+      </p>
+      <Code
+        code={`// lib/notifications/_shared.ts
+import { channel } from "@notifykitjs/core"
+
+const inbox = channel.inbox()
+const email = channel.email()
+
+export function actorInbox(template: { action: string; target: string }) {
+  return inbox({
+    title: \`{{actorName}} \${template.action}\`,
+    body: \`In \${template.target}\`,
+    actionUrl: "{{actionUrl}}",
+  })
+}
+
+export function transactionalEmail(subject: string) {
+  return email({
+    subject,
+    body: \`\${subject}\\n\\n{{body}}\\n\\n---\\nUnsubscribe: {{_unsubscribeUrl}}\`,
+  })
+}
+
+// lib/notifications/comment-mentioned.ts
+import { notification } from "@notifykitjs/core"
+import { actorInbox, transactionalEmail } from "./_shared"
+
+export const commentMentioned = notification({
+  id: "comment_mentioned",
+  payload: { actorName: "string", postTitle: "string", actionUrl: "string", body: "string" },
+  channels: [
+    actorInbox({ action: "mentioned you", target: "{{postTitle}}" }),
+    transactionalEmail("{{actorName}} mentioned you in {{postTitle}}"),
+  ],
+})`}
+      />
+
+      <h3>When to split vs combine</h3>
+      <p>
+        A common question: should &quot;comment mentioned&quot; and
+        &quot;comment replied&quot; be one notification or two? Use this
+        decision framework:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Question</th><th>If yes → split</th><th>If no → combine</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Do users want separate preference toggles?</td>
+            <td>&quot;Mentions&quot; and &quot;Replies&quot; as separate rows in settings</td>
+            <td>One &quot;Comments&quot; toggle covers both</td>
+          </tr>
+          <tr>
+            <td>Are the payloads meaningfully different?</td>
+            <td>A mention has <code>postUrl</code>, a deploy has <code>buildId + logs</code></td>
+            <td>Both carry <code>actorName + targetUrl</code></td>
+          </tr>
+          <tr>
+            <td>Would they have different rate limits or digests?</td>
+            <td>Mentions digest at 5min, replies deliver immediately</td>
+            <td>Same noise profile, same delivery rules</td>
+          </tr>
+          <tr>
+            <td>Do different channels apply?</td>
+            <td>Mentions → inbox + email, deploys → webhook only</td>
+            <td>Both go to inbox + email</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>When in doubt, split.</strong> It&apos;s trivial to merge two
+        notifications later (combine into one ID, update send calls). Splitting
+        one into two is harder — you need to migrate existing preference rows
+        and update every send call site.
+      </div>
+
+      <h2>Testing your definitions</h2>
+      <p>
+        Notification definitions are the contract between your app and your
+        users. Test them the same way you&apos;d test any API contract — verify
+        that the right channels fire, templates render correctly, and invalid
+        payloads are rejected.
+      </p>
+      <table>
+        <thead>
+          <tr><th>What to test</th><th>Why</th><th>Catches</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Template rendering</strong></td>
+            <td>Verifies payload fields appear where expected</td>
+            <td>Typos in <code>{`{{field}}`}</code> names, missing fields rendering blank</td>
+          </tr>
+          <tr>
+            <td><strong>Channel selection</strong></td>
+            <td>Confirms the right channels fire for each notification</td>
+            <td>Accidentally removing a channel, or adding one users don&apos;t expect</td>
+          </tr>
+          <tr>
+            <td><strong>Payload validation</strong></td>
+            <td>Ensures malformed data is rejected at send time</td>
+            <td>Missing required fields, wrong types, schema drift</td>
+          </tr>
+          <tr>
+            <td><strong>Digest rendering</strong></td>
+            <td>Confirms batched payloads merge into a coherent message</td>
+            <td>Broken <code>render()</code> when count is 1 vs many, undefined access</td>
+          </tr>
+          <tr>
+            <td><strong>Rate limit behavior</strong></td>
+            <td>Proves the cap is enforced at the expected threshold</td>
+            <td>Rate limit misconfigured (too high or too low)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Pattern: definition smoke tests</h3>
+      <Code
+        code={`import { describe, it, expect } from "vitest"
+import { createNotifyKit, memoryAdapter, fakeEmailProvider } from "@notifykitjs/core"
+import { commentMentioned, orderShipped } from "./notifications"
+
+function setup() {
+  return createNotifyKit({
+    notifications: [commentMentioned, orderShipped] as const,
+    database: memoryAdapter(),
+    providers: { email: fakeEmailProvider() },
+  })
+}
+
+describe("notification definitions", () => {
+  it("comment_mentioned renders actor name in inbox title", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "u1", email: "test@test.com" })
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postTitle: "Launch", postUrl: "/p/1" },
+    })
+
+    expect(result.inboxItems[0].title).toBe("Rey mentioned you")
+    expect(result.inboxItems[0].body).toBe("In Launch")
+    expect(result.inboxItems[0].actionUrl).toBe("/p/1")
+  })
+
+  it("comment_mentioned delivers to both inbox and email", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "u1", email: "test@test.com" })
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postTitle: "Launch", postUrl: "/p/1" },
+    })
+
+    expect(result.inboxItems).toHaveLength(1)
+    expect(result.deliveries.find(d => d.channel === "email")).toBeDefined()
+  })
+
+  it("rejects invalid payload (missing required field)", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "u1", email: "test@test.com" })
+
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      // @ts-expect-error — testing runtime validation
+      payload: { actorName: "Rey" },
+    })
+
+    expect(result.skipped).toBe(true)
+    expect(result.skipReason).toBe("invalid_payload")
+  })
+})`}
+      />
+
+      <h3>Testing digest rendering</h3>
+      <p>
+        Digests are the trickiest part of a definition to get right —
+        the <code>render()</code> function must handle both the single-event and
+        multi-event case gracefully:
+      </p>
+      <Code
+        code={`describe("comment_mentioned digest", () => {
+  it("renders single event as normal message", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "u1", email: "test@test.com" })
+
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postTitle: "Launch", postUrl: "/p/1", commentPreview: "looks good!" },
+    })
+
+    // Flush the digest window
+    const flushed = await notify.flushDigests()
+    expect(flushed[0].inboxItems[0].body).toBe("looks good!")
+  })
+
+  it("renders multiple events as count summary", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "u1", email: "test@test.com" })
+
+    // Send 3 events within the digest window
+    for (const actor of ["Rey", "Sam", "Alex"]) {
+      await notify.send({
+        recipientId: "u1",
+        notificationId: "comment_mentioned",
+        payload: { actorName: actor, postTitle: "Launch", postUrl: "/p/1", commentPreview: "..." },
+      })
+    }
+
+    const flushed = await notify.flushDigests()
+    expect(flushed[0].inboxItems[0].body).toBe("3 new mentions")
+  })
+})`}
+      />
+
+      <h3>Testing rate limits on definitions</h3>
+      <Code
+        code={`describe("comment_mentioned rate limit", () => {
+  it("enforces max 30 sends per hour", async () => {
+    const notify = setup()
+    await notify.upsertRecipient({ id: "u1", email: "test@test.com" })
+
+    // Send up to the limit
+    for (let i = 0; i < 30; i++) {
+      const result = await notify.send({
+        recipientId: "u1",
+        notificationId: "comment_mentioned",
+        payload: { actorName: \`User \${i}\`, postTitle: "Post", postUrl: "/p/1" },
+      })
+      expect(result.skipped).toBeFalsy()
+    }
+
+    // 31st send should be rate-limited
+    const blocked = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "One More", postTitle: "Post", postUrl: "/p/1" },
+    })
+
+    expect(blocked.skipped).toBe(true)
+    expect(blocked.skipReason).toBe("rate_limited")
+  })
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Test level</th><th>What it proves</th><th>Speed</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Template rendering</strong></td>
+            <td>Payload fields map to the right template slots</td>
+            <td>&lt; 10ms (in-memory, no I/O)</td>
+          </tr>
+          <tr>
+            <td><strong>Channel delivery</strong></td>
+            <td>Correct channels fire (inbox, email, SMS)</td>
+            <td>&lt; 10ms (fake provider)</td>
+          </tr>
+          <tr>
+            <td><strong>Validation rejection</strong></td>
+            <td>Malformed payloads fail gracefully with a reason</td>
+            <td>&lt; 10ms</td>
+          </tr>
+          <tr>
+            <td><strong>Digest rendering</strong></td>
+            <td>Single and multi-event <code>render()</code> both work</td>
+            <td>&lt; 50ms (flush triggers render)</td>
+          </tr>
+          <tr>
+            <td><strong>Rate limit</strong></td>
+            <td>Cap is enforced at the configured threshold</td>
+            <td>~100ms (many sends in a loop)</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Run definition tests on every PR.</strong> They&apos;re the fastest
+        tests in your suite (in-memory adapter, fake providers, no network) and
+        catch the most embarrassing bugs — a typo in a template field means users
+        see blank notifications in production. One test file per notification keeps
+        coverage proportional to your notification count.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/sending" className="primary">Send notifications</Link>
+        <Link href="/docs/channels">Configure channels</Link>
+        <Link href="/docs/digests">Add digests</Link>
       </div>
 
       <div className="page-nav">

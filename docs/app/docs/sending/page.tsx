@@ -39,6 +39,219 @@ export default function SendingPage() {
         </div>
       </div>
 
+      <h2>Common patterns</h2>
+      <p>
+        Most sends fit one of these four shapes. Copy the one that matches your
+        use case — each handles the safety concern for that context:
+      </p>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Fire-and-forget</h3>
+          <p>User action in a server action — non-blocking, dedup prevents double-sends.</p>
+          <code style={{ fontSize: "0.8em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`void notify.send({
+  recipientId: userId,
+  notificationId: "comment_mentioned",
+  payload: { ... },
+  dedupeKey: \`mention:\${postId}:\${actorId}\`,
+  dedupeWindowMs: 5 * 60_000,
+})`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>Retry-safe webhook</h3>
+          <p>Incoming webhook that may fire multiple times — idempotency key guarantees at-most-once.</p>
+          <code style={{ fontSize: "0.8em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`await notify.send({
+  recipientId: userId,
+  notificationId: "payment_received",
+  payload: { ... },
+  idempotencyKey: \`stripe:\${event.id}\`,
+})`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>Broadcast to a list</h3>
+          <p>Fan-out to a team or followers — parallel with per-recipient idempotency keys.</p>
+          <code style={{ fontSize: "0.8em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`await Promise.allSettled(
+  userIds.map(id => notify.send({
+    recipientId: id,
+    notificationId: "project_shipped",
+    payload: { ... },
+    idempotencyKey: \`ship:\${projId}:\${id}\`,
+  }))
+)`}</code>
+        </div>
+        <div className="feature-card">
+          <h3>Preview before sending</h3>
+          <p>Dry-run for debugging or admin tooling — zero side effects, shows full pipeline resolution.</p>
+          <code style={{ fontSize: "0.8em", whiteSpace: "pre", display: "block", marginTop: "0.5rem" }}>{`const explanation = await notify.explain({
+  recipientId: userId,
+  notificationId: "comment_mentioned",
+  payload: { ... },
+})
+// explanation.channels.email.outcome`}</code>
+        </div>
+      </div>
+      <div className="callout callout-tip">
+        <strong>Not sure which pattern?</strong> If the caller can retry → add{" "}
+        <code>idempotencyKey</code>. If the user can trigger the same event twice →
+        add <code>dedupeKey</code>. If response time matters → use{" "}
+        <code>void</code> (fire-and-forget). Scroll down for the full decision flow.
+      </div>
+
+      <h2>Pipeline decision map</h2>
+      <p>
+        Each send passes through a sequence of gates. At every gate, the pipeline
+        can exit early with a specific outcome. When debugging &quot;why didn&apos;t
+        the user get it?&quot; — find which gate stopped it:
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Gate</th><th>Check</th><th>If it fails</th><th><code>SendResult</code> signal</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>1. Payload validation</strong></td>
+            <td>Schema match (types + required fields)</td>
+            <td>Throws — no record created, no delivery</td>
+            <td>Exception (not a result field)</td>
+          </tr>
+          <tr>
+            <td><strong>2. Idempotency</strong></td>
+            <td>Has this <code>idempotencyKey</code> been seen?</td>
+            <td>Returns the original result immediately</td>
+            <td><code>idempotent: true</code></td>
+          </tr>
+          <tr>
+            <td><strong>3. Deduplication</strong></td>
+            <td>Has this <code>dedupeKey</code> been seen within the window?</td>
+            <td>Send is dropped — permanently gone</td>
+            <td><code>notification: null</code></td>
+          </tr>
+          <tr>
+            <td><strong>4. Rate limit</strong></td>
+            <td>Is the recipient under the threshold for this notification?</td>
+            <td>Send is dropped — permanently gone</td>
+            <td><code>rateLimited: true</code></td>
+          </tr>
+          <tr>
+            <td><strong>5. Digest buffer</strong></td>
+            <td>Is a digest configured? Buffer the payload.</td>
+            <td>Buffered for later — no immediate delivery</td>
+            <td><code>digested: true</code></td>
+          </tr>
+          <tr>
+            <td><strong>6. Recipient lookup</strong></td>
+            <td>Does the recipient exist in the database?</td>
+            <td>Throws — send cannot proceed without a recipient</td>
+            <td>Exception (not a result field)</td>
+          </tr>
+          <tr>
+            <td><strong>7. Per-channel preference</strong></td>
+            <td>Has the user opted out of this channel?</td>
+            <td>Channel skipped (others may still fire)</td>
+            <td><code>skipped[].reason: &quot;preferences_disabled&quot;</code></td>
+          </tr>
+          <tr>
+            <td><strong>8. Destination check</strong></td>
+            <td>Does the recipient have the address (email, phone)?</td>
+            <td>Channel skipped</td>
+            <td><code>skipped[].reason: &quot;missing_address&quot;</code></td>
+          </tr>
+          <tr>
+            <td><strong>9. Condition function</strong></td>
+            <td>Does the channel&apos;s <code>condition(payload)</code> return true?</td>
+            <td>Channel skipped</td>
+            <td><code>skipped[].reason: &quot;condition_false&quot;</code></td>
+          </tr>
+          <tr>
+            <td><strong>10. Quiet hours</strong></td>
+            <td>Is the recipient in their quiet window? (push channels only)</td>
+            <td>Deferred — scheduled for window end</td>
+            <td><code>deferredChannels: [&quot;email&quot;, ...]</code></td>
+          </tr>
+          <tr>
+            <td><strong>11. Delivery</strong></td>
+            <td>Provider call succeeds?</td>
+            <td>Retried with backoff → fallback if exhausted</td>
+            <td><code>deliveries[].status: &quot;sent&quot; | &quot;failed&quot;</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-tip">
+        <strong>Read the table top-to-bottom.</strong> Gates are checked in this
+        exact order. If gate 4 (rate limit) stops the send, gates 5–11 never run.
+        The <code>SendResult</code> always tells you which gate was the last one
+        reached — use it to pinpoint where the pipeline stopped.
+      </div>
+
+      <div className="callout callout-warn">
+        <strong>Gates 1–5 are &quot;whole-send&quot; exits.</strong> They stop the
+        entire notification. Gates 7–10 are per-channel — one channel can be skipped
+        while another delivers successfully. A send can have{" "}
+        <code>skipped.length &gt; 0</code> AND <code>deliveries.length &gt; 0</code>{" "}
+        at the same time.
+      </div>
+
+      <h2>Quick troubleshooting</h2>
+      <p>
+        Send not working? Match your symptom to the root cause and fix:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Symptom</th><th>Root cause</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>send()</code> throws <code>VALIDATION_ERROR</code></td>
+            <td>Payload doesn&apos;t match the notification&apos;s schema</td>
+            <td>Check field names and types against your <code>payload</code> definition. Missing fields and wrong types both trigger this.</td>
+          </tr>
+          <tr>
+            <td><code>send()</code> throws <code>RECIPIENT_NOT_FOUND</code></td>
+            <td><code>upsertRecipient()</code> was never called for this user</td>
+            <td>Call <code>upsertRecipient({`{ id, email }`})</code> before the first <code>send()</code>. Common in new-user signup flows.</td>
+          </tr>
+          <tr>
+            <td><code>result.deliveries</code> is empty, no inbox item</td>
+            <td>All channels were skipped (preferences, missing address, condition)</td>
+            <td>Check <code>result.skipped</code> — the <code>reason</code> field tells you which gate blocked it. Use <code>notify.explain()</code> for a full trace.</td>
+          </tr>
+          <tr>
+            <td>Inbox item created but no email sent</td>
+            <td>User opted out of email, or recipient has no <code>email</code> field</td>
+            <td>Check <code>result.skipped</code> for <code>preferences_disabled</code> or <code>missing_address</code>. Verify the recipient has an email.</td>
+          </tr>
+          <tr>
+            <td><code>result.rateLimited === true</code></td>
+            <td>Recipient exceeded the rate limit for this notification</td>
+            <td>Expected behavior. If the limit is too tight, increase <code>max</code> or widen <code>windowMs</code> in the notification definition.</td>
+          </tr>
+          <tr>
+            <td><code>result.digested === true</code>, nothing delivered</td>
+            <td>Send was buffered into a digest window — delivery happens later</td>
+            <td>Not a bug. Wait for the window to expire, or call <code>flushDigests()</code> to force it. In tests, use <code>windowMs: 0</code>.</td>
+          </tr>
+          <tr>
+            <td>Same notification sent twice to the same user</td>
+            <td>No <code>idempotencyKey</code> or <code>dedupeKey</code> configured</td>
+            <td>Add <code>idempotencyKey</code> (for retryable triggers) or <code>dedupeKey</code> (for user-triggered events). See Common patterns above.</td>
+          </tr>
+          <tr>
+            <td>Email delivered but arrives in spam</td>
+            <td>Sender domain not authenticated (SPF/DKIM/DMARC)</td>
+            <td>Not a NotifyKit issue — configure DNS records for your sending domain in your email provider&apos;s dashboard.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Use <code>notify.explain()</code> for any mystery.</strong> It
+        dry-runs the full pipeline — same validation, preferences, quiet hours,
+        channel resolution — and tells you what <em>would</em> happen without
+        actually sending. If <code>send()</code> isn&apos;t doing what you expect,{" "}
+        <code>explain()</code> shows you exactly which gate stopped it. See{" "}
+        <Link href="/docs/explain">Explain &amp; dry run</Link>.
+      </div>
+
       <h2>Basic send</h2>
       <Code
         code={`await notify.upsertRecipient({
@@ -95,7 +308,7 @@ const result = await notify.send({
           </tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Rule of thumb:</strong> if the caller can retry, add{" "}
         <code>idempotencyKey</code>. If the <em>user</em> can trigger the same
         logical event repeatedly, add <code>dedupeKey</code>. They solve
@@ -196,7 +409,7 @@ await notify.drain()`}
       />
 
       <h2>Quiet hours</h2>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Push channels defer, inbox delivers immediately.</strong>{" "}
         When a recipient is in their quiet window, email/SMS/webhook are
         scheduled for the window&apos;s end. The inbox item still writes
@@ -228,27 +441,18 @@ await notify.drain()`}
         for your context:
       </p>
 
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Can your trigger retry?</strong>
-            <p>Webhooks, queue jobs, and cron tasks can fire multiple times. If yes → add an <code>idempotencyKey</code>.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Can your trigger retry?</h3>
+          <p>Webhooks, queue jobs, and cron tasks can fire multiple times. If yes → add an <code>idempotencyKey</code>.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Does the user&apos;s response time depend on delivery?</strong>
-            <p>In server actions and API routes, the user waits. If the send is non-critical → use <code>void notify.send()</code> with <code>setTimeoutQueue()</code>.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Does the user&apos;s response time depend on delivery?</h3>
+          <p>In server actions and API routes, the user waits. If the send is non-critical → use <code>void notify.send()</code> with <code>setTimeoutQueue()</code>.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Can the same logical event fire many times?</strong>
-            <p>Multiple edits to the same comment, repeated likes. If yes → add a <code>dedupeKey</code> scoped to the entity.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Can the same logical event fire many times?</h3>
+          <p>Multiple edits to the same comment, repeated likes. If yes → add a <code>dedupeKey</code> scoped to the entity.</p>
         </div>
       </div>
 
@@ -306,7 +510,7 @@ export async function addComment(postId: string, body: string) {
   return comment
 }`}
       />
-      <div className="callout">
+      <div className="callout callout-warn">
         <strong>Don&apos;t await in hot paths.</strong> When sending from
         a server action or API handler where response time matters, use{" "}
         <code>void notify.send()</code> with <code>setTimeoutQueue()</code> —
@@ -484,103 +688,465 @@ function isTransient(error: unknown): boolean {
         no-op replay, and only the failed ones are re-attempted.
       </div>
 
-      <h2>Testing sends</h2>
+      <h2>Common anti-patterns</h2>
       <p>
-        Verify your application sends the right notifications without actually
-        delivering them. Use the memory adapter and fake providers to assert
-        on what <em>would</em> have been sent:
+        These patterns compile fine but cause subtle issues in production.
+        Each one shows the problem and the fix:
       </p>
-      <Code
-        code={`import { createNotifyKit, memoryAdapter, fakeEmailProvider } from "@notifykitjs/core"
-import { commentMentioned } from "@/lib/notifications"
-import { addComment } from "@/app/actions/comments"
-
-const testNotify = createNotifyKit({
-  notifications: [commentMentioned] as const,
-  database: memoryAdapter(),
-  providers: { email: fakeEmailProvider() },
-})
-
-// Inject the test instance into your action (DI or module mock)
-vi.mock("@/lib/notifykit", () => ({ notify: testNotify }))
-
-describe("addComment", () => {
-  beforeEach(async () => {
-    await testNotify.upsertRecipient({ id: "alice", email: "alice@test.com" })
-  })
-
-  it("sends a mention notification to tagged users", async () => {
-    await addComment("post_1", "Hey @alice check this out")
-
-    const result = await testNotify.getLastSendResult()
-    expect(result.notification?.notificationId).toBe("comment_mentioned")
-    expect(result.inboxItems).toHaveLength(1)
-    expect(result.inboxItems[0].recipientId).toBe("alice")
-  })
-
-  it("respects preferences — no email when opted out", async () => {
-    await testNotify.updatePreference({
-      recipientId: "alice",
-      notificationId: "comment_mentioned",
-      channels: { email: false },
-    })
-
-    await addComment("post_2", "Hey @alice")
-
-    const result = await testNotify.getLastSendResult()
-    expect(result.skipped).toContainEqual(
-      expect.objectContaining({ channel: "email", reason: "preferences_disabled" })
-    )
-    expect(result.deliveries).toHaveLength(0)
-  })
-
-  it("deduplicates rapid mentions in the same post", async () => {
-    await addComment("post_3", "Hey @alice")
-    await addComment("post_3", "Also @alice check the link")
-
-    // Second send is deduped (same post + same actor within window)
-    const result = await testNotify.getLastSendResult()
-    expect(result.idempotent || result.notification === null).toBe(true)
-  })
-})`}
-      />
       <table>
         <thead>
-          <tr><th>What to test</th><th>Assert on</th><th>Catches</th></tr>
+          <tr><th>Anti-pattern</th><th>What goes wrong</th><th>Fix</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td>Correct notification fires</td>
-            <td><code>result.notification?.notificationId</code></td>
-            <td>Wiring bugs — wrong ID, missing send call</td>
+            <td><strong>Awaiting in hot paths</strong></td>
+            <td>User waits 200–500ms for email provider call to complete before seeing a response</td>
+            <td>Use <code>void notify.send()</code> or <code>setTimeoutQueue()</code></td>
           </tr>
           <tr>
-            <td>Right recipient</td>
-            <td><code>result.inboxItems[0].recipientId</code></td>
-            <td>Notifying the actor instead of the mentioned user</td>
+            <td><strong>Generic dedup keys</strong></td>
+            <td>Key like <code>&quot;comment&quot;</code> silences all comment notifications after the first one</td>
+            <td>Scope to the entity: <code>{`\`comment:\${postId}:\${actorId}\``}</code></td>
           </tr>
           <tr>
-            <td>Payload correctness</td>
-            <td><code>result.inboxItems[0].title</code> / <code>.body</code></td>
-            <td>Template interpolation errors, missing fields</td>
+            <td><strong>Missing idempotency on retryable triggers</strong></td>
+            <td>Queue job retries → user gets the same email 3 times</td>
+            <td>Always add <code>idempotencyKey</code> when the caller can retry</td>
           </tr>
           <tr>
-            <td>Preference respect</td>
-            <td><code>result.skipped</code> array</td>
-            <td>Ignoring opt-outs, bypassing required channels</td>
+            <td><strong>Notifying the actor</strong></td>
+            <td>&quot;Rey commented on your post&quot; sent to Rey themselves</td>
+            <td>Filter <code>recipientId !== actorId</code> before sending</td>
           </tr>
           <tr>
-            <td>Dedup/idempotency</td>
-            <td><code>result.idempotent</code> or <code>result.notification === null</code></td>
-            <td>Duplicate notifications on retry or rapid events</td>
+            <td><strong>One notification ID for all audiences</strong></td>
+            <td>User can&apos;t opt out of low-priority &quot;watched post&quot; updates without also losing direct mentions</td>
+            <td>Separate IDs per audience: <code>comment_mentioned</code> vs <code>comment_on_watched</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <Code
+        code={`// ❌ Awaiting send in a server action — blocks the user response
+"use server"
+export async function addComment(postId: string, body: string) {
+  const comment = await db.comments.create({ postId, body })
+  await notify.send({ recipientId: mentioned, ... })  // 200-500ms delay
+  return comment
+}
+
+// ✅ Fire-and-forget — user gets their response immediately
+"use server"
+export async function addComment(postId: string, body: string) {
+  const comment = await db.comments.create({ postId, body })
+  void notify.send({ recipientId: mentioned, ... })  // returns instantly
+  return comment
+}`}
+      />
+
+      <Code
+        code={`// ❌ Generic dedup key — silences ALL comment notifications globally
+await notify.send({
+  recipientId: userId,
+  notificationId: "comment_mentioned",
+  payload,
+  dedupeKey: "comment",  // Only one comment notification per 5 min, ever
+})
+
+// ✅ Scoped dedup key — collapses only rapid duplicates for the same context
+await notify.send({
+  recipientId: userId,
+  notificationId: "comment_mentioned",
+  payload,
+  dedupeKey: \`comment:\${postId}:\${actorId}:\${recipientId}\`,
+})`}
+      />
+
+      <Code
+        code={`// ❌ No idempotency on a webhook handler — retries cause duplicates
+export async function POST(req: Request) {
+  const event = await req.json()
+  await notify.send({
+    recipientId: event.userId,
+    notificationId: "payment_received",
+    payload: { amount: event.amount },
+  })
+  return Response.json({ ok: true })
+}
+
+// ✅ Idempotency key derived from the event — retries are safe no-ops
+export async function POST(req: Request) {
+  const event = await req.json()
+  await notify.send({
+    recipientId: event.userId,
+    notificationId: "payment_received",
+    payload: { amount: event.amount },
+    idempotencyKey: \`stripe:\${event.id}\`,
+  })
+  return Response.json({ ok: true })
+}`}
+      />
+
+      <div className="callout callout-warn">
+        <strong>The pipeline won&apos;t save you from orchestration bugs.</strong>{" "}
+        Dedup, idempotency, and preferences work correctly at the{" "}
+        <code>send()</code> level — but if your code calls <code>send()</code>{" "}
+        with a wrong recipient, a too-broad key, or in the wrong place, the
+        pipeline will faithfully deliver the wrong thing. Test your orchestration
+        logic, not just the pipeline mechanics.
+      </div>
+
+      <h2>One event, multiple notifications</h2>
+      <p>
+        Real applications rarely send one notification per event. A single
+        domain action — posting a comment, shipping an order, completing a
+        deploy — usually triggers different notifications to different audiences.
+        Here&apos;s how to structure that fan-out:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Event</th><th>Audience</th><th>Notification</th><th>Why it&apos;s different</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td rowSpan={3}><strong>Comment posted</strong></td>
+            <td>@mentioned users</td>
+            <td><code>comment_mentioned</code></td>
+            <td>Urgent — they were directly addressed</td>
+          </tr>
+          <tr>
+            <td>Post author</td>
+            <td><code>comment_on_your_post</code></td>
+            <td>Important but not as targeted</td>
+          </tr>
+          <tr>
+            <td>Post watchers</td>
+            <td><code>comment_on_watched</code></td>
+            <td>Informational — they opted into updates</td>
+          </tr>
+          <tr>
+            <td rowSpan={3}><strong>Deploy completed</strong></td>
+            <td>PR author</td>
+            <td><code>deploy_succeeded</code></td>
+            <td>Their code is live — action item</td>
+          </tr>
+          <tr>
+            <td>Team channel (webhook)</td>
+            <td><code>deploy_webhook</code></td>
+            <td>System-to-system, no inbox needed</td>
+          </tr>
+          <tr>
+            <td>Stakeholders</td>
+            <td><code>release_shipped</code></td>
+            <td>High-level summary, different payload</td>
           </tr>
         </tbody>
       </table>
       <div className="callout callout-tip">
-        <strong>No cleanup needed.</strong> Each <code>memoryAdapter()</code>{" "}
-        instance is isolated. Create a fresh one per test (or per describe block)
-        and all state resets automatically — no database teardown, no shared
-        pollution between tests.
+        <strong>Separate notification IDs, not just recipients.</strong> Different
+        audiences need different urgency levels, channels, digest windows, and
+        preference controls. If you send the same <code>notificationId</code> to
+        everyone, users can&apos;t opt out of &quot;comment on watched post&quot;
+        without also losing &quot;mentioned you.&quot;
+      </div>
+
+      <h3>Orchestration pattern</h3>
+      <p>
+        Extract a notification dispatcher for each domain event. It receives
+        the event context and decides who gets what:
+      </p>
+      <Code
+        code={`// lib/notifications/on-comment-posted.ts
+import { notify } from "@/lib/notifykit"
+
+export async function onCommentPosted(comment: {
+  id: string
+  postId: string
+  authorId: string
+  body: string
+  postAuthorId: string
+}) {
+  const mentions = extractMentions(comment.body)
+  const watchers = await db.watchers.findMany({ where: { postId: comment.postId } })
+  const actor = await db.users.findFirst({ where: { id: comment.authorId } })
+
+  // 1. Notify mentioned users (highest priority)
+  const mentionSends = mentions
+    .filter(userId => userId !== comment.authorId) // don't notify yourself
+    .map(userId =>
+      notify.send({
+        recipientId: userId,
+        notificationId: "comment_mentioned",
+        payload: { actorName: actor.name, postUrl: \`/posts/\${comment.postId}\` },
+        dedupeKey: \`mention:\${comment.postId}:\${comment.authorId}:\${userId}\`,
+        dedupeWindowMs: 5 * 60_000,
+      })
+    )
+
+  // 2. Notify post author (unless they wrote the comment)
+  const authorSend = comment.authorId !== comment.postAuthorId
+    ? notify.send({
+        recipientId: comment.postAuthorId,
+        notificationId: "comment_on_your_post",
+        payload: { actorName: actor.name, postUrl: \`/posts/\${comment.postId}\` },
+        dedupeKey: \`reply:\${comment.postId}:\${comment.authorId}\`,
+        dedupeWindowMs: 5 * 60_000,
+      })
+    : null
+
+  // 3. Notify watchers (lowest priority — often digested)
+  const alreadyNotified = new Set([...mentions, comment.postAuthorId, comment.authorId])
+  const watcherSends = watchers
+    .filter(w => !alreadyNotified.has(w.userId))
+    .map(w =>
+      notify.send({
+        recipientId: w.userId,
+        notificationId: "comment_on_watched",
+        payload: { actorName: actor.name, postUrl: \`/posts/\${comment.postId}\` },
+      })
+    )
+
+  await Promise.allSettled([...mentionSends, authorSend, ...watcherSends].filter(Boolean))
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Design decision</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Deduplicate the audience</strong></td>
+            <td>A mentioned user who also watches the post should get the mention (higher priority), not both</td>
+          </tr>
+          <tr>
+            <td><strong>Skip self-notifications</strong></td>
+            <td>The comment author shouldn&apos;t get &quot;someone commented on your post&quot; for their own comment</td>
+          </tr>
+          <tr>
+            <td><strong>Different dedup keys per type</strong></td>
+            <td>Mention dedup scopes to (post, actor, target). Reply dedup scopes to (post, actor). Different collapse logic.</td>
+          </tr>
+          <tr>
+            <td><strong><code>Promise.allSettled</code></strong></td>
+            <td>One failed send (e.g., missing recipient) shouldn&apos;t block the others</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Where to call the dispatcher</h3>
+      <Code
+        code={`// Server action — fire after the mutation
+"use server"
+import { onCommentPosted } from "@/lib/notifications/on-comment-posted"
+
+export async function addComment(postId: string, body: string) {
+  const comment = await db.comments.create({ ... })
+
+  // Fire-and-forget — don't block the user response
+  void onCommentPosted(comment)
+
+  return comment
+}
+
+// Or from a background job (webhook, queue worker):
+export async function handleCommentWebhook(payload: CommentEvent) {
+  await onCommentPosted(payload.comment) // safe to await — no user waiting
+}`}
+      />
+      <div className="callout callout-tip">
+        <strong>One file per domain event.</strong> Keep orchestrators in{" "}
+        <code>lib/notifications/on-*.ts</code>. Each file owns the fan-out logic
+        for one event — who gets notified, with what priority, and which
+        dedup/idempotency keys to use. Your mutation code stays clean (one{" "}
+        <code>void onCommentPosted()</code> call) and notification logic is
+        testable in isolation.
+      </div>
+
+      <h2>Testing sends</h2>
+      <p>
+        Notification orchestration logic — who gets notified, with what keys,
+        from which trigger — is easy to get wrong and hard to debug in production.
+        Test at two levels: unit (the orchestrator in isolation) and integration
+        (the full pipeline with real results).
+      </p>
+
+      <h3>Test setup</h3>
+      <p>
+        Create a test instance with <code>memoryAdapter()</code> and{" "}
+        <code>fakeEmailProvider()</code> — zero external deps, instant delivery:
+      </p>
+      <Code
+        code={`// test/helpers/notifykit.ts
+import { createNotifyKit, memoryAdapter, fakeEmailProvider, channel, notification } from "@notifykitjs/core"
+
+export const commentMentioned = notification({
+  id: "comment_mentioned",
+  payload: { actorName: "string", postTitle: "string", postUrl: "string" },
+  channels: [
+    channel.inbox()({ title: "{{actorName}} mentioned you", body: "In {{postTitle}}", actionUrl: "{{postUrl}}" }),
+    channel.email()({ subject: "{{actorName}} mentioned you", body: "Open {{postUrl}}" }),
+  ],
+})
+
+export function createTestNotify() {
+  return createNotifyKit({
+    notifications: [commentMentioned] as const,
+    database: memoryAdapter(),
+    providers: { email: fakeEmailProvider() },
+  })
+}`}
+      />
+
+      <h3>Integration: assert on SendResult</h3>
+      <Code
+        code={`import { describe, it, expect, beforeEach } from "vitest"
+import { createTestNotify } from "./helpers/notifykit"
+
+describe("comment mention sends", () => {
+  let notify: ReturnType<typeof createTestNotify>
+
+  beforeEach(async () => {
+    notify = createTestNotify()
+    await notify.upsertRecipient({ id: "alice", email: "alice@test.com" })
+  })
+
+  it("delivers to inbox and email", async () => {
+    const result = await notify.send({
+      recipientId: "alice",
+      notificationId: "comment_mentioned",
+      payload: { actorName: "Rey", postTitle: "Launch", postUrl: "/p/1" },
+    })
+
+    expect(result.inboxItems).toHaveLength(1)
+    expect(result.inboxItems[0].title).toBe("Rey mentioned you")
+    expect(result.deliveries).toHaveLength(1)
+    expect(result.deliveries[0].channel).toBe("email")
+    expect(result.deliveries[0].status).toBe("sent")
+    expect(result.skipped).toHaveLength(0)
+  })
+
+  it("deduplicates within window", async () => {
+    const opts = {
+      recipientId: "alice" as const,
+      notificationId: "comment_mentioned" as const,
+      payload: { actorName: "Rey", postTitle: "Launch", postUrl: "/p/1" },
+      dedupeKey: "mention:p1:rey",
+      dedupeWindowMs: 60_000,
+    }
+
+    const first = await notify.send(opts)
+    const second = await notify.send(opts)
+
+    expect(first.inboxItems).toHaveLength(1)
+    expect(second.inboxItems).toHaveLength(0) // deduped
+  })
+
+  it("idempotency returns original result", async () => {
+    const opts = {
+      recipientId: "alice" as const,
+      notificationId: "comment_mentioned" as const,
+      payload: { actorName: "Rey", postTitle: "Launch", postUrl: "/p/1" },
+      idempotencyKey: "job:abc",
+    }
+
+    const first = await notify.send(opts)
+    const replay = await notify.send(opts)
+
+    expect(replay.idempotent).toBe(true)
+    expect(replay.notification?.id).toBe(first.notification?.id)
+  })
+})`}
+      />
+
+      <h3>Unit: test orchestrators in isolation</h3>
+      <p>
+        Your <code>on-*.ts</code> orchestrators are pure functions of the event.
+        Test the logic (who gets notified, skip-self, dedup keys) without
+        sending real notifications:
+      </p>
+      <Code
+        code={`// lib/notifications/on-comment-posted.test.ts
+import { describe, it, expect, vi } from "vitest"
+import { onCommentPosted } from "./on-comment-posted"
+
+// Mock the notify instance
+const mockSend = vi.fn().mockResolvedValue({ inboxItems: [], deliveries: [] })
+vi.mock("@/lib/notifykit", () => ({
+  notify: { send: (...args) => mockSend(...args) },
+}))
+
+describe("onCommentPosted", () => {
+  it("notifies mentioned users but not the author", async () => {
+    await onCommentPosted({
+      id: "c1",
+      postId: "p1",
+      authorId: "rey",
+      mentions: ["alice", "bob", "rey"], // rey should be filtered
+      postTitle: "Launch Plan",
+    })
+
+    expect(mockSend).toHaveBeenCalledTimes(2) // alice + bob, not rey
+    expect(mockSend).not.toHaveBeenCalledWith(
+      expect.objectContaining({ recipientId: "rey" })
+    )
+  })
+
+  it("uses per-mention dedup keys", async () => {
+    await onCommentPosted({
+      id: "c1",
+      postId: "p1",
+      authorId: "rey",
+      mentions: ["alice"],
+      postTitle: "Launch",
+    })
+
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dedupeKey: "mention:p1:rey:alice",
+      })
+    )
+  })
+})`}
+      />
+
+      <table>
+        <thead>
+          <tr><th>Test level</th><th>What it proves</th><th>Speed</th><th>When it catches bugs</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Unit (mocked send)</strong></td>
+            <td>Orchestration logic — who, skip-self, key design</td>
+            <td>&lt; 10ms</td>
+            <td>Before the notification system is even involved</td>
+          </tr>
+          <tr>
+            <td><strong>Integration (memory adapter)</strong></td>
+            <td>Full pipeline — preferences, dedup, delivery, result shape</td>
+            <td>&lt; 50ms</td>
+            <td>Payload mismatches, template bugs, dedup window issues</td>
+          </tr>
+          <tr>
+            <td><strong>E2E (real provider, staging)</strong></td>
+            <td>Actual email arrives, webhook hits endpoint</td>
+            <td>1–5s</td>
+            <td>Provider config, DNS, auth token expiry</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-tip">
+        <strong>Test the result, not the internals.</strong> Assert on{" "}
+        <code>result.inboxItems</code>, <code>result.skipped</code>, and{" "}
+        <code>result.deliveries</code> — not on database state or internal
+        method calls. The result is the public contract; internals can change
+        between versions without breaking your tests.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/channels" className="primary">Configure channels</Link>
+        <Link href="/docs/deduplication">Dedup &amp; idempotency</Link>
+        <Link href="/docs/explain">Debug with explain()</Link>
       </div>
 
       <div className="page-nav">

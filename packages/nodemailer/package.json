@@ -36,12 +36,12 @@
   },
   "peerDependencies": {
     "@notifykitjs/core": "^0.0.1",
-    "nodemailer": "^6.9.0"
+    "nodemailer": "^9.0.3"
   },
   "devDependencies": {
     "@notifykitjs/core": "^0.0.1",
-    "@types/nodemailer": "^6.4.17",
-    "nodemailer": "^6.9.0",
+    "@types/nodemailer": "^8.0.1",
+    "nodemailer": "^9.0.3",
     "typescript": "^5.6.3"
   },
   "sideEffects": false

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { sendDemoComment, sendWelcome } from "./actions";
 import { DemoInbox } from "./_components/demo-inbox";
 import { DemoPreferences } from "./_components/demo-preferences";
+import { DemoSender } from "./_components/demo-sender";
 
 export const metadata: Metadata = { title: "Live demo" };
 
@@ -18,31 +18,7 @@ export default function DemoPage() {
       </p>
 
       <h2>Send a test notification</h2>
-      <div className="button-row">
-        <form action={sendWelcome}>
-          <button type="submit" className="primary">
-            Send welcome
-          </button>
-        </form>
-        <form
-          action={sendDemoComment}
-          style={{ display: "inline-flex", gap: "0.5rem", flexWrap: "wrap" }}
-        >
-          <input
-            name="actorName"
-            defaultValue="Rey"
-            aria-label="Actor name"
-            style={{ padding: "0.4rem" }}
-          />
-          <input
-            name="postTitle"
-            defaultValue="Launch Plan"
-            aria-label="Post title"
-            style={{ padding: "0.4rem" }}
-          />
-          <button type="submit">Send comment mention</button>
-        </form>
-      </div>
+      <DemoSender />
 
       <h2>Your inbox</h2>
       <DemoInbox />

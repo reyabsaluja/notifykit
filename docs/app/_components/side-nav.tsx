@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 type Entry = { href: string; label: string };
 type Group = { heading: string; entries: Entry[] };
@@ -69,29 +70,44 @@ const NAV: Group[] = [
 
 export function SideNav() {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
   return (
     <nav className="docs-nav" aria-label="Docs">
-      <Link href="/" className="docs-nav-logo" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "0.25rem", fontSize: "1.3rem", color: "#ffffff", fontFamily: "var(--font-heading)" }}>
-        <img src="/logo.png" alt="" width={40} height={40} style={{ display: "block" }} />
-        NotifyKit
-      </Link>
-      {NAV.map((group) => (
-        <section key={group.heading}>
-          <h4>{group.heading}</h4>
-          <ul>
-            {group.entries.map((entry) => (
-              <li key={entry.href}>
-                <Link
-                  href={entry.href}
-                  aria-current={pathname === entry.href ? "page" : undefined}
-                >
-                  {entry.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+      <div className="docs-nav-header">
+        <Link href="/" className="docs-nav-logo">
+          <img src="/logo.png" alt="" width={40} height={40} />
+          NotifyKit
+        </Link>
+        <button
+          type="button"
+          className="docs-nav-toggle"
+          aria-expanded={open}
+          aria-controls="docs-navigation"
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? "Close" : "Menu"}
+        </button>
+      </div>
+      <div id="docs-navigation" className="docs-nav-groups" data-open={open ? "true" : "false"}>
+        {NAV.map((group) => (
+          <section key={group.heading}>
+            <h4>{group.heading}</h4>
+            <ul>
+              {group.entries.map((entry) => (
+                <li key={entry.href}>
+                  <Link
+                    href={entry.href}
+                    aria-current={pathname === entry.href ? "page" : undefined}
+                    onClick={() => setOpen(false)}
+                  >
+                    {entry.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
     </nav>
   );
 }

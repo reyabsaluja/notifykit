@@ -43,7 +43,7 @@
     "@notifykitjs/core": "^0.0.1"
   },
   "devDependencies": {
-    "next": "^15.3.2",
+    "next": "^15.5.20",
     "@notifykitjs/core": "^0.0.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

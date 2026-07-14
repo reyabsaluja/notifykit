@@ -14,6 +14,25 @@ export default function HooksPage() {
         or any external system.
       </p>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>Metrics &amp; dashboards</h3>
+          <p>Track delivery rates, latency percentiles, and channel-level success in Datadog, Prometheus, or any metrics backend.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Error tracking</h3>
+          <p>Pipe delivery failures into Sentry or Bugsnag with full context — channel, provider, error, attempt count.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Audit logging</h3>
+          <p>Record who deleted inbox items, when notifications were sent, and preference changes for compliance.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Alerting</h3>
+          <p>Fire Slack or PagerDuty alerts on rate limit spikes, sustained failures, or rising suppression rates.</p>
+        </div>
+      </div>
+
       <table>
         <thead>
           <tr><th>Integration</th><th>Hooks to use</th></tr>
@@ -81,6 +100,7 @@ export default function HooksPage() {
 
       <h2>Configuring hooks</h2>
       <Code
+        filename="lib/notifykit.ts"
         code={`const notify = createNotifyKit({
   // ...
   on: {
@@ -155,6 +175,71 @@ export default function HooksPage() {
         </tbody>
       </table>
 
+      <h2>Hook timing in the pipeline</h2>
+      <p>
+        Hooks fire at specific points in the send pipeline. Understanding
+        <em> when</em> each hook fires tells you what has already happened
+        (and what hasn&apos;t) when your code runs:
+      </p>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Rate limit &amp; dedup check</strong>
+            <p>If blocked: <code>notification.rate_limited</code> or <code>notification.deduplicated</code> fires. Pipeline stops — no record written, no delivery attempted.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Record created</strong>
+            <p><code>notification.created</code> fires. The notification record is in the DB. Channels have not been evaluated yet.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Channel resolution</strong>
+            <p>Preferences, quiet hours, and availability are checked per channel. If all channels are blocked: <code>notification.suppressed</code> fires.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Inbox write</strong>
+            <p><code>inbox.created</code> fires. The inbox item exists — user can fetch it immediately.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">5</span>
+          <div>
+            <strong>Push delivery (email, SMS, webhook)</strong>
+            <p>Provider called, retries attempted. On success: <code>delivery.sent</code>. After all retries exhausted: <code>delivery.failed</code>.</p>
+          </div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Hook</th><th>Pipeline stage</th><th>What&apos;s already happened</th><th>What hasn&apos;t happened yet</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>notification.rate_limited</code></td><td>1 (guard)</td><td>Nothing — send rejected immediately</td><td>No record, no delivery, no inbox item</td></tr>
+          <tr><td><code>notification.deduplicated</code></td><td>1 (guard)</td><td>Nothing — duplicate key matched</td><td>No record, no delivery, no inbox item</td></tr>
+          <tr><td><code>notification.created</code></td><td>2 (record)</td><td>Record written to DB</td><td>Channel resolution, delivery, inbox</td></tr>
+          <tr><td><code>notification.suppressed</code></td><td>3 (resolution)</td><td>Record exists, all channels evaluated</td><td>No delivery — every channel was blocked</td></tr>
+          <tr><td><code>inbox.created</code></td><td>4 (inbox)</td><td>Record exists, inbox item written</td><td>Push channels may still be in-flight</td></tr>
+          <tr><td><code>delivery.sent</code></td><td>5 (delivery)</td><td>Record exists, provider confirmed</td><td>Other channels may still be in-flight</td></tr>
+          <tr><td><code>delivery.failed</code></td><td>5 (delivery)</td><td>Record exists, all retries exhausted</td><td>Fallback channel may trigger next</td></tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Inbox hooks fire independently of delivery hooks.</strong> A
+        notification that delivers to both inbox and email will fire{" "}
+        <code>inbox.created</code> (stage 4) <em>before</em>{" "}
+        <code>delivery.sent</code> (stage 5). Don&apos;t assume the email has
+        been sent when your inbox hook runs.
+      </div>
+
       <h2>Async safety</h2>
       <p>
         Hooks can be <code>async</code>. The engine awaits them — a slow hook
@@ -222,8 +307,8 @@ export default function HooksPage() {
         </tbody>
       </table>
       <Code
-        code={`// Minimal production setup — covers the 5 key signals:
-on: {
+        filename="lib/notifykit.ts"
+        code={`on: {
   "delivery.sent": ({ delivery }) => {
     metrics.inc("notifykit.delivery.sent", { channel: delivery.channel })
     metrics.histogram("notifykit.delivery.latency_ms",
@@ -328,27 +413,18 @@ on: {
   },
 }`}
       />
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">!</span>
-          <div>
-            <strong>Hooks should never break sends</strong>
-            <p>Wrap every hook in try/catch or add <code>.catch()</code> to fire-and-forget promises. A notification that delivers but fails to log is better than one that fails entirely.</p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Hooks should never break sends</h3>
+          <p>Wrap every hook in try/catch or add <code>.catch()</code> to fire-and-forget promises. A notification that delivers but fails to log is better than one that fails entirely.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">⏱</span>
-          <div>
-            <strong>Keep hooks fast (&lt;50ms)</strong>
-            <p>Awaited hooks add directly to <code>send()</code> latency. If your integration needs network calls, use fire-and-forget or batch into a local buffer that flushes on an interval.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Keep hooks fast (&lt;50ms)</h3>
+          <p>Awaited hooks add directly to <code>send()</code> latency. If your integration needs network calls, use fire-and-forget or batch into a local buffer that flushes on an interval.</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">↻</span>
-          <div>
-            <strong>Never call send() inside a hook</strong>
-            <p>This creates infinite recursion. If you need to trigger a follow-up notification, enqueue it via your job system — don&apos;t call <code>notify.send()</code> directly.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Never call send() inside a hook</h3>
+          <p>This creates infinite recursion. If you need to trigger a follow-up notification, enqueue it via your job system — don&apos;t call <code>notify.send()</code> directly.</p>
         </div>
       </div>
 
@@ -368,8 +444,8 @@ on: {
         hook sets and merge them:
       </p>
       <Code
-        code={`// lib/hooks/metrics.ts
-export const metricsHooks = {
+        filename="lib/hooks/metrics.ts"
+        code={`export const metricsHooks = {
   "delivery.sent": ({ delivery }) => {
     metrics.inc("notifykit.sent", { channel: delivery.channel })
     metrics.histogram("notifykit.latency_ms",
@@ -378,20 +454,22 @@ export const metricsHooks = {
   "delivery.failed": ({ delivery }) => {
     metrics.inc("notifykit.failed", { channel: delivery.channel })
   },
-}
-
-// lib/hooks/errors.ts
-export const errorHooks = {
+}`}
+      />
+      <Code
+        filename="lib/hooks/errors.ts"
+        code={`export const errorHooks = {
   "delivery.failed": ({ delivery, error }) => {
     sentry.captureException(error, {
       tags: { channel: delivery.channel, provider: delivery.provider },
       extra: { deliveryId: delivery.id, notificationId: delivery.notificationId },
     })
   },
-}
-
-// lib/hooks/audit.ts
-export const auditHooks = {
+}`}
+      />
+      <Code
+        filename="lib/hooks/audit.ts"
+        code={`export const auditHooks = {
   "notification.created": ({ notification }) => {
     void auditLog.write("notification.sent", {
       recipientId: notification.recipientId,
@@ -404,8 +482,8 @@ export const auditHooks = {
 }`}
       />
       <Code
-        code={`// lib/notifykit.ts — merge hook sets
-import { metricsHooks } from "./hooks/metrics"
+        filename="lib/notifykit.ts"
+        code={`import { metricsHooks } from "./hooks/metrics"
 import { errorHooks } from "./hooks/errors"
 import { auditHooks } from "./hooks/audit"
 
@@ -456,12 +534,198 @@ export const notify = createNotifyKit({
         if isolation matters.
       </div>
 
+      <h2>Conditional hooks by environment</h2>
+      <p>
+        Different environments have different observability needs. Dev wants
+        verbose console output, staging wants Sentry but not paging, and
+        production wants full metrics + alerting. Build this with conditional
+        composition:
+      </p>
+      <Code
+        filename="lib/hooks/index.ts"
+        code={`import { metricsHooks } from "./metrics"
+import { errorHooks } from "./errors"
+import { auditHooks } from "./audit"
+
+const devHooks = {
+  "notification.created": ({ notification }) => {
+    console.log("[notifykit]", notification.notificationId, "→", notification.recipientId)
+  },
+  "delivery.sent": ({ delivery }) => {
+    console.log("[notifykit] ✓", delivery.channel, "sent to", delivery.recipientId)
+  },
+  "delivery.failed": ({ delivery, error }) => {
+    console.error("[notifykit] ✗", delivery.channel, "failed:", error.message)
+  },
+}
+
+export function buildHooks() {
+  const env = process.env.NODE_ENV
+
+  if (env === "test") return {}  // no hooks in test — use vi.fn() explicitly
+  if (env === "development") return mergeHooks(devHooks)
+  // production + staging:
+  return mergeHooks(metricsHooks, errorHooks, auditHooks)
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Environment</th><th>Hooks active</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Test</strong></td>
+            <td>None (empty object)</td>
+            <td>Tests inject their own hooks via <code>vi.fn()</code> — global hooks add noise and non-determinism</td>
+          </tr>
+          <tr>
+            <td><strong>Development</strong></td>
+            <td>Console logging only</td>
+            <td>Instant feedback in the terminal without external deps. No metrics infrastructure needed locally.</td>
+          </tr>
+          <tr>
+            <td><strong>Staging</strong></td>
+            <td>Metrics + errors (no paging)</td>
+            <td>Validates hook wiring end-to-end. Sentry captures errors but alert rules are relaxed.</td>
+          </tr>
+          <tr>
+            <td><strong>Production</strong></td>
+            <td>Metrics + errors + audit</td>
+            <td>Full observability. Audit log for compliance. Alerts page oncall on sustained failures.</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        filename="lib/notifykit.ts"
+        code={`import { buildHooks } from "./hooks"
+
+export const notify = createNotifyKit({
+  // ...
+  on: buildHooks(),
+})`}
+      />
+      <div className="callout callout-tip">
+        <strong>Feature-flag individual integrations.</strong> If you want Sentry
+        in dev but not metrics, check for the env var:{" "}
+        <code>process.env.SENTRY_DSN ? errorHooks : {`{}`}</code>. This lets
+        developers opt into specific integrations locally without changing shared
+        config.
+      </div>
+
+      <h2>Recipe: Slack alerting with debounce</h2>
+      <p>
+        The most common hook integration is alerting a Slack channel when
+        deliveries fail. But during a provider outage, a naive implementation
+        floods the channel with hundreds of messages. Use a debounce buffer
+        to batch failures into periodic summaries:
+      </p>
+      <Code
+        filename="lib/hooks/slack-alerts.ts"
+        code={`const SLACK_WEBHOOK = process.env.SLACK_ALERTS_WEBHOOK!
+const DEBOUNCE_MS = 60_000 // batch failures over 1 minute
+
+let buffer: Array<{ channel: string; error: string; notificationId: string }> = []
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleFlush() {
+  if (flushTimer) return // already scheduled
+  flushTimer = setTimeout(async () => {
+    const batch = buffer.splice(0) // drain buffer
+    flushTimer = null
+    if (batch.length === 0) return
+
+    const summary = batch.length === 1
+      ? \`Delivery failed: \${batch[0].notificationId} → \${batch[0].channel} (\${batch[0].error})\`
+      : \`\${batch.length} deliveries failed in the last minute:\\n\` +
+        Object.entries(Object.groupBy(batch, f => f.channel))
+          .map(([ch, items]) => \`• \${ch}: \${items!.length} failures\`)
+          .join("\\n")
+
+    await fetch(SLACK_WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: \`🚨 *NotifyKit alert*\\n\${summary}\`,
+      }),
+    }).catch(err => console.error("Slack alert failed:", err))
+  }, DEBOUNCE_MS)
+}
+
+export const slackAlertHooks = {
+  "delivery.failed": ({ delivery, error }) => {
+    buffer.push({
+      channel: delivery.channel,
+      error: error?.message ?? "unknown",
+      notificationId: delivery.notificationId,
+    })
+    scheduleFlush()
+  },
+
+  "notification.rate_limited": ({ notificationId, recipientId }) => {
+    // Rate limits are less noisy — alert immediately but only once per notification type
+    void fetch(SLACK_WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: \`⚠️ Rate limit hit: \${notificationId} for \${recipientId}\`,
+      }),
+    }).catch(() => {})
+  },
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Alert type</th><th>Debounce window</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Delivery failures</strong></td>
+            <td>60 seconds</td>
+            <td>Provider outages produce hundreds of failures per minute — batch into one summary</td>
+          </tr>
+          <tr>
+            <td><strong>Rate limit hits</strong></td>
+            <td>None (immediate)</td>
+            <td>Rare in normal operation — an immediate alert means a code bug is likely</td>
+          </tr>
+          <tr>
+            <td><strong>Suppression spikes</strong></td>
+            <td>5 minutes</td>
+            <td>Gradual trend, not urgent — daily summary is often enough</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        filename="lib/notifykit.ts"
+        code={`import { slackAlertHooks } from "./hooks/slack-alerts"
+
+export const notify = createNotifyKit({
+  // ...
+  on: mergeHooks(metricsHooks, errorHooks, slackAlertHooks),
+})`}
+      />
+      <div className="callout callout-warn">
+        <strong>Slack webhooks have a 1 message/second rate limit.</strong> Without
+        debouncing, a 100-failure burst triggers 100 webhook calls — Slack throttles
+        after the first, and your alerts arrive minutes late or get dropped entirely.
+        The buffer pattern above guarantees at most 1 message per{" "}
+        <code>DEBOUNCE_MS</code> window regardless of failure volume.
+      </div>
+      <div className="callout callout-tip">
+        <strong>Swap the transport for any chat system.</strong> Replace the{" "}
+        <code>fetch(SLACK_WEBHOOK, ...)</code> call with your preferred alerting
+        destination — Discord webhooks, Microsoft Teams connectors, PagerDuty
+        events API, or a custom internal alerting service. The debounce logic
+        stays the same.
+      </div>
+
       <h2>Testing hooks</h2>
       <p>
         Verify your hooks fire correctly without hitting real external services.
         Use a spy to capture hook calls:
       </p>
       <Code
+        filename="tests/hooks.test.ts"
         code={`import { describe, it, expect, vi } from "vitest"
 import { createNotifyKit, memoryAdapter, fakeEmailProvider } from "@notifykitjs/core"
 import { commentMentioned } from "./notifications"
@@ -521,10 +785,16 @@ describe("hooks", () => {
   })
 })`}
       />
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>Use <code>memoryAdapter()</code> and <code>fakeEmailProvider()</code> in tests.</strong>{" "}
         They run entirely in-process with no I/O, so hooks fire synchronously
         and assertions are deterministic.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/timeline" className="primary">Timeline &amp; debugging</Link>
+        <Link href="/docs/providers">Provider monitoring</Link>
+        <Link href="/docs/api">API reference</Link>
       </div>
 
       <div className="page-nav">

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createNotifyKitClient } from "../src/client.js";
+import { getClientSnapshot } from "../src/store.js";
 
 function mockFetch(routes: Record<string, unknown>) {
   return (async (input: string | URL | Request, init?: RequestInit) => {
@@ -86,6 +87,23 @@ describe("createNotifyKitClient", () => {
     const next = client.getState();
     expect(next.inbox.items[0]!.title).toBe("Original");
     expect(next.inbox.items[0]!.createdAt.getFullYear()).toBe(2026);
+  });
+
+  test("React store snapshots stay stable until client state changes", async () => {
+    const client = createNotifyKitClient({
+      fetch: mockFetch({ "GET /inbox": { data: [] } }),
+    });
+
+    const initial = getClientSnapshot(client);
+    expect(getClientSnapshot(client)).toBe(initial);
+
+    await client.inbox.list();
+    const updated = getClientSnapshot(client);
+    expect(updated).not.toBe(initial);
+    expect(getClientSnapshot(client)).toBe(updated);
+
+    // The public API remains defensive even though React gets a stable snapshot.
+    expect(client.getState()).not.toBe(updated);
   });
 
   test("active inbox refresh does not retain recent archived items", async () => {

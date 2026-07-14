@@ -15,6 +15,21 @@ export default function FallbacksPage() {
         channel is skipped by preferences.
       </p>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>Simple fallback</h3>
+          <p>One backup channel. Email fails → write to inbox. Covers 90% of cases with a single line.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Rule-based cascade</h3>
+          <p>Ordered chain of fallbacks. Email → SMS → inbox. Each rule specifies a trigger and a target channel.</p>
+        </div>
+        <div className="feature-card">
+          <h3>No fallback</h3>
+          <p>For low-urgency notifications (likes, follows, digests). If delivery fails, the world keeps turning.</p>
+        </div>
+      </div>
+
       <div className="callout callout-tip">
         <strong>When to use fallbacks.</strong> Any notification that
         <em> must</em> reach the user — password resets, security alerts,
@@ -28,6 +43,7 @@ export default function FallbacksPage() {
         still sees the notification.
       </p>
       <Code
+        filename="lib/notifications/password-reset.ts"
         code={`notification({
   id: "password_reset",
   payload: { resetUrl: "string" },
@@ -38,8 +54,9 @@ export default function FallbacksPage() {
     }),
   ],
   fallback: inbox({
-    title: "Password reset (email delivery failed)",
-    body: "Open {{resetUrl}} to reset your password.",
+    title: "Reset your password",
+    body: "Click to set a new password: {{resetUrl}}",
+    actionUrl: "{{resetUrl}}",
   }),
 })`}
       />
@@ -50,6 +67,7 @@ export default function FallbacksPage() {
         trigger condition and a target channel:
       </p>
       <Code
+        filename="lib/notifications/security-alert.ts"
         code={`notification({
   id: "security_alert",
   payload: { event: "string", ip: "string" },
@@ -58,11 +76,8 @@ export default function FallbacksPage() {
     sms({ body: "Security alert: {{event}} from {{ip}}" }),
   ],
   fallback: [
-    // If email fails, try SMS
     { if: "channel.failed", from: "email", then: sms({ body: "Security: {{event}}" }) },
-    // If SMS also fails, at least write to inbox
     { if: "channel.failed", from: "sms", then: inbox({ title: "Security: {{event}}" }) },
-    // If recipient has no email address, go straight to SMS
     { if: "missing_address", from: "email", then: sms({ body: "Security: {{event}}" }) },
   ],
 })`}
@@ -73,27 +88,18 @@ export default function FallbacksPage() {
         Not every notification needs a fallback. Walk through these questions
         to decide if and how to configure one:
       </p>
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Is delivery failure acceptable?</strong>
-            <p>Marketing, social updates, digests — if the user misses one, it&apos;s fine. <strong>Skip the fallback.</strong></p>
-          </div>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Is delivery failure acceptable?</h3>
+          <p>Marketing, social updates, digests — if the user misses one, it&apos;s fine. <strong>Skip the fallback.</strong></p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>One backup channel or a cascade?</strong>
-            <p>Most cases need one backup (email → inbox). Security-critical alerts may need a full cascade (email → SMS → inbox).</p>
-          </div>
+        <div className="feature-card">
+          <h3>One backup channel or a cascade?</h3>
+          <p>Most cases need one backup (email → inbox). Security-critical alerts may need a full cascade (email → SMS → inbox).</p>
         </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">?</span>
-          <div>
-            <strong>Should fallback bypass preferences?</strong>
-            <p>If yes, add <code>required: true</code> to the notification. Without it, fallbacks still respect user opt-outs.</p>
-          </div>
+        <div className="feature-card">
+          <h3>Should fallback bypass preferences?</h3>
+          <p>If yes, add <code>required: true</code> to the notification. Without it, fallbacks still respect user opt-outs.</p>
         </div>
       </div>
       <table>
@@ -177,7 +183,7 @@ export default function FallbacksPage() {
         <code>from</code>, the rule matches any channel that hits the trigger
         condition.
       </p>
-      <div className="callout">
+      <div className="callout callout-warn">
         <strong>Rules evaluate in order.</strong> The first matching rule fires.
         If you need a cascade (email → SMS → inbox), order your rules from
         most specific to broadest. A fallback channel can itself have a
@@ -255,15 +261,123 @@ export default function FallbacksPage() {
         to guarantee delivery.
       </div>
 
+      <h2>Designing fallback content</h2>
+      <p>
+        The fallback fires when the primary channel failed — but the user
+        doesn&apos;t know (or care) about your infrastructure. Write fallback
+        copy that serves the user, not your debugging:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>Example</th><th>Verdict</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Expose the failure</strong></td>
+            <td>&quot;Email delivery failed — here&apos;s your reset link&quot;</td>
+            <td>Bad — confuses users, erodes trust, isn&apos;t actionable</td>
+          </tr>
+          <tr>
+            <td><strong>Identical to primary</strong></td>
+            <td>&quot;Reset your password&quot; (same as email subject)</td>
+            <td>Good — user gets the same clear message regardless of channel</td>
+          </tr>
+          <tr>
+            <td><strong>Adapted for channel</strong></td>
+            <td>Inbox: &quot;Reset your password&quot; with action button vs. email&apos;s full HTML</td>
+            <td>Best — same intent, tailored to the channel&apos;s strengths</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="features">
+        <div className="feature-card">
+          <h3>Preserve the action</h3>
+          <p>The user still needs to do something. Include the URL, the code, or whatever lets them complete the task.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Respect channel limits</h3>
+          <p>Inbox titles are short (~60 chars). SMS is 160 chars. Strip details, keep the verb and the link.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Never mention the failure</h3>
+          <p>Users don&apos;t understand &quot;email failed&quot; and it makes your product feel broken. Just deliver the message.</p>
+        </div>
+      </div>
+
+      <Code
+        filename="lib/notifications/password-reset.ts"
+        code={`// ❌ Bad: exposes infrastructure to the user
+fallback: inbox({
+  title: "Password reset (email delivery failed)",
+  body: "We couldn't send your email. Click here instead: {{resetUrl}}",
+})
+
+// ✅ Good: same message, adapted for inbox
+fallback: inbox({
+  title: "Reset your password",
+  body: "Click to set a new password: {{resetUrl}}",
+})
+
+// ✅ Good: cascade with channel-appropriate copy
+fallback: [
+  {
+    if: "channel.failed",
+    from: "email",
+    then: sms({ body: "Your password reset link: {{resetUrl}}" }),
+  },
+  {
+    if: "channel.failed",
+    from: "sms",
+    then: inbox({ title: "Reset your password" }),
+  },
+]`}
+      />
+
+      <table>
+        <thead>
+          <tr><th>Primary channel</th><th>Fallback channel</th><th>What to adapt</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Email (rich HTML)</td>
+            <td>Inbox</td>
+            <td>Strip HTML formatting. Keep subject as title, first sentence as body.</td>
+          </tr>
+          <tr>
+            <td>Email (rich HTML)</td>
+            <td>SMS</td>
+            <td>One sentence + link only. Drop all context that doesn&apos;t fit 160 chars.</td>
+          </tr>
+          <tr>
+            <td>SMS</td>
+            <td>Inbox</td>
+            <td>SMS body works as-is for inbox. Add a title if the SMS was body-only.</td>
+          </tr>
+          <tr>
+            <td>Webhook</td>
+            <td>Email or inbox</td>
+            <td>Webhooks carry structured data. Write a human-readable summary for the fallback.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Write fallback content at definition time, not as an afterthought.</strong>{" "}
+        When defining a notification, write all channel variants together — primary
+        and fallback. If you treat fallback copy as a TODO for later, it&apos;ll
+        ship with placeholder text that confuses users during the exact moment
+        your system is already degraded.
+      </div>
+
       <h2>Testing fallbacks locally</h2>
       <p>
         You can&apos;t wait for a production failure to learn if your fallback
         works. Use a provider that always throws to trigger the chain in dev:
       </p>
       <Code
+        filename="tests/fallbacks.test.ts"
         code={`import type { EmailProvider } from "@notifykitjs/core"
 
-// Provider that fails on demand
 const failingEmailProvider: EmailProvider = {
   id: "failing",
   async send() {
@@ -271,12 +385,11 @@ const failingEmailProvider: EmailProvider = {
   },
 }
 
-// Use in tests:
 const testNotify = createNotifyKit({
   notifications: [securityAlert] as const,
   database: memoryAdapter(),
   providers: { email: failingEmailProvider },
-  retry: { maxAttempts: 1, delayMs: () => 0 }, // fail fast
+  retry: { maxAttempts: 1, delayMs: () => 0 },
 })
 
 const result = await testNotify.send({
@@ -285,9 +398,8 @@ const result = await testNotify.send({
   payload: { event: "login", ip: "1.2.3.4" },
 })
 
-// Verify fallback fired:
 expect(result.deliveries.some(d => d.status === "failed")).toBe(true)
-expect(result.inboxItems.length).toBe(1) // fallback wrote to inbox`}
+expect(result.inboxItems.length).toBe(1)`}
       />
       <table>
         <thead>
@@ -325,6 +437,7 @@ expect(result.inboxItems.length).toBe(1) // fallback wrote to inbox`}
         experience than intended.
       </p>
       <Code
+        filename="lib/notifykit.ts"
         code={`createNotifyKit({
   // ...
   on: {
@@ -336,7 +449,6 @@ expect(result.inboxItems.length).toBe(1) // fallback wrote to inbox`}
       })
     },
     "delivery.sent": ({ delivery }) => {
-      // Track fallback deliveries separately
       if (delivery.isFallback) {
         metrics.inc("notifykit.fallback.fired", {
           channel: delivery.channel,
@@ -380,6 +492,83 @@ expect(result.inboxItems.length).toBe(1) // fallback wrote to inbox`}
         fallbacks over a 5-minute window, that&apos;s a provider incident
         worth waking someone for. Use a ratio alert:{" "}
         <code>fallback.fired / delivery.sent &gt; 0.05</code>.
+      </div>
+
+      <h2>Debugging fallbacks that don&apos;t fire</h2>
+      <p>
+        The opposite problem: a channel fails but no fallback kicks in. Walk
+        through these checks to find where the chain broke:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Symptom</th><th>Root cause</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Email fails but no inbox item appears</td>
+            <td>No <code>fallback</code> configured on the notification definition</td>
+            <td>Add a <code>fallback</code> field — it&apos;s per-notification, not global</td>
+          </tr>
+          <tr>
+            <td>Fallback rule exists but doesn&apos;t match</td>
+            <td><code>from</code> field doesn&apos;t match the failed channel name</td>
+            <td>Check spelling: <code>from: &quot;email&quot;</code> not <code>&quot;Email&quot;</code>. Channel names are lowercase.</td>
+          </tr>
+          <tr>
+            <td>Fallback fires for failures but not missing addresses</td>
+            <td>Rule trigger is <code>&quot;channel.failed&quot;</code> which only matches retries-exhausted</td>
+            <td>Add a second rule with <code>if: &quot;missing_address&quot;</code> for the no-destination case</td>
+          </tr>
+          <tr>
+            <td>Retries still running — fallback hasn&apos;t fired yet</td>
+            <td>Fallback waits for all attempts to exhaust before triggering</td>
+            <td>Expected — reduce <code>maxAttempts</code> if fallback latency is too high</td>
+          </tr>
+          <tr>
+            <td>Fallback channel is also disabled by preferences</td>
+            <td>User opted out of both primary and fallback channels</td>
+            <td>Add <code>required: true</code> to bypass preferences for critical notifications</td>
+          </tr>
+          <tr>
+            <td>Simple fallback doesn&apos;t fire on preference skip</td>
+            <td>Simple fallback (non-rule) only triggers on <code>channel.failed</code></td>
+            <td>Use rule-based fallback with <code>if: &quot;skipped&quot;</code> to catch preference-based skips</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Using explain() to diagnose</h3>
+      <p>
+        The <Link href="/docs/explain">explain()</Link> dry run shows whether a
+        fallback <em>would</em> trigger for a given input — without writing any
+        records:
+      </p>
+      <Code
+        filename="scripts/diagnose-fallback.ts"
+        code={`const explanation = await notify.explain({
+  recipientId: "user_123",
+  notificationId: "security_alert",
+  payload: { event: "suspicious_login", ip: "203.0.113.1" },
+})
+
+for (const [channel, info] of Object.entries(explanation.channels)) {
+  console.log(\`\${channel}: \${info.outcome}\`)
+}
+
+console.log("Fallback configured:", explanation.fallback)`}
+      />
+      <div className="callout callout-tip">
+        <strong>Simulate failure with a failing provider in tests.</strong> The{" "}
+        <code>explain()</code> dry run shows what <em>would</em> happen, but
+        it can&apos;t simulate a provider error. To verify the full chain
+        (retry exhaustion → fallback trigger → fallback delivery), use the
+        failing provider pattern from the testing section above.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/providers" className="primary">Custom providers</Link>
+        <Link href="/docs/explain">Explain & dry run</Link>
+        <Link href="/docs/timeline">Timeline debugging</Link>
       </div>
 
       <div className="page-nav">

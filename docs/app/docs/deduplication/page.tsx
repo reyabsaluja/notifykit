@@ -20,6 +20,68 @@ export default function DeduplicationPage() {
         both are possible → use both.
       </div>
 
+      <h2>Match your scenario</h2>
+      <p>
+        Find your situation below. Each card tells you which mechanism to use
+        and why.
+      </p>
+      <div className="features">
+        <div className="feature-card">
+          <h3>Webhook handler fires twice</h3>
+          <p>
+            Stripe/GitHub retries the same webhook because your endpoint was
+            slow to respond. The <em>same event</em> arrives again.
+          </p>
+          <p><strong>Use: idempotencyKey</strong></p>
+          <p style={{ fontSize: "0.85em", color: "var(--text-muted)" }}>
+            Key: <code>webhook:{`{eventId}`}</code> — the provider gives you a
+            stable event ID. Second delivery returns the original result.
+          </p>
+        </div>
+        <div className="feature-card">
+          <h3>Two code paths trigger same notification</h3>
+          <p>
+            An async worker and a realtime handler both fire
+            &quot;mentioned you&quot; for the same comment edit.
+          </p>
+          <p><strong>Use: dedupeKey</strong></p>
+          <p style={{ fontSize: "0.85em", color: "var(--text-muted)" }}>
+            Key: <code>mention:{`{postId}`}:{`{actorId}`}</code> — scoped to
+            the logical event. Second call is skipped within the window.
+          </p>
+        </div>
+        <div className="feature-card">
+          <h3>Background job crashes mid-send</h3>
+          <p>
+            Your worker starts processing, the notification sends, then the
+            job crashes before marking complete. The queue retries the job.
+          </p>
+          <p><strong>Use: idempotencyKey</strong></p>
+          <p style={{ fontSize: "0.85em", color: "var(--text-muted)" }}>
+            Key: <code>job:{`{jobId}`}</code> — tied to the job run, not the
+            event. Replay returns the cached result without re-delivering.
+          </p>
+        </div>
+        <div className="feature-card">
+          <h3>User spams &quot;save&quot; on a form</h3>
+          <p>
+            Each save triggers a notification. Rapid clicks could send 5
+            identical emails about the same edit within seconds.
+          </p>
+          <p><strong>Use: dedupeKey + short window</strong></p>
+          <p style={{ fontSize: "0.85em", color: "var(--text-muted)" }}>
+            Key: <code>edit:{`{docId}`}:{`{userId}`}</code> with a 2-minute
+            window. Only the first save notifies; the rest are suppressed.
+          </p>
+        </div>
+      </div>
+      <div className="callout callout-tip">
+        <strong>Still unsure?</strong> Ask: &quot;is it the same <em>call</em>{" "}
+        arriving twice (retry) or the same <em>event</em> triggering from
+        multiple places?&quot; Same call → idempotency. Same event → dedup.
+        Both → use both.
+      </div>
+
       <h2>Deduplication (semantic)</h2>
       <p>
         Prevents semantically identical notifications within a time window.
@@ -27,12 +89,13 @@ export default function DeduplicationPage() {
         two code paths trigger it for the same mention.
       </p>
       <Code
+        filename="lib/send-mention.ts"
         code={`await notify.send({
   recipientId: user.id,
   notificationId: "comment_mentioned",
   payload: { actorName: "Rey", postUrl: "/posts/42" },
   dedupeKey: "mention:post_42:user_rey",
-  dedupeWindowMs: 5 * 60_000, // 5 minutes
+  dedupeWindowMs: 5 * 60_000,
 })`}
       />
       <p>
@@ -44,10 +107,10 @@ export default function DeduplicationPage() {
 
       <h3>Dedup result</h3>
       <Code
+        filename="lib/send-mention.ts"
         code={`const result = await notify.send({ ... dedupeKey, dedupeWindowMs })
 
 if (result.skipped.some((item) => item.reason === "duplicate")) {
-  // provider delivery was skipped; an audit notification record still exists
   console.log("duplicate within window")
 }`}
       />
@@ -59,6 +122,7 @@ if (result.skipped.some((item) => item.reason === "duplicate")) {
         operation returns the original result on replay.
       </p>
       <Code
+        filename="workers/fulfillment.ts"
         code={`await notify.send({
   recipientId: user.id,
   notificationId: "order_shipped",
@@ -78,9 +142,10 @@ if (result.skipped.some((item) => item.reason === "duplicate")) {
         After expiry, the same key can be reused.
       </p>
       <Code
+        filename="lib/notifykit.ts"
         code={`createNotifyKit({
   // ...
-  idempotencyKeyTtlMs: 48 * 60 * 60_000, // 48 hours
+  idempotencyKeyTtlMs: 48 * 60 * 60_000,
 })`}
       />
 
@@ -124,14 +189,13 @@ if (result.skipped.some((item) => item.reason === "duplicate")) {
 
       <h2>Using both together</h2>
       <Code
+        filename="workers/process-mention.ts"
         code={`await notify.send({
   recipientId: user.id,
   notificationId: "comment_mentioned",
   payload: { actorName: "Rey", postUrl: "/posts/42" },
-  // Semantic dedup: don't notify about the same mention twice
   dedupeKey: "mention:post_42:user_rey",
   dedupeWindowMs: 10 * 60_000,
-  // Retry safety: if this exact call retries, return the original
   idempotencyKey: "job:abc123",
 })`}
       />
@@ -255,8 +319,8 @@ if (result.skipped.some((item) => item.reason === "duplicate")) {
         checking the result flags:
       </p>
       <Code
-        code={`// Test: dedup prevents duplicate delivery
-const first = await notify.send({
+        filename="tests/dedup.test.ts"
+        code={`const first = await notify.send({
   recipientId: "test_user",
   notificationId: "comment_mentioned",
   payload: { actorName: "Rey", postUrl: "/posts/1" },
@@ -302,6 +366,190 @@ expect(second.deliveries.length).toBe(0)`}
           </tr>
         </tbody>
       </table>
+
+      <h2>Choosing the right dedup window</h2>
+      <p>
+        The window should be longer than the maximum time between duplicate
+        triggers, but shorter than the interval at which the event can
+        legitimately recur. Get it wrong and you either miss duplicates or
+        swallow real notifications.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Window too short</th><th>Window too long</th><th>Window just right</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Retries or delayed webhooks create duplicates</td>
+            <td>User does the same action again (legitimately) and gets no notification</td>
+            <td>Covers the retry/propagation window without blocking real events</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Use the event&apos;s natural recurrence interval to pick a window:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Event type</th><th>Typical duplicate source</th><th>Recommended window</th><th>Reasoning</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Webhook-triggered (e.g. payment received)</td>
+            <td>Provider retries delivery 3× over 30 seconds</td>
+            <td>5 minutes</td>
+            <td>Covers retry window with margin. A new payment is a different <code>paymentId</code> in the key anyway.</td>
+          </tr>
+          <tr>
+            <td>User action (e.g. mentioned in comment)</td>
+            <td>Dual code paths fire for same edit</td>
+            <td>10 minutes</td>
+            <td>Edit + save + async worker can span several seconds. A new mention is a new comment ID.</td>
+          </tr>
+          <tr>
+            <td>Cron-triggered (e.g. daily summary)</td>
+            <td>Cron fires twice due to clock skew or restart</td>
+            <td>1 hour</td>
+            <td>Include the date in the key — window just needs to cover the cron jitter.</td>
+          </tr>
+          <tr>
+            <td>Realtime/streaming (e.g. typing indicator)</td>
+            <td>Rapid-fire events from the same action</td>
+            <td>30 seconds – 2 minutes</td>
+            <td>Events recur legitimately in seconds; window should be tight.</td>
+          </tr>
+          <tr>
+            <td>System event (e.g. deploy completed)</td>
+            <td>Multiple services report the same deploy</td>
+            <td>15 minutes</td>
+            <td>Deploy pipelines can span minutes. Key by deploy ID so a new deploy isn&apos;t suppressed.</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        filename="webhooks/stripe.ts"
+        code={`await notify.send({
+  recipientId: user.id,
+  notificationId: "payment_received",
+  payload: { amount: 49.99, orderId: "ORD-456" },
+  dedupeKey: \`payment:\${payload.paymentId}\`,
+  dedupeWindowMs: 5 * 60_000,
+})`}
+      />
+      <Code
+        filename="webhooks/deploy.ts"
+        code={`await notify.send({
+  recipientId: user.id,
+  notificationId: "deploy_completed",
+  payload: { service: "api", sha: "abc123" },
+  dedupeKey: \`deploy:\${payload.deployId}\`,
+  dedupeWindowMs: 15 * 60_000,
+})`}
+      />
+      <div className="callout callout-tip">
+        <strong>When the key is unique per occurrence, window length matters
+        less.</strong> If your dedup key includes a unique identifier (like{" "}
+        <code>paymentId</code> or <code>deployId</code>), the window only needs
+        to outlast the retry/propagation delay. A new occurrence generates a new
+        key and passes dedup regardless of the window.
+      </div>
+
+      <h2>Monitoring dedup in production</h2>
+      <p>
+        Your dedup keys work perfectly in tests — but are they catching real
+        duplicates in production, or silently swallowing legitimate
+        notifications? Track dedup hits to find out.
+      </p>
+      <Code
+        filename="lib/notifykit.ts"
+        code={`createNotifyKit({
+  // ...
+  on: {
+    "send.completed": ({ result, input }) => {
+      const wasDeduplicated = result.skipped.some(s => s.reason === "duplicate")
+
+      if (wasDeduplicated) {
+        metrics.inc("notifykit.dedup.hit", {
+          notification: input.notificationId,
+          dedupeKey: input.dedupeKey ?? "none",
+        })
+      } else if (input.dedupeKey) {
+        metrics.inc("notifykit.dedup.miss", {
+          notification: input.notificationId,
+        })
+      }
+    },
+  },
+})`}
+      />
+      <table>
+        <thead>
+          <tr><th>Signal</th><th>Meaning</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Hit rate 0% over 7 days</strong></td>
+            <td>Dedup is configured but never triggers</td>
+            <td>Either your keys are too narrow (include timestamps?) or duplicates aren&apos;t occurring. Simplify or remove dedup if it&apos;s not needed.</td>
+          </tr>
+          <tr>
+            <td><strong>Hit rate &gt; 50%</strong></td>
+            <td>More sends are duplicates than unique</td>
+            <td>Normal for webhook-triggered events (providers retry aggressively). Concerning for user actions — investigate upstream callers.</td>
+          </tr>
+          <tr>
+            <td><strong>Hit rate spikes suddenly</strong></td>
+            <td>A code path started double-firing</td>
+            <td>Check recent deploys. A new subscriber, webhook handler, or event listener may be duplicating triggers.</td>
+          </tr>
+          <tr>
+            <td><strong>Users report missing notifications</strong></td>
+            <td>Keys may be too broad — legitimate sends getting suppressed</td>
+            <td>Check if different actors or different targets share the same dedup key. Add more specificity.</td>
+          </tr>
+          <tr>
+            <td><strong>Hit rate varies by notification type</strong></td>
+            <td>Some events have noisier triggers than others</td>
+            <td>Expected. Webhook-triggered events should be high; manual user actions should be near zero.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Auditing suppressed sends</h3>
+      <p>
+        When a user reports a missing notification, check if dedup caught it.
+        Use the <Link href="/docs/timeline">timeline</Link> or query directly:
+      </p>
+      <Code
+        filename="scripts/audit-dedup.ts"
+        code={`const result = await notify.send({
+  recipientId: "user_123",
+  notificationId: "comment_mentioned",
+  payload: { actorName: "New Person", postUrl: "/posts/99" },
+  dedupeKey: "mention:post_99:new_person",
+  dedupeWindowMs: 10 * 60_000,
+})
+
+if (result.skipped.some(s => s.reason === "duplicate")) {
+  console.log("Suppressed by dedup — key:", "mention:post_99:new_person")
+}
+
+const explanation = await notify.explain({
+  recipientId: "user_123",
+  notificationId: "comment_mentioned",
+  payload: { actorName: "New Person", postUrl: "/posts/99" },
+  dedupeKey: "mention:post_99:new_person",
+  dedupeWindowMs: 10 * 60_000,
+})
+console.log("Would deduplicate:", explanation.wouldDeduplicate)`}
+      />
+      <div className="callout callout-tip">
+        <strong>Dashboard query for ops.</strong> If you&apos;re tracking dedup
+        hits in your metrics system, alert when{" "}
+        <code>dedup.hit / (dedup.hit + dedup.miss) &gt; 0.8</code> for user-triggered
+        events. High dedup rates on user actions usually mean a bug in your event
+        pipeline — not a healthy dedup system.
+      </div>
 
       <h2>Feature interactions</h2>
       <p>
@@ -359,7 +607,8 @@ expect(second.deliveries.length).toBe(0)`}
         This means:
       </p>
       <Code
-        code={`// First send: enters digest buffer (waiting for window to flush)
+        filename="tests/dedup-digest.test.ts"
+        code={`// First send: enters digest buffer
 await notify.send({
   recipientId: "user_1",
   notificationId: "activity_update",
@@ -369,15 +618,14 @@ await notify.send({
 })
 
 // Second send (within dedup window): SKIPPED — never reaches digest
-await notify.send({
+const result = await notify.send({
   recipientId: "user_1",
   notificationId: "activity_update",
   payload: { action: "liked your post" },
   dedupeKey: "like:post_42:user_rey",
   dedupeWindowMs: 10 * 60_000,
 })
-// result.skipped → [{ reason: "duplicate" }]
-// The digest will only contain the first event`}
+expect(result.skipped.some(s => s.reason === "duplicate")).toBe(true)`}
       />
 
       <h3>Dedup + rate limits</h3>
@@ -386,9 +634,10 @@ await notify.send({
         <strong>not</strong> count against your rate limit budget:
       </p>
       <Code
-        code={`// Notification with rate limit: max 5 per hour
-// If 3 of 8 sends are deduped, only 5 unique sends count against the limit
-// Deduped sends: skipped at stage 2, never reach stage 3`}
+        lang="bash"
+        code={`# Notification with rate limit: max 5 per hour
+# If 3 of 8 sends are deduped, only 5 unique sends count against the limit
+# Deduped sends: skipped at stage 2, never reach stage 3`}
       />
 
       <h3>Dedup + quiet hours</h3>
@@ -432,6 +681,12 @@ await notify.send({
         <code>wouldDeduplicate</code>, <code>wouldRateLimit</code>, and{" "}
         <code>wouldDigest</code> — check them in order to understand exactly
         which stage intercepted a send.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/explain" className="primary">Explain & dry run</Link>
+        <Link href="/docs/digests">Digests & rate limits</Link>
+        <Link href="/docs/timeline">Timeline debugging</Link>
       </div>
 
       <div className="page-nav">

@@ -18,6 +18,9 @@
     "examples/*",
     "docs"
   ],
+  "overrides": {
+    "postcss": "^8.5.10"
+  },
   "scripts": {
     "test": "bun test",
     "build": "bun run --cwd packages/core build && bun run --cwd packages/drizzle-adapter build && bun run --cwd packages/realtime-ws build && bun run --cwd packages/realtime-pg build && bun run --cwd packages/react build && bun run --cwd packages/next build && bun run --cwd packages/cli build && bun run --cwd packages/resend build && bun run --cwd packages/nodemailer build && bun run --cwd packages/testing build && bun run --cwd packages/create-app build",
@@ -31,6 +34,7 @@
     "example:preferences-ui": "bun run --cwd examples/preferences-ui dev",
     "example:full-stack": "bun run --cwd examples/nextjs-better-auth-drizzle dev",
     "typecheck": "tsc -p packages/core/tsconfig.check.json",
+    "typecheck:examples": "tsc -p examples/basic/tsconfig.json && tsc -p examples/digest/tsconfig.json --noEmit && tsc -p examples/drizzle/tsconfig.json && tsc -p examples/full-test/tsconfig.json && tsc -p examples/handler/tsconfig.json && tsc -p examples/multi-tenant/tsconfig.json --noEmit && tsc -p examples/resend/tsconfig.json --noEmit",
     "docs:dev": "bun run --cwd docs dev",
     "docs:build": "bun run --cwd docs build"
   },

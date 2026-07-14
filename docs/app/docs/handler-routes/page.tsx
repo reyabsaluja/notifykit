@@ -14,14 +14,33 @@ export default function HandlerRoutesPage() {
         documents every route.
       </p>
 
+      <div className="features">
+        <div className="feature-card">
+          <h3>Single catch-all route</h3>
+          <p>One file serves inbox, preferences, events, unsubscribe, and webhooks. No manual routing.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Identity-scoped</h3>
+          <p>Every request resolves the user via your <code>identify()</code> callback. Cross-tenant access is impossible.</p>
+        </div>
+        <div className="feature-card">
+          <h3>SSE realtime stream</h3>
+          <p>The <code>/events</code> endpoint pushes inbox updates to the client — no polling, no WebSocket setup.</p>
+        </div>
+        <div className="feature-card">
+          <h3>Optimistic SDK</h3>
+          <p>The React SDK calls these routes automatically with optimistic updates and automatic error recovery.</p>
+        </div>
+      </div>
+
       <h2>Mounting the handler</h2>
       <p>
         Before the routes exist, you need to wire the handler into your
         framework. Here are the two most common setups:
       </p>
       <Code
-        code={`// app/api/notifykit/[...notifykit]/route.ts  (Next.js App Router)
-import { createRouteHandler } from "@notifykitjs/nextjs"
+        filename="app/api/notifykit/[...notifykit]/route.ts"
+        code={`import { createRouteHandler } from "@notifykitjs/nextjs"
 import { notify } from "@/lib/notifykit"
 import { auth } from "@/lib/auth"
 
@@ -37,13 +56,13 @@ const handler = createRouteHandler({
 export { handler as GET, handler as POST, handler as DELETE }`}
       />
       <Code
-        code={`// src/routes/notifykit.ts  (Express / Node.js)
-import { createHandler } from "@notifykitjs/core"
+        filename="src/routes/notifykit.ts"
+        code={`import { createHandler } from "@notifykitjs/core"
 import { notify } from "../lib/notifykit"
 
 const handler = createHandler(notify, {
   identify: async (req) => {
-    const user = req.user // from your auth middleware
+    const user = req.user
     if (!user) return null
     return { recipientId: user.id }
   },
@@ -207,8 +226,8 @@ app.all("/api/notifykit/*", handler)`}
         </tbody>
       </table>
       <Code
-        code={`// Admin access pattern: support team can read any user's deliveries
-createRouteHandler({
+        filename="app/api/notifykit/[...notifykit]/route.ts"
+        code={`createRouteHandler({
   notifykit: notify,
   identify: async (request) => {
     const session = await auth(request)
@@ -220,11 +239,9 @@ createRouteHandler({
     }
   },
   authorize: async (ctx, permission) => {
-    // "deliveries:list" requires admin role
     if (permission === "deliveries:list" && ctx.role !== "admin") {
       return false
     }
-    // All other routes: any authenticated user can access their own data
     return true
   },
 })`}
@@ -249,7 +266,7 @@ createRouteHandler({
           <tr><td><code>GET /notifications</code></td><td><code>notifications:list</code></td><td>Public (unless <code>protectNotifications: true</code>)</td></tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-tip">
         <strong>You don&apos;t need authorize() for most apps.</strong> The handler
         already enforces ownership — a user can only read/modify their own inbox
         items and preferences. <code>authorize()</code> is for additional rules
@@ -259,6 +276,7 @@ createRouteHandler({
 
       <h2>Configuration</h2>
       <Code
+        filename="lib/handler.ts"
         code={`import { createHandler } from "@notifykitjs/core"
 
 const handler = createHandler(notify, {
@@ -272,6 +290,67 @@ const handler = createHandler(notify, {
   onWebhookEvent?: (provider: string, payload: unknown) => void | Promise<void>,
 })`}
       />
+      <table>
+        <thead>
+          <tr><th>Option</th><th>Required</th><th>Default</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>identify</code></td>
+            <td>Yes</td>
+            <td>—</td>
+            <td>Resolves the current user from the request. Return <code>null</code> to reject (401). Return an object with at minimum <code>recipientId</code>.</td>
+          </tr>
+          <tr>
+            <td><code>authorize</code></td>
+            <td>No</td>
+            <td>Allow all</td>
+            <td>Fine-grained permission check after identity resolves. Return <code>false</code> to reject (403).</td>
+          </tr>
+          <tr>
+            <td><code>unsubscribeSecret</code></td>
+            <td>No</td>
+            <td>—</td>
+            <td>HMAC secret for verifying email unsubscribe links. Required if you use the inbox channel with email fallback.</td>
+          </tr>
+          <tr>
+            <td><code>cors</code></td>
+            <td>No</td>
+            <td>Disabled</td>
+            <td>Allowed origins for CORS preflight. Pass a string or array of strings. Omit to disable CORS headers entirely.</td>
+          </tr>
+          <tr>
+            <td><code>protectNotifications</code></td>
+            <td>No</td>
+            <td><code>false</code></td>
+            <td>When <code>true</code>, the <code>GET /notifications</code> route requires authentication. Useful if notification definitions are sensitive.</td>
+          </tr>
+          <tr>
+            <td><code>requestRateLimit</code></td>
+            <td>No</td>
+            <td>Disabled</td>
+            <td>Per-identity sliding window. <code>max</code>: requests allowed per window. <code>windowMs</code>: window duration in ms.</td>
+          </tr>
+          <tr>
+            <td><code>webhooks</code></td>
+            <td>No</td>
+            <td>—</td>
+            <td>Signature verification functions keyed by provider name. Called on <code>POST /webhooks/:provider</code>. Return <code>false</code> to reject (401).</td>
+          </tr>
+          <tr>
+            <td><code>onWebhookEvent</code></td>
+            <td>No</td>
+            <td>—</td>
+            <td>Callback fired after a webhook passes signature verification. Use for processing delivery status updates, bounces, or opens.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>Start with just <code>identify</code>.</strong> Every other option
+        has a sensible default. Add <code>cors</code> when your frontend is on a
+        different origin, <code>requestRateLimit</code> when you go to production,
+        and <code>authorize</code> only if you need admin-level routes.
+      </div>
 
       <h2>Inbox routes</h2>
       <table>
@@ -299,8 +378,8 @@ const handler = createHandler(notify, {
         </tbody>
       </table>
       <Code
-        code={`// POST /preferences body:
-{
+        lang="json"
+        code={`{
   "notificationId": "comment_mentioned",
   "channels": { "email": false }
 }`}
@@ -372,8 +451,8 @@ curl -s http://localhost:3000/api/notifykit/inbox?limit=5 \\
   -H "Cookie: session=..." | jq .`}
       />
       <Code
-        code={`// Response: InboxItem[]
-[
+        lang="json"
+        code={`[
   {
     "id": "inb_a1b2c3",
     "notificationId": "comment_mentioned",
@@ -394,12 +473,11 @@ curl -s -X POST http://localhost:3000/api/notifykit/inbox/inb_a1b2c3/read \\
   -H "Cookie: session=..."`}
       />
       <Code
-        code={`// Response: InboxItem (updated)
-{
+        lang="json"
+        code={`{
   "id": "inb_a1b2c3",
   "title": "Rey mentioned you",
-  "readAt": "2025-03-15T10:31:22.000Z",
-  ...
+  "readAt": "2025-03-15T10:31:22.000Z"
 }`}
       />
       <Code
@@ -411,8 +489,8 @@ curl -s -X POST http://localhost:3000/api/notifykit/preferences \\
   -d '{"notificationId": "comment_mentioned", "channels": {"email": false}}'`}
       />
       <Code
-        code={`// Response: RecipientPreference
-{
+        lang="json"
+        code={`{
   "recipientId": "user_123",
   "notificationId": "comment_mentioned",
   "channels": { "inbox": true, "email": false },
@@ -425,8 +503,8 @@ curl -s -X POST http://localhost:3000/api/notifykit/preferences \\
 curl -s http://localhost:3000/api/notifykit/notifications | jq .`}
       />
       <Code
-        code={`// Response: NotificationMeta[]
-[
+        lang="json"
+        code={`[
   {
     "id": "comment_mentioned",
     "channels": ["inbox", "email"],
@@ -460,7 +538,7 @@ curl -s http://localhost:3000/api/notifykit/notifications | jq .`}
           <tr><td><code>requestRateLimit: {`{ max, windowMs }`}</code></td><td>Per-identity sliding window on authenticated routes. Exceeding returns <code>429</code>.</td></tr>
         </tbody>
       </table>
-      <div className="callout">
+      <div className="callout callout-warn">
         <strong>Unauthenticated routes</strong> (notifications, unsubscribe) are
         not throttled by <code>requestRateLimit</code>. Apply IP-based limiting
         at your reverse proxy for those.
@@ -473,14 +551,13 @@ curl -s http://localhost:3000/api/notifykit/notifications | jq .`}
         call them directly:
       </p>
       <Code
-        code={`// Minimal fetch-based client (works anywhere with fetch)
-const BASE = "https://app.com/api/notifykit"
+        filename="lib/notifykit-client.ts"
+        code={`const BASE = "https://app.com/api/notifykit"
 
 async function notifyFetch(path, opts = {}) {
   const res = await fetch(\`\${BASE}\${path}\`, {
     headers: {
       "Content-Type": "application/json",
-      // Your auth header — cookie, bearer token, etc.
       ...opts.headers,
     },
     credentials: "include",
@@ -603,9 +680,9 @@ data: {}`}
 
       <h3>Handling events in a custom client</h3>
       <Code
+        filename="lib/realtime-events.ts"
         code={`const events = new EventSource(\`\${BASE}/events\`, { withCredentials: true })
 
-// Named event listeners (preferred — each event type gets its own handler)
 events.addEventListener("inbox.created", (e) => {
   const item = JSON.parse(e.data)
   addToInbox(item)
@@ -629,12 +706,437 @@ events.addEventListener("inbox.all_read", (e) => {
   resetUnreadCount()
 })
 
-// Reconnection: EventSource auto-reconnects on network drops.
-// The server replays missed events using the Last-Event-ID header.
 events.onerror = () => {
-  // Browser retries automatically — no manual reconnect needed.
-  // Show a "reconnecting..." indicator if desired.
+  // Browser retries automatically — no manual reconnect needed
 }`}
+      />
+
+      <h2>Optimistic updates</h2>
+      <p>
+        The React SDK applies optimistic updates automatically — mark-read
+        updates the UI instantly, then confirms with the server. If you&apos;re
+        building a custom client, implement this pattern yourself to avoid
+        perceived latency:
+      </p>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Update UI immediately</strong>
+            <p>Set <code>readAt</code> / remove from list before the server responds.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Fire request</strong>
+            <p>POST to the server in the background.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>On success: confirm</strong>
+            <p>Replace the optimistic state with the server&apos;s response (authoritative timestamps).</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>On failure: rollback</strong>
+            <p>Revert to the previous state. Show a toast or error indicator.</p>
+          </div>
+        </div>
+      </div>
+      <Code
+        filename="lib/inbox-store.ts"
+        code={`function createInboxStore(baseUrl) {
+  let items = []
+  let unreadCount = 0
+  const listeners = new Set()
+
+  function notify() { listeners.forEach(fn => fn({ items, unreadCount })) }
+
+  return {
+    subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
+
+    setItems(newItems) {
+      items = newItems
+      unreadCount = items.filter(i => !i.readAt).length
+      notify()
+    },
+
+    async markRead(itemId) {
+      // 1. Snapshot for rollback
+      const prev = items.map(i => ({ ...i }))
+      const prevCount = unreadCount
+
+      // 2. Optimistic update
+      items = items.map(i =>
+        i.id === itemId ? { ...i, readAt: new Date().toISOString() } : i
+      )
+      unreadCount = items.filter(i => !i.readAt).length
+      notify()
+
+      // 3. Confirm with server
+      try {
+        const res = await fetch(\`\${baseUrl}/inbox/\${itemId}/read\`, { method: "POST", credentials: "include" })
+        if (!res.ok) throw new Error(res.statusText)
+        const updated = await res.json()
+        items = items.map(i => i.id === itemId ? updated : i)
+        notify()
+      } catch {
+        // 4. Rollback on failure
+        items = prev
+        unreadCount = prevCount
+        notify()
+      }
+    },
+
+    async markAllRead() {
+      const prev = items.map(i => ({ ...i }))
+      items = items.map(i => ({ ...i, readAt: i.readAt ?? new Date().toISOString() }))
+      unreadCount = 0
+      notify()
+
+      try {
+        const res = await fetch(\`\${baseUrl}/inbox/mark-all-read\`, { method: "POST", credentials: "include" })
+        if (!res.ok) throw new Error(res.statusText)
+      } catch {
+        items = prev
+        unreadCount = prev.filter(i => !i.readAt).length
+        notify()
+      }
+    },
+
+    async deleteItem(itemId) {
+      const prev = items.map(i => ({ ...i }))
+      items = items.filter(i => i.id !== itemId)
+      unreadCount = items.filter(i => !i.readAt).length
+      notify()
+
+      try {
+        const res = await fetch(\`\${baseUrl}/inbox/\${itemId}\`, { method: "DELETE", credentials: "include" })
+        if (!res.ok) throw new Error(res.statusText)
+      } catch {
+        items = prev
+        unreadCount = prev.filter(i => !i.readAt).length
+        notify()
+      }
+    },
+  }
+}`}
+      />
+      <table>
+        <thead>
+          <tr><th>Operation</th><th>Optimistic behavior</th><th>Rollback on failure</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Mark read</strong></td>
+            <td>Set <code>readAt</code> instantly, decrement badge</td>
+            <td>Clear <code>readAt</code>, restore badge count</td>
+          </tr>
+          <tr>
+            <td><strong>Mark all read</strong></td>
+            <td>Set <code>readAt</code> on all items, zero the badge</td>
+            <td>Restore original <code>readAt</code> values and count</td>
+          </tr>
+          <tr>
+            <td><strong>Archive</strong></td>
+            <td>Remove from visible list immediately</td>
+            <td>Re-insert at original position</td>
+          </tr>
+          <tr>
+            <td><strong>Delete</strong></td>
+            <td>Remove from list, update count</td>
+            <td>Re-insert item, restore count</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="callout callout-tip">
+        <strong>SSE confirms or conflicts.</strong> If your SSE connection is
+        active, you&apos;ll receive an <code>inbox.updated</code> event after
+        the server processes the mutation. Use it to replace your optimistic
+        state with the authoritative version — this handles the case where
+        another tab or device made the same change.
+      </div>
+      <div className="callout callout-warn">
+        <strong>Never optimistically delete — unless you can undo.</strong>{" "}
+        DELETE is permanent on the server. If the request fails after you&apos;ve
+        removed the item from the UI, the user has no way to get it back. Either
+        add a brief undo window (5 seconds before firing the request) or show
+        a confirmation first.
+      </div>
+
+      <h2>Pagination</h2>
+      <p>
+        Real inbox UIs need pagination — a user with 200 notifications
+        shouldn&apos;t load them all at once. The handler supports cursor-based
+        pagination via <code>?cursor</code> and <code>?limit</code> query params:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Param</th><th>Type</th><th>Default</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>limit</code></td><td>number</td><td>20</td><td>Max items to return per page</td></tr>
+          <tr><td><code>cursor</code></td><td>string (item ID)</td><td>—</td><td>Return items older than this ID (exclusive)</td></tr>
+          <tr><td><code>archived</code></td><td>boolean</td><td>false</td><td>Include only archived items when <code>true</code></td></tr>
+        </tbody>
+      </table>
+      <Code
+        lang="bash"
+        code={`GET /api/notifykit/inbox?limit=20
+
+# To load the next page, pass the last item's ID as cursor:
+GET /api/notifykit/inbox?limit=20&cursor=inb_oldest_on_page
+
+# When you get fewer items than the limit, you've reached the end.`}
+      />
+
+      <h3>Infinite scroll pattern</h3>
+      <p>
+        The most common inbox pattern: load more items as the user scrolls
+        down. Use the last item&apos;s ID as the cursor for each subsequent fetch:
+      </p>
+      <Code
+        filename="hooks/use-infinite-inbox.ts"
+        code={`function useInfiniteInbox(baseUrl) {
+  const [items, setItems] = useState([])
+  const [cursor, setCursor] = useState(null)
+  const [hasMore, setHasMore] = useState(true)
+  const [loading, setLoading] = useState(false)
+
+  const PAGE_SIZE = 20
+
+  async function loadMore() {
+    if (loading || !hasMore) return
+    setLoading(true)
+
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
+    if (cursor) params.set("cursor", cursor)
+
+    const res = await fetch(\`\${baseUrl}/inbox?\${params}\`, {
+      credentials: "include",
+    })
+    const page = await res.json()
+
+    setItems(prev => [...prev, ...page])
+    setHasMore(page.length === PAGE_SIZE)
+    if (page.length > 0) setCursor(page[page.length - 1].id)
+    setLoading(false)
+  }
+
+  // Load first page on mount
+  useEffect(() => { loadMore() }, [])
+
+  return { items, loadMore, hasMore, loading }
+}`}
+      />
+
+      <h3>Load-more button vs infinite scroll</h3>
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>Best for</th><th>Implementation</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Infinite scroll</strong></td>
+            <td>Primary inbox view — users browse casually</td>
+            <td>Attach an <code>IntersectionObserver</code> to a sentinel element at the bottom of the list. When visible, call <code>loadMore()</code>.</td>
+          </tr>
+          <tr>
+            <td><strong>Load more button</strong></td>
+            <td>Settings/archive pages — users browse intentionally</td>
+            <td>Render a button below the list that calls <code>loadMore()</code> on click. Simpler, more accessible.</td>
+          </tr>
+          <tr>
+            <td><strong>Virtual list</strong></td>
+            <td>Power users with 500+ items — performance-critical</td>
+            <td>Use a virtualization library (react-window, TanStack Virtual). Combine with pagination to load chunks as the user scrolls into unloaded regions.</td>
+          </tr>
+        </tbody>
+      </table>
+      <Code
+        filename="components/inbox-list.tsx"
+        code={`function InboxList() {
+  const { items, loadMore, hasMore, loading } = useInfiniteInbox(BASE_URL)
+  const sentinelRef = useRef(null)
+
+  useEffect(() => {
+    if (!sentinelRef.current) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) loadMore() },
+      { rootMargin: "200px" } // trigger 200px before the sentinel is visible
+    )
+    observer.observe(sentinelRef.current)
+    return () => observer.disconnect()
+  }, [loadMore])
+
+  return (
+    <ul>
+      {items.map(item => <InboxRow key={item.id} item={item} />)}
+      {hasMore && <li ref={sentinelRef}>{loading ? "Loading..." : ""}</li>}
+    </ul>
+  )
+}`}
+      />
+
+      <h3>SSE + pagination: reconciling new items</h3>
+      <p>
+        When SSE pushes a new <code>inbox.created</code> event while the user
+        has scrolled down (and possibly loaded multiple pages), prepend it to
+        the list — don&apos;t refetch everything:
+      </p>
+      <Code
+        filename="lib/sse-reconcile.ts"
+        code={`events.addEventListener("inbox.created", (e) => {
+  const newItem = JSON.parse(e.data)
+  setItems(prev => [newItem, ...prev])
+})
+
+// When SSE delivers an update, patch in-place
+events.addEventListener("inbox.updated", (e) => {
+  const patch = JSON.parse(e.data)
+  setItems(prev => prev.map(i => i.id === patch.id ? { ...i, ...patch } : i))
+})
+
+// When SSE delivers a delete, remove from wherever it is in the list
+events.addEventListener("inbox.deleted", (e) => {
+  const { id } = JSON.parse(e.data)
+  setItems(prev => prev.filter(i => i.id !== id))
+})`}
+      />
+      <div className="callout callout-tip">
+        <strong>New items prepend, old items paginate.</strong> SSE handles the
+        &quot;top&quot; of the list (real-time arrivals), pagination handles the
+        &quot;bottom&quot; (historical items). They don&apos;t interfere — cursor
+        pagination is stable even when new items are inserted above.
+      </div>
+
+      <h2>Troubleshooting</h2>
+      <p>
+        Handler issues usually surface as network errors in the browser or
+        unexpected responses during development. Work through the table below
+        — most problems resolve within the first three rows.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>CORS error in browser console</td>
+            <td><code>cors</code> not configured, or origin doesn&apos;t match</td>
+            <td>Set <code>cors: &quot;http://localhost:3000&quot;</code> (exact origin — no trailing slash, no wildcard in prod)</td>
+          </tr>
+          <tr>
+            <td>All requests return 401</td>
+            <td><code>identify()</code> returning <code>null</code> — session not resolving</td>
+            <td>Log inside <code>identify()</code>. Common causes: cookie not sent (<code>credentials: &quot;include&quot;</code> missing), auth middleware not running on this route.</td>
+          </tr>
+          <tr>
+            <td>404 on all handler routes</td>
+            <td>Catch-all route not matching, or wrong path prefix</td>
+            <td>Verify file is at <code>app/api/notifykit/[...notifykit]/route.ts</code>. The segment name must match the SDK&apos;s base path.</td>
+          </tr>
+          <tr>
+            <td>Inbox returns empty but sends succeed</td>
+            <td>Handler <code>identify()</code> returns a different <code>recipientId</code> than what was passed to <code>send()</code></td>
+            <td>Ensure the ID from your auth session matches the ID you pass to <code>send()</code> exactly (case-sensitive).</td>
+          </tr>
+          <tr>
+            <td>Preferences save but don&apos;t affect delivery</td>
+            <td>Preference written without <code>tenantId</code>, but sends include one (or vice versa)</td>
+            <td>The scopes must match. If your sends pass <code>tenantId</code>, your handler must return it from <code>identify()</code> too.</td>
+          </tr>
+          <tr>
+            <td>SSE connects then drops instantly</td>
+            <td>Response buffering by proxy, CDN, or middleware</td>
+            <td>Disable buffering for the <code>/events</code> route. On Vercel: use <code>export const dynamic = &quot;force-dynamic&quot;</code>. On nginx: <code>proxy_buffering off</code>.</td>
+          </tr>
+          <tr>
+            <td>SSE works locally but not in production</td>
+            <td>Load balancer idle timeout shorter than heartbeat interval</td>
+            <td>Set <code>heartbeatMs</code> below your LB timeout (e.g. <code>25000</code> for a 30s ALB timeout). See <Link href="/docs/realtime">Realtime</Link> tuning.</td>
+          </tr>
+          <tr>
+            <td>Unsubscribe link returns 401</td>
+            <td><code>unsubscribeSecret</code> not set on the handler, or env var is empty/missing in this environment</td>
+            <td>Verify <code>process.env.NOTIFYKIT_SECRET</code> is set. The unsubscribe route uses HMAC verification, not session auth — it needs the secret.</td>
+          </tr>
+          <tr>
+            <td>Mark-read returns 403</td>
+            <td>Inbox item belongs to a different (recipient, tenant) pair than what <code>identify()</code> resolved</td>
+            <td>The handler enforces ownership. Check that the user&apos;s session matches the tenant context they&apos;re operating in.</td>
+          </tr>
+          <tr>
+            <td>Request works in Postman but not the browser</td>
+            <td>Cookies not sent (missing <code>credentials: &quot;include&quot;</code>) or CORS blocking preflight</td>
+            <td>Add <code>credentials: &quot;include&quot;</code> to fetch calls. Ensure the handler&apos;s <code>cors</code> allows the browser&apos;s origin.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="callout callout-tip">
+        <strong>Debug with curl first.</strong> If curl works but the browser
+        doesn&apos;t, the issue is CORS or cookies. If curl also fails, the
+        issue is server-side (auth, routing, handler config). This narrows the
+        search space immediately.
+      </div>
+
+      <h3>Diagnostic checklist</h3>
+      <p>
+        Run through these checks in order when the handler isn&apos;t
+        working. Each step eliminates one failure category:
+      </p>
+      <div className="overview-flow">
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">1</span>
+          <div>
+            <strong>Route exists</strong>
+            <p>Hit <code>GET /api/notifykit/notifications</code> with curl. If 404: the catch-all route file isn&apos;t in the right location.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">2</span>
+          <div>
+            <strong>Auth resolves</strong>
+            <p>Hit <code>GET /api/notifykit/inbox</code> with a valid session cookie. If 401: <code>identify()</code> isn&apos;t resolving your session.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">3</span>
+          <div>
+            <strong>Data exists</strong>
+            <p>If 200 but empty: send a test notification via <code>notify.send()</code> and try again. Ensure <code>recipientId</code> matches.</p>
+          </div>
+        </div>
+        <div className="overview-flow-step">
+          <span className="overview-flow-number">4</span>
+          <div>
+            <strong>Browser works</strong>
+            <p>If curl succeeds but browser fails: add <code>cors</code> to the handler and <code>credentials: &quot;include&quot;</code> to the client.</p>
+          </div>
+        </div>
+      </div>
+      <Code
+        lang="bash"
+        code={`# Step 1: Route exists?
+curl -s http://localhost:3000/api/notifykit/notifications | jq .
+# Expected: array of notification definitions (or 200 with [])
+
+# Step 2: Auth resolves?
+curl -s -H "Cookie: session=YOUR_SESSION_COOKIE" \\
+  http://localhost:3000/api/notifykit/inbox | jq .
+# Expected: 200 with inbox items (or empty array)
+# If 401: identify() returned null
+
+# Step 3: SSE connects?
+curl -N -H "Cookie: session=YOUR_SESSION_COOKIE" \\
+  http://localhost:3000/api/notifykit/events
+# Expected: "event: heartbeat" within 30s`}
       />
 
       <h3>Connection lifecycle</h3>
@@ -674,6 +1176,12 @@ events.onerror = () => {
         missed events on reconnect, and updates the component state. This
         reference is only needed for custom clients or debugging the event
         stream in DevTools.
+      </div>
+
+      <div className="button-row">
+        <Link href="/docs/security" className="primary">Security model</Link>
+        <Link href="/docs/realtime">Realtime & SSE</Link>
+        <Link href="/docs/react">React SDK</Link>
       </div>
 
       <div className="page-nav">

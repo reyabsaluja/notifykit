@@ -31,7 +31,7 @@ const commentMentioned = notification({
   digest: {
     windowMs: 3_000, // 3 seconds for demo (use minutes/hours in production)
     render: ({ payloads, count }) => {
-      if (count === 1) return payloads[0];
+      if (count === 1) return payloads[0]!;
       const names = [...new Set(payloads.map((p) => p.actorName))];
       return {
         actorName: names.length > 2
