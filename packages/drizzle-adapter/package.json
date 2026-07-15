@@ -2,6 +2,7 @@
   "name": "@notifykitjs/drizzle",
   "version": "0.0.1",
   "description": "Drizzle ORM persistence adapter for NotifyKit.",
+  "keywords": ["notifications", "typescript", "drizzle", "postgresql", "sqlite"],
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -9,7 +10,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reyabsaluja/notifykit",
+    "url": "git+https://github.com/reyabsaluja/notifykit.git",
     "directory": "packages/drizzle-adapter"
   },
   "homepage": "https://github.com/reyabsaluja/notifykit",

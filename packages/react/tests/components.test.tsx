@@ -13,6 +13,8 @@ import {
   NotificationBell,
   NotifyKitProvider,
   createNotifyKitClient,
+  useInbox,
+  useUnreadCount,
 } from "../src/index.js";
 
 const inboxCh = channel.inbox();
@@ -48,6 +50,27 @@ function makeClient(authed = true) {
 }
 
 describe("React components", () => {
+  test("documented inbox aliases and unread-count hook are exported", () => {
+    const { client } = makeClient();
+    function Probe() {
+      const inbox = useInbox({ autoLoad: false });
+      const unread = useUnreadCount({ autoLoad: false });
+      return (
+        <span
+          data-aliases={`${typeof inbox.markAsRead}:${typeof inbox.delete}`}
+          data-unread={unread.unreadCount}
+        />
+      );
+    }
+    const html = renderToStaticMarkup(
+      <NotifyKitProvider client={client}>
+        <Probe />
+      </NotifyKitProvider>,
+    );
+    expect(html).toContain('data-aliases="function:function"');
+    expect(html).toContain('data-unread="0"');
+  });
+
   test("NotificationBell renders initial state without crashing", () => {
     const { client } = makeClient();
     const html = renderToStaticMarkup(

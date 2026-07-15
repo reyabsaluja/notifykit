@@ -1010,23 +1010,24 @@ import { createNotifyKit, memoryAdapter, fakeEmailProvider, createHandler } from
 import { commentMentioned } from "@/lib/notifications"
 import { InboxPage } from "./inbox-page" // your component
 
-// 1. Create a test NotifyKit instance with in-memory everything
-const testNotify = createNotifyKit({
-  notifications: [commentMentioned] as const,
-  database: memoryAdapter(),
-  providers: { email: fakeEmailProvider() },
-})
-
-// 2. Create a handler that the provider will call
-const handler = createHandler(testNotify, {
-  identify: async () => ({ recipientId: "test_user" }),
-})
+let testNotify
+let handler
 
 // 3. Wrapper that intercepts fetch and routes to the handler
 function TestWrapper({ children }: { children: React.ReactNode }) {
   return (
     <NotifyKitProvider
-      options={{ baseUrl: "/api/notifykit", fetcher: (url, init) => handler(new Request(url, init)) }}
+      options={{
+        baseUrl: "/api/notifykit",
+        fetch: (input, init) => {
+          const url = typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+          return handler(new Request(new URL(url, "http://test"), init))
+        },
+      }}
     >
       {children}
     </NotifyKitProvider>
@@ -1035,6 +1036,14 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
 
 describe("InboxPage", () => {
   beforeEach(async () => {
+    testNotify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: fakeEmailProvider() },
+    })
+    handler = createHandler(testNotify, {
+      identify: async () => ({ recipientId: "test_user" }),
+    })
     await testNotify.upsertRecipient({ id: "test_user", email: "test@test.com" })
   })
 
@@ -1111,13 +1120,16 @@ it("toggles email off for a notification", async () => {
 
       <h3>Testing error states</h3>
       <Code
-        code={`// For testing error UI, use a mock fetcher that rejects
+        code={`// For testing error UI, use a mock fetch that returns an error
 function ErrorWrapper({ children }: { children: React.ReactNode }) {
   return (
     <NotifyKitProvider
       options={{
         baseUrl: "/api/notifykit",
-        fetcher: () => Promise.resolve(new Response(null, { status: 401 })),
+        fetch: () => Promise.resolve(Response.json(
+          { error: "Unauthenticated", code: "UNAUTHENTICATED" },
+          { status: 401 },
+        )),
       }}
     >
       {children}
@@ -1175,8 +1187,8 @@ it("shows error state on 401", async () => {
 
       <div className="callout callout-tip">
         <strong>No HTTP mocking library needed.</strong> The{" "}
-        <code>fetcher</code> option on the provider accepts a custom fetch
-        function. Point it at your in-memory handler and your tests exercise
+        <code>fetch</code> option in the provider&apos;s <code>options</code> accepts
+        a custom fetch function. Point it at your in-memory handler and your tests exercise
         the real API contract — serialization, status codes, and all — without
         network I/O or <code>msw</code> setup.
       </div>
@@ -1261,14 +1273,14 @@ it("shows error state on 401", async () => {
           <tr>
             <td>Inbox flashes empty then loads</td>
             <td>More noticeable (slower HMR rebuild)</td>
-            <td>Sub-100ms in production</td>
-            <td>Dev server is slower; production serves from cache</td>
+            <td>Depends on network, auth, database, and rendering</td>
+            <td>Measure loading behavior in the deployed application</td>
           </tr>
           <tr>
             <td>Console warning about unmounted state update</td>
             <td>Occasionally during HMR</td>
-            <td>Never</td>
-            <td>HMR swaps components while async operations are in-flight</td>
+            <td>Should not occur</td>
+            <td>Investigate cleanup if it appears outside HMR</td>
           </tr>
           <tr>
             <td>Data resets between saves</td>

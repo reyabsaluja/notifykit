@@ -60,6 +60,7 @@ export type {
   CapturedSend,
   CreateNotifyKitInput,
   DevModeConfig,
+  NotificationMetadata,
   NotifyKit,
   SendResult,
 } from "./create-notifykit.js";

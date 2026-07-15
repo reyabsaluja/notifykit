@@ -2,12 +2,13 @@
   "name": "create-notifykit-app",
   "version": "0.0.1",
   "description": "Scaffold a Next.js app with NotifyKit.",
+  "keywords": ["notifications", "typescript", "nextjs", "create-app"],
   "license": "MIT",
   "engines": { "node": ">=18" },
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reyabsaluja/notifykit",
+    "url": "git+https://github.com/reyabsaluja/notifykit.git",
     "directory": "packages/create-app"
   },
   "homepage": "https://github.com/reyabsaluja/notifykit",

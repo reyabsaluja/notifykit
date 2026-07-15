@@ -314,15 +314,16 @@ for (const d of recentFailures.slice(0, 10)) {
       </p>
       <Code
         filename="scripts/measure-latency.ts"
-        code={`const records = await notify.notifications.list({ limit: 100 })
+        code={`const deliveries = await notify.deliveries.list(undefined, undefined, 100)
+const recordIds = [...new Set(deliveries.map(d => d.notificationRecordId))]
 
 const latencies = await Promise.all(
-  records.map(async (r) => {
-    const events = await notify.timeline(r.id)
+  recordIds.map(async (id) => {
+    const events = await notify.timeline(id)
     const first = events[0]?.timestamp
     const sent = events.find(e => e.event === "delivery.sent")?.timestamp
     if (!first || !sent) return null
-    return { id: r.id, channel: events.find(e => e.channel)?.channel, ms: sent - first }
+    return { id, channel: events.find(e => e.channel)?.channel, ms: sent - first }
   })
 )
 
@@ -335,36 +336,36 @@ console.log(\`p50: \${p50}ms, p95: \${p95}ms\`)`}
       />
       <table>
         <thead>
-          <tr><th>Channel</th><th>Healthy p95</th><th>Investigate if</th></tr>
+          <tr><th>Channel</th><th>Latency includes</th><th>Investigate against</th></tr>
         </thead>
         <tbody>
           <tr>
             <td>Inbox</td>
-            <td>&lt; 50ms</td>
-            <td>&gt; 200ms — likely database contention or slow adapter</td>
+            <td>Database write and realtime publication</td>
+            <td>Your normal database p95 and product freshness SLO</td>
           </tr>
           <tr>
             <td>Email (Resend)</td>
-            <td>&lt; 500ms</td>
-            <td>&gt; 2s — provider throttling or DNS resolution issues</td>
+            <td>DNS, TLS, provider API, and persistence</td>
+            <td>Your provider&apos;s observed baseline and timeout</td>
           </tr>
           <tr>
-            <td>SMS (Twilio)</td>
-            <td>&lt; 1s</td>
-            <td>&gt; 3s — carrier queuing or account-level rate limits</td>
+            <td>SMS (custom provider)</td>
+            <td>Provider API acceptance, not carrier delivery</td>
+            <td>Your provider&apos;s observed baseline and rate limits</td>
           </tr>
           <tr>
             <td>Webhook</td>
-            <td>&lt; 300ms</td>
-            <td>&gt; 5s — downstream endpoint is slow; consider async delivery</td>
+            <td>DNS, TLS, and the downstream handler</td>
+            <td>Your downstream service SLO and configured timeout</td>
           </tr>
         </tbody>
       </table>
       <div className="callout callout-warn">
         <strong>Alert on p95, not p50.</strong> A healthy median hides tail
-        latency. If your p95 crosses the threshold for two consecutive
-        intervals, page — it usually means the provider is degraded or your
-        database connection pool is saturated.
+        latency. Establish thresholds from real traffic and alert on sustained
+        regression; a universal latency number would be misleading across
+        different regions, providers, and database topologies.
       </div>
 
       <h2>Common timeline patterns</h2>

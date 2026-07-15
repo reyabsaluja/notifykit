@@ -21,6 +21,7 @@ export function LandingNav() {
         NotifyKit
       </Link>
       <div className="landing-nav-links">
+        <Link href="/docs/why-notifykit">Why NotifyKit?</Link>
         <Link href="/docs/installation">Docs</Link>
         <Link href="/demo">Demo</Link>
         <a

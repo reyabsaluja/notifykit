@@ -17,8 +17,12 @@ export {
 export {
   useInbox,
   usePreferences,
+  useUnreadCount,
+  type UseInboxOptions,
   type UseInboxResult,
   type UsePreferencesResult,
+  type UseUnreadCountOptions,
+  type UseUnreadCountResult,
 } from "./hooks.js";
 
 export {

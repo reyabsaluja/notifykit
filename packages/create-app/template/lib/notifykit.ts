@@ -10,6 +10,24 @@ import {
 // Define your notifications in code.
 // ---------------------------------------------------------------------------
 
+const secret = process.env.NOTIFYKIT_SECRET;
+const baseUrl = process.env.NOTIFYKIT_BASE_URL;
+
+if (secret === "replace-me-with-a-32-byte-random-secret") {
+  throw new Error(
+    "NOTIFYKIT_SECRET is still the placeholder value from .env.example. " +
+    "Generate a real secret: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+  );
+}
+
+const unsubscribe =
+  secret && baseUrl
+    ? { secret, baseUrl }
+    : undefined;
+const unsubscribeFooter = unsubscribe
+  ? "\n---\nDon't want these? {{_unsubscribeUrl}}\n"
+  : "";
+
 const inbox = channel.inbox();
 const email = channel.email();
 
@@ -33,10 +51,7 @@ export const commentMentioned = notification({
 {{actorName}} mentioned you in "{{postTitle}}".
 
 Open {{postUrl}} to reply.
-
----
-Don't want these? {{_unsubscribeUrl}}
-`,
+${unsubscribeFooter}`,
     }),
   ],
 });
@@ -59,37 +74,29 @@ Don't want these? {{_unsubscribeUrl}}
 //   providers: { email: resendProvider({ apiKey: process.env.RESEND_API_KEY!, from: process.env.RESEND_FROM! }) }
 // ---------------------------------------------------------------------------
 
-const secret = process.env.NOTIFYKIT_SECRET;
-const baseUrl = process.env.NOTIFYKIT_BASE_URL;
-
-if (secret === "replace-me-with-a-32-byte-random-secret") {
-  throw new Error(
-    "NOTIFYKIT_SECRET is still the placeholder value from .env.example. " +
-    "Generate a real secret: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
-  );
-}
-
 export const notify = createNotifyKit({
   notifications: [commentMentioned] as const,
   database: memoryAdapter(),
   providers: {
     email: fakeEmailProvider(),
   },
-  unsubscribe:
-    secret && baseUrl
-      ? { secret, baseUrl }
-      : undefined,
+  unsubscribe,
 });
 
 // Seed a demo recipient so the starter "just works" without a signup flow.
 // Replace this with your real user-creation hook.
-let seeded = false;
-export async function ensureDemoUser() {
-  if (seeded) return;
-  seeded = true;
-  await notify.upsertRecipient({
-    id: "demo_user",
-    email: "demo@example.com",
-    name: "Demo User",
-  });
+let seedPromise: Promise<void> | undefined;
+export function ensureDemoUser(): Promise<void> {
+  seedPromise ??= notify
+    .upsertRecipient({
+      id: "demo_user",
+      email: "demo@example.com",
+      name: "Demo User",
+    })
+    .then(() => undefined)
+    .catch((error) => {
+      seedPromise = undefined;
+      throw error;
+    });
+  return seedPromise;
 }

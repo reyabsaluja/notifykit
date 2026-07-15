@@ -194,7 +194,7 @@ const realtime = webSocketRealtimeAdapter({
           <span className="overview-flow-number">3</span>
           <div>
             <strong>SSE stream</strong>
-            <p>The handler&apos;s <code>GET /api/notifykit/events</code> route subscribes on behalf of the authenticated user and streams events to the browser.</p>
+            <p>The handler&apos;s <code>GET /api/notifykit/inbox/stream</code> route subscribes on behalf of the authenticated user and streams events to the browser.</p>
           </div>
         </div>
         <div className="overview-flow-step">
@@ -338,7 +338,7 @@ const realtime = webSocketRealtimeAdapter({
           <span className="overview-flow-number">1</span>
           <div>
             <strong>Connect</strong>
-            <p>Client opens SSE to <code>/events</code>. Server authenticates via <code>identify()</code> and subscribes.</p>
+            <p>Client opens SSE to <code>/inbox/stream</code>. Server authenticates via <code>identify()</code> and subscribes.</p>
           </div>
         </div>
         <div className="overview-flow-step">
@@ -403,7 +403,7 @@ const realtime = webSocketRealtimeAdapter({
 
   function connect() {
     onStatusChange("connecting")
-    es = new EventSource(\`\${baseUrl}/events\`, { withCredentials: true })
+    es = new EventSource(\`\${baseUrl}/inbox/stream\`, { withCredentials: true })
 
     es.onopen = () => {
       retryDelay = 1000 // reset backoff
@@ -443,7 +443,7 @@ const realtime = webSocketRealtimeAdapter({
           <tr>
             <td><code>realtimeStatus</code> stuck on <code>&quot;connecting&quot;</code></td>
             <td>SSE endpoint blocked by proxy, CDN, or buffering middleware</td>
-            <td>Disable response buffering for <code>/api/notifykit/events</code>. On Vercel, SSE works on Functions (not Edge).</td>
+            <td>Disable response buffering for <code>/api/notifykit/inbox/stream</code> and confirm your function duration allows a useful connection lifetime.</td>
           </tr>
           <tr>
             <td><code>realtimeStatus</code> is <code>&quot;disconnected&quot;</code></td>
@@ -458,7 +458,7 @@ const realtime = webSocketRealtimeAdapter({
           <tr>
             <td>SSE connects then drops after 30s</td>
             <td>Load balancer idle timeout</td>
-            <td>Set <code>heartbeatMs</code> below your LB&apos;s idle timeout (e.g. <code>25_000</code> for a 30s timeout).</td>
+            <td>The HTTP stream sends a heartbeat every 30 seconds; configure the load balancer idle timeout above that interval.</td>
           </tr>
           <tr>
             <td>New inbox items don&apos;t appear until refresh</td>
@@ -469,7 +469,7 @@ const realtime = webSocketRealtimeAdapter({
       </table>
       <div className="callout callout-tip">
         <strong>Debug in DevTools.</strong> Open the Network tab, filter by
-        &quot;EventStream&quot;, and look for the <code>/events</code> request.
+        &quot;EventStream&quot;, and look for the <code>/inbox/stream</code> request.
         If it&apos;s connected, you&apos;ll see heartbeat pings. Send a test
         notification and verify an <code>inbox.created</code> event appears in
         the stream.
@@ -483,7 +483,7 @@ const realtime = webSocketRealtimeAdapter({
       </p>
       <table>
         <thead>
-          <tr><th>Metric</th><th>Healthy range</th><th>Warning sign</th><th>Action</th></tr>
+          <tr><th>Metric</th><th>Baseline</th><th>Warning sign</th><th>Action</th></tr>
         </thead>
         <tbody>
           <tr>
@@ -494,86 +494,76 @@ const realtime = webSocketRealtimeAdapter({
           </tr>
           <tr>
             <td><strong>Heartbeat latency</strong></td>
-            <td>&lt; 100ms</td>
-            <td>&gt; 500ms — event loop is congested</td>
+            <td>Measure under normal traffic</td>
+            <td>Sustained regression from your baseline</td>
             <td>Reduce work on the main thread, increase instances</td>
           </tr>
           <tr>
             <td><strong>Reconnect rate</strong></td>
-            <td>&lt; 5% of connections/min</td>
-            <td>&gt; 20% — infra instability</td>
+            <td>Measure by client, region, and deploy</td>
+            <td>Sudden increase or reconnect loops</td>
             <td>Check LB timeouts, deploy stability, heartbeat interval</td>
           </tr>
           <tr>
             <td><strong>Event delivery lag</strong></td>
-            <td>&lt; 50ms from publish to client</td>
-            <td>&gt; 500ms — adapter or network bottleneck</td>
+            <td>Set from your product freshness requirement</td>
+            <td>Lag exceeds your own SLO</td>
             <td>Check Postgres NOTIFY backlog or WS broadcast queue</td>
           </tr>
         </tbody>
       </table>
       <Code
-        filename="lib/notifykit.ts"
-        code={`createNotifyKit({
-  // ...
-  on: {
-    "realtime.connected": ({ recipientId }) => {
-      metrics.inc("notifykit.sse.connections")
-      metrics.gauge("notifykit.sse.active", activeConnections.size)
-    },
-    "realtime.disconnected": ({ recipientId, reason }) => {
-      metrics.dec("notifykit.sse.connections")
-      if (reason === "error") metrics.inc("notifykit.sse.errors")
-    },
+        filename="lib/notifykit-client.ts"
+        code={`const client = createNotifyKitClient({
+  realtime: true,
+  onRealtimeError: (error) => {
+    metrics.increment("notifykit.realtime.errors")
+    reportError(error)
   },
 })`}
       />
 
-      <h3>Heartbeat tuning</h3>
+      <h3>SSE heartbeat behavior</h3>
       <p>
-        The heartbeat keeps connections alive through proxies and load
-        balancers. Too infrequent and connections drop; too frequent and
-        you waste bandwidth:
+        The HTTP handler emits an SSE comment heartbeat every 30 seconds. That
+        interval is fixed; configure proxy idle timeouts above 30 seconds. The
+        separate PostgreSQL and WebSocket adapters expose their own{" "}
+        <code>heartbeatMs</code> options for transport health checks.
       </p>
       <table>
         <thead>
-          <tr><th>LB idle timeout</th><th>Set <code>heartbeatMs</code> to</th><th>Why</th></tr>
+          <tr><th>Layer</th><th>Setting</th><th>Guidance</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td>30s (AWS ALB default)</td>
-            <td><code>25_000</code></td>
-            <td>Heartbeat must arrive before the LB kills the connection</td>
+            <td>NotifyKit HTTP SSE</td>
+            <td>Fixed at 30s</td>
+            <td>Set the proxy idle timeout comfortably above 30 seconds</td>
           </tr>
           <tr>
-            <td>60s (nginx default)</td>
-            <td><code>50_000</code></td>
-            <td>Leave a 10s buffer for network jitter</td>
+            <td>PostgreSQL adapter</td>
+            <td><code>heartbeatMs</code></td>
+            <td>Detects a dead LISTEN connection; default is 60 seconds</td>
           </tr>
           <tr>
-            <td>120s (Cloudflare)</td>
-            <td><code>60_000</code></td>
-            <td>No need to go faster than 60s even with generous timeouts</td>
-          </tr>
-          <tr>
-            <td>Unknown</td>
-            <td><code>25_000</code></td>
-            <td>Safe default — works with most infrastructure</td>
+            <td>WebSocket adapter</td>
+            <td><code>heartbeatMs</code></td>
+            <td>Controls ping/pong liveness checks; default is 30 seconds</td>
           </tr>
         </tbody>
       </table>
       <div className="callout callout-warn">
-        <strong>Vercel has a 25s streaming timeout on Hobby.</strong> SSE works
-        on Vercel Pro/Enterprise with streaming functions, but Hobby plans will
-        terminate the connection after ~25 seconds. For Hobby deployments, fall
-        back to polling via <code>refresh()</code> on an interval instead of
-        relying on realtime.
+        <strong>Function duration still bounds a stream.</strong> Platforms
+        including Vercel support streaming responses, but a connection ends
+        when that invocation reaches its configured maximum duration. The
+        client reconnects automatically; use polling if frequent reconnects are
+        undesirable for your deployment.
       </div>
 
       <h2>Polling fallback for serverless</h2>
       <p>
-        When SSE isn&apos;t available — Vercel Hobby, Cloudflare Workers, or any
-        serverless function with short timeouts — use interval-based polling as
+        When SSE isn&apos;t available or function duration limits make connections
+        too short-lived, use interval-based polling as
         a drop-in replacement. The inbox stays fresh without a persistent connection.
       </p>
 
@@ -584,19 +574,19 @@ const realtime = webSocketRealtimeAdapter({
         <tbody>
           <tr>
             <td><strong>SSE (default)</strong></td>
-            <td>Instant (&lt;100ms)</td>
-            <td>Long-running servers, Vercel Pro+</td>
-            <td>Requires persistent process</td>
+            <td>Event-driven; depends on network and adapter</td>
+            <td>Long-running servers and streaming-capable functions</td>
+            <td>Connection lifetime is bounded by hosting limits</td>
           </tr>
           <tr>
             <td><strong>Polling (interval)</strong></td>
             <td>Up to N seconds stale</td>
-            <td>Serverless, Hobby plans, edge functions</td>
+            <td>Short-duration functions and constrained edge runtimes</td>
             <td>More requests, slight delay</td>
           </tr>
           <tr>
             <td><strong>Hybrid</strong></td>
-            <td>Instant when connected, polled on disconnect</td>
+            <td>Event-driven when connected, polled on disconnect</td>
             <td>Apps that deploy across mixed infra</td>
             <td>Extra code, but best of both worlds</td>
           </tr>
@@ -785,15 +775,14 @@ NEXT_PUBLIC_USE_POLLING=true`}
       <Code
         lang="bash"
         code={`# Terminal 1: connect to SSE (grab a session cookie from your browser)
-curl -N -H "Cookie: session=..." http://localhost:3000/api/notifykit/events
+curl -N -H "Cookie: session=..." http://localhost:3000/api/notifykit/inbox/stream
 
 # Expected output (within 30s):
-# event: heartbeat
-# data: {}
+# : heartbeat
 #
 # After sending a notification:
 # event: inbox.created
-# data: {"id":"inb_...","title":"...","readAt":null,...}`}
+# data: {"type":"inbox.created","item":{"id":"inb_...","title":"..."}}`}
       />
       <table>
         <thead>
@@ -803,10 +792,10 @@ curl -N -H "Cookie: session=..." http://localhost:3000/api/notifykit/events
           <tr>
             <td>Connection hangs with no output</td>
             <td>SSE connected but waiting for first event</td>
-            <td>Wait up to <code>heartbeatMs</code> — a heartbeat should arrive</td>
+            <td>Wait up to 30 seconds — a heartbeat comment should arrive</td>
           </tr>
           <tr>
-            <td><code>event: heartbeat</code> appears</td>
+            <td><code>: heartbeat</code> appears</td>
             <td>Connection is alive and the adapter is working</td>
             <td>—</td>
           </tr>
@@ -1000,26 +989,26 @@ describe("realtime events", () => {
 
       <table>
         <thead>
-          <tr><th>Test level</th><th>Adapter</th><th>What it proves</th><th>Speed</th></tr>
+          <tr><th>Test level</th><th>Adapter</th><th>What it proves</th><th>External dependencies</th></tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>Unit</strong></td>
             <td>Memory</td>
             <td>Events fire, scoping works, mutations publish</td>
-            <td>&lt; 50ms per test</td>
+            <td>None</td>
           </tr>
           <tr>
             <td><strong>Integration</strong></td>
             <td>PG NOTIFY / WebSocket</td>
             <td>Events cross process boundaries, reconnection works</td>
-            <td>~500ms (connection setup)</td>
+            <td>Postgres or WebSocket server</td>
           </tr>
           <tr>
             <td><strong>E2E</strong></td>
             <td>Full stack (browser + SSE)</td>
             <td>React hook updates, unread badge decrements in real UI</td>
-            <td>2–5s (Playwright/Cypress)</td>
+            <td>Browser, application server, and adapter</td>
           </tr>
         </tbody>
       </table>
@@ -1042,9 +1031,9 @@ describe("realtime events", () => {
           <span className="page-nav-label">Previous</span>
           <span className="page-nav-title">React hooks & components</span>
         </Link>
-        <Link href="/docs/database">
+        <Link href="/docs/production-readiness">
           <span className="page-nav-label">Next</span>
-          <span className="page-nav-title">Database adapters</span>
+          <span className="page-nav-title">Production readiness</span>
         </Link>
       </div>
     </article>

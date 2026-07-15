@@ -45,6 +45,18 @@ describe("definition metadata", () => {
       notifications: [def] as const,
       database: memoryAdapter(),
     });
+    expect(notify.notificationMetadata).toEqual([
+      {
+        id: "inv_created",
+        channels: ["inbox"],
+        payload: { amount: "string" },
+        description: "New invoice",
+        category: "billing",
+        version: 3,
+      },
+    ]);
+    expect(Object.isFrozen(notify.notificationMetadata)).toBe(true);
+    expect(Object.isFrozen(notify.notificationMetadata[0]!.channels)).toBe(true);
     const handler = createHandler(notify, { identify: () => null });
     const res = await handler(
       new Request("http://localhost/api/notifykit/notifications"),
@@ -61,6 +73,22 @@ describe("definition metadata", () => {
     expect(body.data[0]!.description).toBe("New invoice");
     expect(body.data[0]!.category).toBe("billing");
     expect(body.data[0]!.version).toBe(3);
+  });
+});
+
+describe("trusted server helpers", () => {
+  test("getRecipient returns recipients and validates ids", async () => {
+    const notify = createNotifyKit({
+      notifications: [] as const,
+      database: memoryAdapter(),
+    });
+    await notify.upsertRecipient({ id: "user_1", email: "user@example.com" });
+
+    expect(await notify.getRecipient("user_1")).toMatchObject({
+      id: "user_1",
+      email: "user@example.com",
+    });
+    await expect(notify.getRecipient(" ")).rejects.toThrow(/recipientId/);
   });
 });
 

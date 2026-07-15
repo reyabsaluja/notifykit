@@ -25,7 +25,7 @@ export default function HandlerRoutesPage() {
         </div>
         <div className="feature-card">
           <h3>SSE realtime stream</h3>
-          <p>The <code>/events</code> endpoint pushes inbox updates to the client — no polling, no WebSocket setup.</p>
+          <p>The <code>/inbox/stream</code> endpoint pushes inbox updates to the client — no polling or WebSocket setup.</p>
         </div>
         <div className="feature-card">
           <h3>Optimistic SDK</h3>
@@ -40,20 +40,18 @@ export default function HandlerRoutesPage() {
       </p>
       <Code
         filename="app/api/notifykit/[...notifykit]/route.ts"
-        code={`import { createRouteHandler } from "@notifykitjs/nextjs"
+        code={`import { createRouteHandler } from "@notifykitjs/next"
 import { notify } from "@/lib/notifykit"
 import { auth } from "@/lib/auth"
 
-const handler = createRouteHandler({
+export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
   notifykit: notify,
   identify: async (request) => {
     const session = await auth(request)
     if (!session) return null
     return { recipientId: session.userId }
   },
-})
-
-export { handler as GET, handler as POST, handler as DELETE }`}
+})`}
       />
       <Code
         filename="src/routes/notifykit.ts"
@@ -72,7 +70,7 @@ app.all("/api/notifykit/*", handler)`}
       />
       <div className="callout callout-tip">
         <strong>The catch-all route is intentional.</strong> A single route file
-        serves all NotifyKit endpoints — inbox, preferences, events, webhooks.
+        serves all NotifyKit endpoints — inbox, preferences, realtime, and webhooks.
         The handler does its own path matching internally.
       </div>
 
@@ -94,7 +92,7 @@ app.all("/api/notifykit/*", handler)`}
           <tr><td><code>GET</code></td><td><code>/deliveries</code></td><td>Admin</td><td>List delivery records</td></tr>
           <tr><td><code>GET</code></td><td><code>/unsubscribe</code></td><td>Token</td><td>Email unsubscribe (human click)</td></tr>
           <tr><td><code>POST</code></td><td><code>/unsubscribe</code></td><td>Token</td><td>RFC 8058 one-click unsubscribe</td></tr>
-          <tr><td><code>GET</code></td><td><code>/events</code></td><td>Required</td><td>SSE realtime stream</td></tr>
+          <tr><td><code>GET</code></td><td><code>/inbox/stream</code></td><td>Required</td><td>SSE realtime stream</td></tr>
           <tr><td><code>POST</code></td><td><code>/webhooks/:provider</code></td><td>Signature</td><td>Inbound provider webhooks</td></tr>
         </tbody>
       </table>
@@ -213,15 +211,15 @@ app.all("/api/notifykit/*", handler)`}
           </tr>
           <tr>
             <td><strong>Admin access</strong></td>
-            <td><code>{`{ recipientId, role: "admin" }`}</code></td>
-            <td>Allow admins to read any user&apos;s deliveries</td>
+            <td><code>{`{ recipientId, permissions: ["admin"] }`}</code></td>
+            <td>Built-in permission allows cross-user delivery inspection</td>
             <td>Support dashboards, admin panels</td>
           </tr>
           <tr>
-            <td><strong>Team permissions</strong></td>
-            <td><code>{`{ recipientId, tenantId, permissions }`}</code></td>
-            <td>Check specific permissions per route</td>
-            <td>Org admins managing other users&apos; preferences</td>
+            <td><strong>Delivery viewer</strong></td>
+            <td><code>{`{ recipientId, permissions: ["deliveries.list"] }`}</code></td>
+            <td>Allow access to delivery records, scoped to the current user</td>
+            <td>Delivery history and debugging views</td>
           </tr>
         </tbody>
       </table>
@@ -235,14 +233,11 @@ app.all("/api/notifykit/*", handler)`}
     return {
       recipientId: session.userId,
       tenantId: session.orgId,
-      role: session.role,
+      permissions: session.isAdmin ? ["admin"] : [],
     }
   },
   authorize: async (ctx, permission) => {
-    if (permission === "deliveries:list" && ctx.role !== "admin") {
-      return false
-    }
-    return true
+    return permission === "deliveries.list" && ctx.identity.permissions?.includes("admin") === true
   },
 })`}
       />
@@ -250,28 +245,23 @@ app.all("/api/notifykit/*", handler)`}
       <h3>Permission values</h3>
       <p>
         The <code>authorize()</code> callback receives a permission string
-        matching the route being accessed:
+        for protected delivery/admin operations. User-scoped inbox and
+        preference routes enforce ownership directly and do not call it:
       </p>
       <table>
         <thead>
           <tr><th>Route</th><th>Permission</th><th>Typical rule</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>GET /inbox</code></td><td><code>inbox:list</code></td><td>Allow all authenticated users</td></tr>
-          <tr><td><code>POST /inbox/:id/read</code></td><td><code>inbox:update</code></td><td>Allow all (handler enforces ownership)</td></tr>
-          <tr><td><code>DELETE /inbox/:id</code></td><td><code>inbox:delete</code></td><td>Allow all (handler enforces ownership)</td></tr>
-          <tr><td><code>GET /preferences</code></td><td><code>preferences:list</code></td><td>Allow all authenticated users</td></tr>
-          <tr><td><code>POST /preferences</code></td><td><code>preferences:update</code></td><td>Allow all (users manage their own)</td></tr>
-          <tr><td><code>GET /deliveries</code></td><td><code>deliveries:list</code></td><td>Admin only</td></tr>
-          <tr><td><code>GET /notifications</code></td><td><code>notifications:list</code></td><td>Public (unless <code>protectNotifications: true</code>)</td></tr>
+          <tr><td><code>GET /deliveries</code></td><td><code>deliveries.list</code></td><td>Read delivery records; non-admin access stays recipient-scoped</td></tr>
+          <tr><td>Cross-user deliveries</td><td><code>admin</code></td><td>Allow the <code>recipientId</code> query parameter to target another user</td></tr>
         </tbody>
       </table>
       <div className="callout callout-tip">
         <strong>You don&apos;t need authorize() for most apps.</strong> The handler
-        already enforces ownership — a user can only read/modify their own inbox
-        items and preferences. <code>authorize()</code> is for additional rules
-        on top of that: admin access, team-level permission systems, or restricting
-        specific routes entirely.
+        already enforces ownership — a user can only read or modify their own
+        inbox items and preferences. <code>authorize()</code> is specifically
+        for delivery-history and admin access.
       </div>
 
       <h2>Configuration</h2>
@@ -280,14 +270,12 @@ app.all("/api/notifykit/*", handler)`}
         code={`import { createHandler } from "@notifykitjs/core"
 
 const handler = createHandler(notify, {
-  identify: async (request) => ({ recipientId, tenantId?, workspaceId? } | null),
-  authorize?: async (ctx, permission) => boolean,
-  unsubscribeSecret?: string,
-  cors?: string | string[],
-  protectNotifications?: boolean,
-  requestRateLimit?: { max: number; windowMs: number },
-  webhooks?: Record<string, (headers: Headers, body: string) => boolean | Promise<boolean>>,
-  onWebhookEvent?: (provider: string, payload: unknown) => void | Promise<void>,
+  identify: async (request) => getIdentity(request),
+  authorize: async (ctx, permission) => permission === "deliveries.list",
+  unsubscribeSecret: process.env.NOTIFYKIT_SECRET,
+  cors: "https://app.example.com",
+  protectNotifications: true,
+  requestRateLimit: { max: 120, windowMs: 60_000 },
 })`}
       />
       <table>
@@ -305,19 +293,19 @@ const handler = createHandler(notify, {
             <td><code>authorize</code></td>
             <td>No</td>
             <td>Allow all</td>
-            <td>Fine-grained permission check after identity resolves. Return <code>false</code> to reject (403).</td>
+            <td>Permission check for delivery-history and admin operations. Return <code>false</code> to reject (403).</td>
           </tr>
           <tr>
             <td><code>unsubscribeSecret</code></td>
             <td>No</td>
             <td>—</td>
-            <td>HMAC secret for verifying email unsubscribe links. Required if you use the inbox channel with email fallback.</td>
+            <td>HMAC secret for verifying email unsubscribe links. It must match the secret passed to <code>createNotifyKit()</code>.</td>
           </tr>
           <tr>
             <td><code>cors</code></td>
             <td>No</td>
             <td>Disabled</td>
-            <td>Allowed origins for CORS preflight. Pass a string or array of strings. Omit to disable CORS headers entirely.</td>
+            <td>Allowed origin for CORS preflight. Pass one origin string or <code>&quot;*&quot;</code>; omit to disable CORS headers.</td>
           </tr>
           <tr>
             <td><code>protectNotifications</code></td>
@@ -359,11 +347,12 @@ const handler = createHandler(notify, {
         </thead>
         <tbody>
           <tr><td><code>GET /inbox</code></td><td><code>InboxItem[]</code></td><td>Query params: <code>?archived</code> (boolean), <code>?limit</code> (number)</td></tr>
+          <tr><td><code>GET /inbox/unread-count</code></td><td><code>{`{ count }`}</code></td><td>Fetches the badge count without loading inbox items</td></tr>
           <tr><td><code>POST /inbox/:id/read</code></td><td><code>InboxItem</code></td><td>403 if item belongs to another user</td></tr>
           <tr><td><code>POST /inbox/mark-all-read</code></td><td><code>{`{ count }`}</code></td><td>Returns number of items marked</td></tr>
           <tr><td><code>POST /inbox/:id/archive</code></td><td><code>InboxItem</code></td><td>Sets <code>archivedAt</code></td></tr>
           <tr><td><code>POST /inbox/:id/unarchive</code></td><td><code>InboxItem</code></td><td>Clears <code>archivedAt</code></td></tr>
-          <tr><td><code>DELETE /inbox/:id</code></td><td><code>204</code></td><td>Permanent — cannot be undone</td></tr>
+          <tr><td><code>DELETE /inbox/:id</code></td><td><code>{`{ deleted: true }`}</code></td><td>Permanent — cannot be undone</td></tr>
         </tbody>
       </table>
 
@@ -404,19 +393,19 @@ const handler = createHandler(notify, {
         <tbody>
           <tr><td><code>GET /unsubscribe?token=...</code></td><td>HMAC token</td><td>Human click from email — verifies token, disables email, renders confirmation</td></tr>
           <tr><td><code>POST /unsubscribe</code></td><td>HMAC token</td><td>RFC 8058 one-click (mail client header). Same verification, returns 200.</td></tr>
-          <tr><td><code>GET /events</code></td><td>Required</td><td>SSE stream — inbox mutations in real time. React client connects automatically.</td></tr>
+          <tr><td><code>GET /inbox/stream</code></td><td>Required</td><td>SSE stream — inbox mutations in real time. React client connects automatically.</td></tr>
           <tr><td><code>POST /webhooks/:provider</code></td><td>Signature</td><td>Inbound provider webhooks (delivery status, bounces, opens). 401 on invalid sig.</td></tr>
         </tbody>
       </table>
 
       <h2>Error responses</h2>
       <p>
-        Every error returns a JSON body with the same shape. Use{" "}
-        <code>error</code> for programmatic handling and <code>message</code>{" "}
-        for developer-facing logs:
+        Errors always include a human-readable <code>error</code>. Structured
+        failures can also include <code>code</code>, and development responses
+        include an actionable <code>fix</code> only when <code>debug</code> is enabled:
       </p>
       <Code
-        code={`{ "error": "not_found", "message": "Inbox item not found or not owned by this user" }`}
+        code={`{ "error": "Inbox item not found", "code": "NOT_FOUND" }`}
       />
       <table>
         <thead>
@@ -565,9 +554,10 @@ async function notifyFetch(path, opts = {}) {
   })
   if (!res.ok) {
     const err = await res.json()
-    throw new Error(\`\${res.status}: \${err.message}\`)
+    throw new Error(\`\${res.status}: \${err.error}\`)
   }
-  return res.status === 204 ? null : res.json()
+  const body = await res.json()
+  return body.data
 }
 
 // Inbox operations
@@ -587,10 +577,10 @@ await notifyFetch("/preferences", {
 })
 
 // SSE realtime (browser EventSource)
-const events = new EventSource(\`\${BASE}/events\`, { withCredentials: true })
+const events = new EventSource(\`\${BASE}/inbox/stream\`, { withCredentials: true })
 events.onmessage = (e) => {
   const data = JSON.parse(e.data)
-  if (data.event === "inbox.created") addToList(data.payload)
+  if (data.type === "inbox.created") addToList(data.item)
 }`}
       />
       <table>
@@ -623,13 +613,13 @@ events.onmessage = (e) => {
       <div className="callout callout-warn">
         <strong>EventSource doesn&apos;t support custom headers.</strong> If
         your auth requires a bearer token (not cookies), pass it as a query
-        param (<code>/events?token=...</code>) and verify it in your{" "}
+        param (<code>/inbox/stream?token=...</code>) and verify it in your{" "}
         <code>identify()</code> function. Never log these URLs.
       </div>
 
       <h2>SSE event reference</h2>
       <p>
-        The <code>GET /events</code> route streams Server-Sent Events to
+        The <code>GET /inbox/stream</code> route streams Server-Sent Events to
         connected clients. Each SSE frame follows the standard wire format —
         an <code>event:</code> line, a <code>data:</code> line with JSON, and
         a blank line terminator:
@@ -637,13 +627,12 @@ events.onmessage = (e) => {
       <Code
         lang="bash"
         code={`event: inbox.created
-data: {"id":"inb_a1b2c3","notificationId":"comment_mentioned","recipientId":"user_123","title":"Rey mentioned you","body":"In Launch Plan","actionUrl":"/posts/42","readAt":null,"archivedAt":null,"createdAt":"2025-03-15T10:30:00.000Z"}
+data: {"type":"inbox.created","item":{"id":"inb_a1b2c3","notificationId":"comment_mentioned","recipientId":"user_123","title":"Rey mentioned you","readAt":null,"createdAt":"2025-03-15T10:30:00.000Z"}}
 
 event: inbox.updated
-data: {"id":"inb_a1b2c3","readAt":"2025-03-15T10:31:22.000Z"}
+data: {"type":"inbox.updated","item":{"id":"inb_a1b2c3","readAt":"2025-03-15T10:31:22.000Z"}}
 
-event: heartbeat
-data: {}`}
+: heartbeat`}
       />
       <table>
         <thead>
@@ -657,22 +646,22 @@ data: {}`}
           </tr>
           <tr>
             <td><code>inbox.updated</code></td>
-            <td>Partial <code>InboxItem</code> (id + changed fields)</td>
+            <td>Full updated <code>InboxItem</code></td>
             <td>Item marked read, archived, or unarchived</td>
           </tr>
           <tr>
             <td><code>inbox.deleted</code></td>
-            <td><code>{`{ "id": "inb_..." }`}</code></td>
+            <td><code>{`{ "type": "inbox.deleted", "itemId": "inb_..." }`}</code></td>
             <td>Item permanently deleted</td>
           </tr>
           <tr>
             <td><code>inbox.all_read</code></td>
-            <td><code>{`{ "count": 5, "readAt": "..." }`}</code></td>
+            <td><code>{`{ "type": "inbox.all_read", "count": 5 }`}</code></td>
             <td>Bulk mark-all-read action</td>
           </tr>
           <tr>
             <td><code>heartbeat</code></td>
-            <td><code>{`{}`}</code></td>
+            <td>SSE comment (<code>: heartbeat</code>)</td>
             <td>Every 30 seconds — keeps the connection alive past proxies</td>
           </tr>
         </tbody>
@@ -681,28 +670,27 @@ data: {}`}
       <h3>Handling events in a custom client</h3>
       <Code
         filename="lib/realtime-events.ts"
-        code={`const events = new EventSource(\`\${BASE}/events\`, { withCredentials: true })
+        code={`const events = new EventSource(\`\${BASE}/inbox/stream\`, { withCredentials: true })
 
 events.addEventListener("inbox.created", (e) => {
-  const item = JSON.parse(e.data)
+  const { item } = JSON.parse(e.data)
   addToInbox(item)
   incrementUnreadCount()
 })
 
 events.addEventListener("inbox.updated", (e) => {
-  const patch = JSON.parse(e.data)
-  updateInboxItem(patch.id, patch)
-  if (patch.readAt) decrementUnreadCount()
+  const { item } = JSON.parse(e.data)
+  updateInboxItem(item.id, item)
+  if (item.readAt) decrementUnreadCount()
 })
 
 events.addEventListener("inbox.deleted", (e) => {
-  const { id } = JSON.parse(e.data)
-  removeFromInbox(id)
+  const { itemId } = JSON.parse(e.data)
+  removeFromInbox(itemId)
 })
 
-events.addEventListener("inbox.all_read", (e) => {
-  const { readAt } = JSON.parse(e.data)
-  markAllItemsRead(readAt)
+events.addEventListener("inbox.all_read", () => {
+  markAllItemsRead(new Date())
   resetUnreadCount()
 })
 
@@ -869,150 +857,30 @@ events.onerror = () => {
         a confirmation first.
       </div>
 
-      <h2>Pagination</h2>
+      <h2>Bounded inbox lists</h2>
       <p>
-        Real inbox UIs need pagination — a user with 200 notifications
-        shouldn&apos;t load them all at once. The handler supports cursor-based
-        pagination via <code>?cursor</code> and <code>?limit</code> query params:
+        Use <code>?limit</code> to cap the number of newest items returned and
+        <code>?archived=true</code> to load the archived view separately.
+        Cursor pagination is not part of the handler API yet.
       </p>
       <table>
         <thead>
           <tr><th>Param</th><th>Type</th><th>Default</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>limit</code></td><td>number</td><td>20</td><td>Max items to return per page</td></tr>
-          <tr><td><code>cursor</code></td><td>string (item ID)</td><td>—</td><td>Return items older than this ID (exclusive)</td></tr>
+          <tr><td><code>limit</code></td><td>positive integer</td><td>Adapter default</td><td>Maximum newest items to return</td></tr>
           <tr><td><code>archived</code></td><td>boolean</td><td>false</td><td>Include only archived items when <code>true</code></td></tr>
         </tbody>
       </table>
       <Code
         lang="bash"
         code={`GET /api/notifykit/inbox?limit=20
-
-# To load the next page, pass the last item's ID as cursor:
-GET /api/notifykit/inbox?limit=20&cursor=inb_oldest_on_page
-
-# When you get fewer items than the limit, you've reached the end.`}
-      />
-
-      <h3>Infinite scroll pattern</h3>
-      <p>
-        The most common inbox pattern: load more items as the user scrolls
-        down. Use the last item&apos;s ID as the cursor for each subsequent fetch:
-      </p>
-      <Code
-        filename="hooks/use-infinite-inbox.ts"
-        code={`function useInfiniteInbox(baseUrl) {
-  const [items, setItems] = useState([])
-  const [cursor, setCursor] = useState(null)
-  const [hasMore, setHasMore] = useState(true)
-  const [loading, setLoading] = useState(false)
-
-  const PAGE_SIZE = 20
-
-  async function loadMore() {
-    if (loading || !hasMore) return
-    setLoading(true)
-
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
-    if (cursor) params.set("cursor", cursor)
-
-    const res = await fetch(\`\${baseUrl}/inbox?\${params}\`, {
-      credentials: "include",
-    })
-    const page = await res.json()
-
-    setItems(prev => [...prev, ...page])
-    setHasMore(page.length === PAGE_SIZE)
-    if (page.length > 0) setCursor(page[page.length - 1].id)
-    setLoading(false)
-  }
-
-  // Load first page on mount
-  useEffect(() => { loadMore() }, [])
-
-  return { items, loadMore, hasMore, loading }
-}`}
-      />
-
-      <h3>Load-more button vs infinite scroll</h3>
-      <table>
-        <thead>
-          <tr><th>Pattern</th><th>Best for</th><th>Implementation</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>Infinite scroll</strong></td>
-            <td>Primary inbox view — users browse casually</td>
-            <td>Attach an <code>IntersectionObserver</code> to a sentinel element at the bottom of the list. When visible, call <code>loadMore()</code>.</td>
-          </tr>
-          <tr>
-            <td><strong>Load more button</strong></td>
-            <td>Settings/archive pages — users browse intentionally</td>
-            <td>Render a button below the list that calls <code>loadMore()</code> on click. Simpler, more accessible.</td>
-          </tr>
-          <tr>
-            <td><strong>Virtual list</strong></td>
-            <td>Power users with 500+ items — performance-critical</td>
-            <td>Use a virtualization library (react-window, TanStack Virtual). Combine with pagination to load chunks as the user scrolls into unloaded regions.</td>
-          </tr>
-        </tbody>
-      </table>
-      <Code
-        filename="components/inbox-list.tsx"
-        code={`function InboxList() {
-  const { items, loadMore, hasMore, loading } = useInfiniteInbox(BASE_URL)
-  const sentinelRef = useRef(null)
-
-  useEffect(() => {
-    if (!sentinelRef.current) return
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) loadMore() },
-      { rootMargin: "200px" } // trigger 200px before the sentinel is visible
-    )
-    observer.observe(sentinelRef.current)
-    return () => observer.disconnect()
-  }, [loadMore])
-
-  return (
-    <ul>
-      {items.map(item => <InboxRow key={item.id} item={item} />)}
-      {hasMore && <li ref={sentinelRef}>{loading ? "Loading..." : ""}</li>}
-    </ul>
-  )
-}`}
-      />
-
-      <h3>SSE + pagination: reconciling new items</h3>
-      <p>
-        When SSE pushes a new <code>inbox.created</code> event while the user
-        has scrolled down (and possibly loaded multiple pages), prepend it to
-        the list — don&apos;t refetch everything:
-      </p>
-      <Code
-        filename="lib/sse-reconcile.ts"
-        code={`events.addEventListener("inbox.created", (e) => {
-  const newItem = JSON.parse(e.data)
-  setItems(prev => [newItem, ...prev])
-})
-
-// When SSE delivers an update, patch in-place
-events.addEventListener("inbox.updated", (e) => {
-  const patch = JSON.parse(e.data)
-  setItems(prev => prev.map(i => i.id === patch.id ? { ...i, ...patch } : i))
-})
-
-// When SSE delivers a delete, remove from wherever it is in the list
-events.addEventListener("inbox.deleted", (e) => {
-  const { id } = JSON.parse(e.data)
-  setItems(prev => prev.filter(i => i.id !== id))
-})`}
+GET /api/notifykit/inbox?archived=true&limit=20`}
       />
       <div className="callout callout-tip">
-        <strong>New items prepend, old items paginate.</strong> SSE handles the
-        &quot;top&quot; of the list (real-time arrivals), pagination handles the
-        &quot;bottom&quot; (historical items). They don&apos;t interfere — cursor
-        pagination is stable even when new items are inserted above.
+        <strong>Need deep history?</strong> Query your database adapter from
+        trusted server code with your own cursor scheme, or keep the handler
+        list deliberately bounded and offer separate active/archive views.
       </div>
 
       <h2>Troubleshooting</h2>
@@ -1054,12 +922,12 @@ events.addEventListener("inbox.deleted", (e) => {
           <tr>
             <td>SSE connects then drops instantly</td>
             <td>Response buffering by proxy, CDN, or middleware</td>
-            <td>Disable buffering for the <code>/events</code> route. On Vercel: use <code>export const dynamic = &quot;force-dynamic&quot;</code>. On nginx: <code>proxy_buffering off</code>.</td>
+            <td>Disable buffering for the <code>/inbox/stream</code> route. On Vercel: use <code>export const dynamic = &quot;force-dynamic&quot;</code>. On nginx: <code>proxy_buffering off</code>.</td>
           </tr>
           <tr>
             <td>SSE works locally but not in production</td>
             <td>Load balancer idle timeout shorter than heartbeat interval</td>
-            <td>Set <code>heartbeatMs</code> below your LB timeout (e.g. <code>25000</code> for a 30s ALB timeout). See <Link href="/docs/realtime">Realtime</Link> tuning.</td>
+            <td>The handler sends a heartbeat every 30 seconds. Set the load balancer idle timeout above that interval; see <Link href="/docs/realtime">Realtime</Link>.</td>
           </tr>
           <tr>
             <td>Unsubscribe link returns 401</td>
@@ -1135,8 +1003,8 @@ curl -s -H "Cookie: session=YOUR_SESSION_COOKIE" \\
 
 # Step 3: SSE connects?
 curl -N -H "Cookie: session=YOUR_SESSION_COOKIE" \\
-  http://localhost:3000/api/notifykit/events
-# Expected: "event: heartbeat" within 30s`}
+  http://localhost:3000/api/notifykit/inbox/stream
+# Expected: ": heartbeat" within 30s`}
       />
 
       <h3>Connection lifecycle</h3>
@@ -1145,7 +1013,7 @@ curl -N -H "Cookie: session=YOUR_SESSION_COOKIE" \\
           <span className="overview-flow-number">1</span>
           <div>
             <strong>Connect</strong>
-            <p>Client opens <code>GET /events</code>. Server runs <code>identify()</code> and holds the connection open.</p>
+            <p>Client opens <code>GET /inbox/stream</code>. Server runs <code>identify()</code> and holds the connection open.</p>
           </div>
         </div>
         <div className="overview-flow-step">

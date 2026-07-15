@@ -59,9 +59,9 @@ npm run dev`}
             <td>Adding notifications, swapping database/provider</td>
           </tr>
           <tr>
-            <td><code>lib/notifications/*.ts</code></td>
-            <td>Individual notification definitions (one per file)</td>
-            <td>Modifying payload, channels, or adding new notifications</td>
+            <td><code>app/_components/demo-sender.tsx</code></td>
+            <td>Demo form that sends through the local handler runtime</td>
+            <td>Replacing the demo flow with your app&apos;s real send trigger</td>
           </tr>
           <tr>
             <td><code>app/api/notifykit/[...route]/route.ts</code></td>
@@ -79,9 +79,9 @@ npm run dev`}
             <td>Customizing the settings layout or adding categories</td>
           </tr>
           <tr>
-            <td><code>components/notification-bell.tsx</code></td>
-            <td>Bell icon + dropdown inbox</td>
-            <td>Styling, adding animations, changing dropdown behavior</td>
+            <td><code>app/_components/inbox-view.tsx</code></td>
+            <td>Bell count + inbox list</td>
+            <td>Styling the inbox or customizing item rendering</td>
           </tr>
           <tr>
             <td><code>.env.example</code></td>
@@ -179,10 +179,10 @@ export default function RootLayout({ children }) {
 curl http://localhost:3000/api/notifykit/notifications`}
       />
       <p>
-        You should see a JSON array of your registered notifications:
+        You should see a JSON response containing your registered notifications:
       </p>
       <Code
-        code={`[{ "id": "comment_mentioned", "channels": ["inbox", "email"], ... }]`}
+        code={`{ "data": [{ "id": "comment_mentioned", "channels": ["inbox", "email"], ... }] }`}
       />
       <table>
         <thead>
@@ -190,7 +190,7 @@ curl http://localhost:3000/api/notifykit/notifications`}
         </thead>
         <tbody>
           <tr>
-            <td>JSON array with your notification IDs</td>
+            <td>JSON with a <code>data</code> array containing your notification IDs</td>
             <td>Handler is wired up and NotifyKit instance is loading</td>
             <td>—</td>
           </tr>
@@ -308,7 +308,7 @@ main()`}
           <tr><th>When you need</th><th>Add this</th><th>Docs</th></tr>
         </thead>
         <tbody>
-          <tr><td>Typed notification definitions</td><td>Notification definitions in <code>lib/notifications/</code></td><td><Link href="/docs/defining">Defining</Link></td></tr>
+          <tr><td>Typed notification definitions</td><td>Definitions in <code>lib/notifykit.ts</code> (split into modules as the app grows)</td><td><Link href="/docs/defining">Defining</Link></td></tr>
           <tr><td>In-app notification bell</td><td><code>useInbox()</code> + <code>useUnreadCount()</code></td><td><Link href="/docs/react">React hooks</Link></td></tr>
           <tr><td>Persistent state</td><td><code>@notifykitjs/drizzle</code> adapter</td><td><Link href="/docs/database">Database</Link></td></tr>
           <tr><td>Real email delivery</td><td><code>@notifykitjs/resend</code> provider</td><td><Link href="/docs/providers">Providers</Link></td></tr>
@@ -371,7 +371,7 @@ main()`}
       <Code
         filename=".env.local"
         code={`# ─── Required ────────────────────────────────────────────
-NOTIFYKIT_SECRET=           # 32-byte hex string (signs unsubscribe links + tokens)
+NOTIFYKIT_SECRET=           # 32-byte hex string (signs unsubscribe links)
 
 # ─── Database (pick one) ─────────────────────────────────
 DATABASE_URL=               # Postgres connection string (if using drizzlePostgresAdapter)
@@ -709,7 +709,7 @@ module.exports = {
           <tr>
             <td>Route handler responding</td>
             <td><code>curl http://localhost:3000/api/notifykit/notifications</code></td>
-            <td>JSON array (even if empty)</td>
+            <td>JSON object with a <code>data</code> array (even if empty)</td>
           </tr>
           <tr>
             <td>TypeScript compiles</td>
@@ -726,9 +726,9 @@ module.exports = {
       </div>
 
       <div className="page-nav">
-        <Link href="/">
+        <Link href="/docs/why-notifykit">
           <span className="page-nav-label">Previous</span>
-          <span className="page-nav-title">Overview</span>
+          <span className="page-nav-title">Why NotifyKit?</span>
         </Link>
         <Link href="/docs/quickstart">
           <span className="page-nav-label">Next</span>

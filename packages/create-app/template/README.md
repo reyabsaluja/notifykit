@@ -23,10 +23,13 @@ test notification, and manage preferences at `/settings/notifications`.
 - `lib/notifykit.ts` — define your notifications and wire up the engine.
   Defaults: in-memory adapter, fake email provider.
 - `app/api/notifykit/[...route]/route.ts` — mounts `createHandler()` on
-  `/api/notifykit`. Identify() reads the demo session cookie.
+  `/api/notifykit` and keeps the demo send endpoint in the same runtime as the
+  in-memory adapter. `identify()` reads the demo session cookie.
 - `app/layout.tsx` — wraps the tree in `<NotifyKitProvider>` so the inbox
   and preferences hooks work on the client.
-- `app/page.tsx` — inbox + send form.
+- `app/page.tsx` — inbox + send form. The client form posts to
+  `/api/notifykit/demo-send`; use your own authenticated server code to call
+  `notify.send()` in production.
 - `app/settings/notifications/page.tsx` — preferences table.
 
 ## Moving to production

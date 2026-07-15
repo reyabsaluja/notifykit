@@ -443,6 +443,22 @@ describe("createNotifyKitClient", () => {
     expect(client.getState().inbox.unreadCount).toBe(5);
   });
 
+  test("inbox.unreadCount exposes loading failures through inbox state", async () => {
+    const client = createNotifyKitClient({
+      fetch: (async () =>
+        new Response(JSON.stringify({ error: "Count unavailable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        })) as unknown as typeof fetch,
+    });
+
+    await expect(client.inbox.unreadCount()).rejects.toThrow(
+      "Count unavailable",
+    );
+    expect(client.getState().inbox.status).toBe("error");
+    expect(client.getState().inbox.error).toBe("Count unavailable");
+  });
+
   test("inbox.markAllRead optimistically zeroes count and reverts on failure", async () => {
     const client = createNotifyKitClient({
       fetch: mockFetch({

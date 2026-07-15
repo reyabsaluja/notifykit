@@ -2,12 +2,13 @@
   "name": "@notifykitjs/cli",
   "version": "0.0.1",
   "description": "Command-line tools for validating and running NotifyKit definitions.",
+  "keywords": ["notifications", "typescript", "cli", "notification-infrastructure"],
   "license": "MIT",
   "engines": { "node": ">=18" },
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reyabsaluja/notifykit",
+    "url": "git+https://github.com/reyabsaluja/notifykit.git",
     "directory": "packages/cli"
   },
   "homepage": "https://github.com/reyabsaluja/notifykit",

@@ -67,6 +67,13 @@ export type CreateNotifyKitClientOptions = {
 
 export type RealtimeStatus = "disconnected" | "connecting" | "connected";
 
+class RealtimeHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "RealtimeHttpError";
+  }
+}
+
 export type NotifyKitClient = {
   getState(): ClientState;
   subscribe(listener: () => void): () => void;
@@ -346,9 +353,10 @@ export function createNotifyKitClient(
       signal,
     });
     if (!res.ok || !res.body) {
-      const err = new Error(`SSE connect failed: ${res.status}`);
-      (err as any).status = res.status;
-      throw err;
+      throw new RealtimeHttpError(
+        `SSE connect failed: ${res.status}`,
+        res.status,
+      );
     }
     setRtStatus("connected");
     onOpen?.();
@@ -416,9 +424,10 @@ export function createNotifyKitClient(
             retries++;
             wasError = true;
           }
-        } catch (err) {
+        } catch (err: unknown) {
           if (controller.signal.aborted) break;
-          const status = (err as any)?.status;
+          const status =
+            err instanceof RealtimeHttpError ? err.status : undefined;
           if (status === 401 || status === 403) {
             authFailed = true;
             onRealtimeError?.(err);
@@ -681,15 +690,36 @@ export function createNotifyKitClient(
       },
 
       async unreadCount(): Promise<number> {
-        const raw = (await request("GET", "/inbox/unread-count")) as {
-          count?: number;
-        };
-        const count = raw?.count ?? 0;
         setState({
           ...state,
-          inbox: { ...state.inbox, unreadCount: count },
+          inbox: { ...state.inbox, status: "loading", error: null },
         });
-        return count;
+        try {
+          const raw = (await request("GET", "/inbox/unread-count")) as {
+            count?: number;
+          };
+          const count = raw?.count ?? 0;
+          setState({
+            ...state,
+            inbox: {
+              ...state.inbox,
+              unreadCount: count,
+              status: "ready",
+              error: null,
+            },
+          });
+          return count;
+        } catch (err) {
+          setState({
+            ...state,
+            inbox: {
+              ...state.inbox,
+              status: "error",
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
+          throw err;
+        }
       },
 
       async markAllRead(): Promise<number> {

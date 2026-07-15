@@ -583,62 +583,49 @@ async function sendAndLog(result: SendResult) {
         </tbody>
       </table>
       <div className="callout callout-tip">
-        <strong>Type narrowing works out of the box.</strong> When{" "}
-        <code>result.rateLimited</code> is <code>true</code>,{" "}
-        <code>result.notification</code> is <code>null</code> — TypeScript
-        narrows this automatically. No type assertions needed.
+        <strong>Audit records survive suppression.</strong> Rate-limited and
+        deduplicated sends still persist a notification record plus skipped
+        delivery records. <code>result.notification</code> is <code>null</code>{" "}
+        only while a digest is buffered for a later flush.
       </div>
 
       <h2>DatabaseAdapter</h2>
       <p>
         Implement this interface to connect NotifyKit to any storage backend.
         The built-in <code>memoryAdapter()</code> and{" "}
-        <code>drizzlePostgresAdapter()</code> both satisfy this contract:
+        <code>drizzlePostgresAdapter()</code> both satisfy this contract. The
+        outline below is abbreviated; import the exported type for exact inputs
+        and return values:
       </p>
       <Code
         code={`type DatabaseAdapter = {
-  // Notifications
-  createNotificationRecord(record: NotificationRecord): Promise<NotificationRecord>
-  getNotificationRecord(id: string, scope?: SecurityScope): Promise<NotificationRecord | null>
-
-  // Inbox
-  createInboxItem(item: InboxItem): Promise<InboxItem>
-  getInboxItems(recipientId: string, opts?: InboxQuery & SecurityScope): Promise<InboxItem[]>
-  getInboxItem(id: string, scope?: SecurityScope): Promise<InboxItem | null>
-  updateInboxItem(id: string, update: Partial<InboxItem>, scope?: SecurityScope): Promise<InboxItem>
-  deleteInboxItem(id: string, scope?: SecurityScope): Promise<void>
-  markAllRead(recipientId: string, scope?: SecurityScope): Promise<number>
-  getUnreadCount(recipientId: string, scope?: SecurityScope): Promise<number>
-
-  // Deliveries
-  createDeliveryRecord(record: DeliveryRecord): Promise<DeliveryRecord>
-  updateDeliveryRecord(id: string, update: Partial<DeliveryRecord>): Promise<DeliveryRecord>
-  getDeliveryRecords(notificationRecordId: string, scope?: SecurityScope): Promise<DeliveryRecord[]>
-
-  // Recipients
-  upsertRecipient(recipient: Partial<Recipient> & { id: string }): Promise<Recipient>
-  getRecipient(id: string): Promise<Recipient | null>
-
-  // Preferences
-  getPreference(recipientId: string, notificationId: string, scope?: SecurityScope): Promise<RecipientPreference | null>
-  getPreferences(recipientId: string, scope?: SecurityScope): Promise<RecipientPreference[]>
-  upsertPreference(pref: RecipientPreference): Promise<RecipientPreference>
-
-  // Dedup & idempotency
-  hasDedupeKey(key: string, windowMs: number): Promise<boolean>
-  setDedupeKey(key: string, windowMs: number): Promise<void>
-  getIdempotencyResult(key: string): Promise<SendResult | null>
-  setIdempotencyResult(key: string, result: SendResult, ttlMs: number): Promise<void>
-
-  // Scheduled sends (quiet hours)
-  createScheduledSend(send: ScheduledSend): Promise<ScheduledSend>
-  claimScheduledSends(before: Date): Promise<ScheduledSend[]>
-}
-
-type InboxQuery = {
-  limit?: number
-  offset?: number
-  archived?: boolean
+  recipients: {
+    upsert(input: UpsertRecipientInput): Promise<Recipient>
+    findById(id: string): Promise<Recipient | null>
+  }
+  notifications: {
+    create(input: NewNotificationRecord): Promise<NotificationRecord>
+    findByIdempotencyKey(key: string): Promise<NotificationRecord | null>
+    clearIdempotencyKey(id: string): Promise<void>
+  }
+  inbox: {
+    create(input: NewInboxItem): Promise<InboxItem>
+    listByRecipient(recipientId: string, scope?, filter?, limit?): Promise<InboxItem[]>
+    markReadForRecipient(id: string, recipientId: string, scope?): Promise<MarkReadResult>
+    unreadCount(recipientId: string, scope?): Promise<number>
+    markAllRead(recipientId: string, scope?): Promise<number>
+    archiveForRecipient(id: string, recipientId: string, scope?): Promise<InboxItemResult>
+    unarchiveForRecipient(id: string, recipientId: string, scope?): Promise<InboxItemResult>
+    deleteForRecipient(id: string, recipientId: string, scope?): Promise<DeleteResult>
+    // plus listByNotificationRecordId(...)
+  }
+  deliveries: { /* create, findById, list, update, listByNotificationRecordId */ }
+  preferences: { /* get, list, upsert */ }
+  digests: { /* append, take, restore, list */ }
+  rateLimits: { /* reserve, count */ }
+  scheduledSends: { /* create, claim, complete, release, listDue, list */ }
+  dedupe: { /* check, exists, prune */ }
+  timeline?: { /* append, listByNotificationRecordId, listByDeliveryId, prune */ }
 }`}
       />
       <table>
@@ -664,12 +651,12 @@ type InboxQuery = {
           <tr>
             <td><strong>Dedup/idempotency</strong></td>
             <td><code>send()</code> early checks</td>
-            <td>Yes — <code>hasDedupeKey</code> + <code>setDedupeKey</code> must be race-safe</td>
+            <td>Yes — <code>dedupe.check()</code> must be an atomic check-and-insert</td>
           </tr>
           <tr>
             <td><strong>Scheduled sends</strong></td>
             <td>Quiet hours + flush</td>
-            <td>Yes — <code>claimScheduledSends</code> must prevent double-processing</td>
+            <td>Yes — <code>scheduledSends.claim()</code> must prevent double-processing</td>
           </tr>
         </tbody>
       </table>

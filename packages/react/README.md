@@ -13,7 +13,12 @@ Requires `@notifykitjs/core` and `react` (>=18) as peer dependencies.
 ## Usage
 
 ```tsx
-import { NotifyKitProvider, useInbox, usePreferences, NotificationBell } from "@notifykitjs/react";
+import {
+  NotificationBell,
+  NotifyKitProvider,
+  useInbox,
+  useUnreadCount,
+} from "@notifykitjs/react";
 
 function App() {
   return (
@@ -25,11 +30,12 @@ function App() {
 }
 
 function Inbox() {
-  const { items, unreadCount, markRead } = useInbox();
+  const { items, markAsRead } = useInbox({ pollInterval: 10_000 });
+  const { unreadCount } = useUnreadCount({ pollInterval: 10_000 });
   return (
     <ul>
       {items.map((item) => (
-        <li key={item.id} onClick={() => markRead(item.id)}>
+        <li key={item.id} onClick={() => markAsRead(item.id)}>
           {item.title}
         </li>
       ))}
@@ -42,6 +48,7 @@ function Inbox() {
 
 - `NotifyKitProvider` — context provider, connects to the NotifyKit API
 - `useInbox()` — inbox items, unread count, mark-read
+- `useUnreadCount()` — lightweight unread badge state without loading items
 - `usePreferences()` — read and update per-notification channel preferences
 - `NotificationBell` — pre-built bell icon with unread badge
 - `Inbox` — pre-built inbox dropdown component

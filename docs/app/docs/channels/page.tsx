@@ -1086,7 +1086,7 @@ test("comment_mentioned resolves all template variables", async () => {
       <Code
         code={`// notifykit.config.ts
 import { createNotifyKit } from "@notifykitjs/core"
-import { memoryAdapter } from "@notifykitjs/adapter-memory"
+import { memoryAdapter } from "@notifykitjs/core"
 
 export const notify = createNotifyKit({
   database: memoryAdapter(),

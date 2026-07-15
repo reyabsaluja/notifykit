@@ -413,9 +413,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       />
       <div className="callout callout-warn">
         <strong>Don&apos;t render the provider without a session.</strong> The
-        provider immediately opens an SSE connection to <code>/events</code>.
-        Without a valid session cookie, every connection attempt returns 401 —
-        creating a retry loop that wastes bandwidth and floods your server logs.
+        inbox hooks immediately load user data, and hooks connect to{" "}
+        <code>/inbox/stream</code> when realtime is enabled. Without a valid
+        session, those requests return 401 and add avoidable noise.
       </div>
       <div className="callout callout-tip">
         <strong>Route groups are the cleanest pattern.</strong> They avoid
@@ -457,7 +457,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <tbody>
           <tr><td><code>GET</code></td><td><code>/inbox</code></td><td>Required</td><td>List inbox items for the authenticated user</td></tr>
           <tr><td><code>POST</code></td><td><code>/inbox/:id/read</code></td><td>Required</td><td>Mark a single item as read</td></tr>
-          <tr><td><code>POST</code></td><td><code>/inbox/read-all</code></td><td>Required</td><td>Mark all items as read</td></tr>
+          <tr><td><code>POST</code></td><td><code>/inbox/mark-all-read</code></td><td>Required</td><td>Mark all items as read</td></tr>
           <tr><td><code>POST</code></td><td><code>/inbox/:id/archive</code></td><td>Required</td><td>Archive an item</td></tr>
           <tr><td><code>POST</code></td><td><code>/inbox/:id/unarchive</code></td><td>Required</td><td>Unarchive an item</td></tr>
           <tr><td><code>DELETE</code></td><td><code>/inbox/:id</code></td><td>Required</td><td>Permanently delete an item</td></tr>
@@ -465,7 +465,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <tr><td><code>GET</code></td><td><code>/preferences</code></td><td>Required</td><td>List all preferences for the user</td></tr>
           <tr><td><code>POST</code></td><td><code>/preferences</code></td><td>Required</td><td>Update channel preference for a notification</td></tr>
           <tr><td><code>GET</code></td><td><code>/notifications</code></td><td>Optional</td><td>List registered notification metadata (for building UIs)</td></tr>
-          <tr><td><code>GET</code></td><td><code>/events</code></td><td>Required</td><td>SSE stream — realtime inbox events</td></tr>
+          <tr><td><code>GET</code></td><td><code>/inbox/stream</code></td><td>Required</td><td>SSE stream — realtime inbox events</td></tr>
           <tr><td><code>GET</code></td><td><code>/unsubscribe</code></td><td>Token</td><td>One-click email unsubscribe (HMAC-verified)</td></tr>
         </tbody>
       </table>
@@ -508,6 +508,7 @@ const testNotify = createNotifyKit({
 
 const handler = createHandler(testNotify, {
   identify: async () => ({ recipientId: "test_user" }),
+  basePath: "/",
 })
 
 describe("NotifyKit handler", () => {
@@ -524,19 +525,20 @@ describe("NotifyKit handler", () => {
     const req = new Request("http://localhost/inbox")
     const res = await handler(req)
     expect(res.status).toBe(200)
-    const items = await res.json()
+    const { data: items } = await res.json()
     expect(items.length).toBeGreaterThan(0)
     expect(items[0].title).toContain("Rey")
   })
 
   it("POST /inbox/:id/read marks as read", async () => {
     const listRes = await handler(new Request("http://localhost/inbox"))
-    const [item] = await listRes.json()
+    const { data: items } = await listRes.json()
+    const [item] = items
 
     const req = new Request(\`http://localhost/inbox/\${item.id}/read\`, { method: "POST" })
     const res = await handler(req)
     expect(res.status).toBe(200)
-    const updated = await res.json()
+    const { data: updated } = await res.json()
     expect(updated.readAt).not.toBeNull()
   })
 
@@ -548,12 +550,15 @@ describe("NotifyKit handler", () => {
     })
     const res = await handler(req)
     expect(res.status).toBe(200)
-    const pref = await res.json()
+    const { data: pref } = await res.json()
     expect(pref.channels.email).toBe(false)
   })
 
   it("returns 401 when identify returns null", async () => {
-    const noAuthHandler = createHandler(testNotify, { identify: async () => null })
+    const noAuthHandler = createHandler(testNotify, {
+      identify: async () => null,
+      basePath: "/",
+    })
     const req = new Request("http://localhost/inbox")
     const res = await noAuthHandler(req)
     expect(res.status).toBe(401)
@@ -606,16 +611,10 @@ describe("NotifyKit handler", () => {
         </thead>
         <tbody>
           <tr>
-            <td><strong>Vercel (Pro/Enterprise)</strong></td>
-            <td>Works — streaming functions support SSE</td>
+            <td><strong>Vercel Functions</strong></td>
+            <td>Streaming works until the invocation&apos;s maximum duration</td>
             <td>External cron (Vercel Cron or upstream)</td>
-            <td>No persistent process — can&apos;t use <code>setTimeoutQueue</code> or <code>setInterval</code></td>
-          </tr>
-          <tr>
-            <td><strong>Vercel (Hobby)</strong></td>
-            <td>25s timeout — falls back to polling</td>
-            <td>External cron</td>
-            <td>SSE disconnects after ~25s. Use <code>refresh()</code> on an interval instead.</td>
+            <td>Instances are ephemeral; use shared storage and expect client reconnects</td>
           </tr>
           <tr>
             <td><strong>Self-hosted (Node)</strong></td>
@@ -627,11 +626,11 @@ describe("NotifyKit handler", () => {
             <td><strong>Docker / Railway / Fly</strong></td>
             <td>Full SSE (long-lived containers)</td>
             <td><code>setInterval</code> or platform cron</td>
-            <td>Check platform&apos;s health check timeout — must exceed <code>heartbeatMs</code></td>
+            <td>Set proxy idle timeouts above NotifyKit&apos;s 30-second SSE heartbeat</td>
           </tr>
           <tr>
             <td><strong>AWS Lambda (via SST/OpenNext)</strong></td>
-            <td>No SSE — Lambda times out</td>
+            <td>Streaming lifetime is bounded by the function timeout</td>
             <td>EventBridge Scheduler or SQS</td>
             <td>Use polling or an external WebSocket service for realtime</td>
           </tr>

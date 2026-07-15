@@ -48,7 +48,7 @@ export default function HomePage() {
       <section className="landing-bento">
         <div className="landing-bento-grid">
           <div className="landing-bento-cell landing-bento-title">
-            <h2>Everything you need<br />to ship notifications</h2>
+            <h2>A practical notification core<br />for TypeScript apps</h2>
           </div>
           <div className="landing-bento-cell">
             <h3>Type-safe sends</h3>
@@ -56,11 +56,11 @@ export default function HomePage() {
           </div>
           <div className="landing-bento-cell">
             <h3>Your database</h3>
-            <p>Memory for dev, Drizzle for production. SQLite and Postgres supported.</p>
+            <p>Memory for dev, Drizzle persistence for SQLite and Postgres.</p>
           </div>
           <div className="landing-bento-cell">
             <h3>Multi-channel</h3>
-            <p>Inbox, email, SMS, webhook. Retries, fallback channels, and quiet hours built in.</p>
+            <p>Inbox, email, SMS, and webhook contracts. Resend, SMTP, and signed webhooks included.</p>
           </div>
           <div className="landing-bento-cell">
             <h3>Preferences</h3>

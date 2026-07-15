@@ -19,6 +19,7 @@ import type {
   InboxItemForRecipientResult,
   InboxListFilter,
   MarkReadForRecipientResult,
+  NotificationClassification,
   NotificationDefinition,
   NotificationRecord,
   PayloadFieldError,
@@ -216,6 +217,19 @@ export type SendResult = {
   idempotent: boolean;
 };
 
+/** Client-safe notification definition metadata without templates or providers. */
+export type NotificationMetadata = {
+  readonly id: string;
+  readonly channels: readonly string[];
+  readonly payload: Readonly<Record<string, string>>;
+  readonly description?: string;
+  readonly category?: string;
+  readonly version?: number;
+  readonly required?: boolean;
+  readonly defaultChannels?: Readonly<ChannelPreferenceMap>;
+  readonly classification?: NotificationClassification;
+};
+
 export type NotifyKit<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
 > = {
@@ -386,6 +400,15 @@ export type NotifyKit<
   recoverScheduledSends(): Promise<void>;
   /** Registered notification definitions. Read-only, for introspection. */
   readonly definitions: T;
+  /** Client-safe metadata for building settings and admin UIs. */
+  readonly notificationMetadata: readonly NotificationMetadata[];
+  /** Look up a recipient from trusted server code. */
+  getRecipient(recipientId: string): Promise<Recipient | null>;
+  /**
+   * Execute a serialized delivery job from a trusted external queue worker.
+   * Most apps should let the configured queue call this internally.
+   */
+  processDeliveryJob(job: DeliveryJob): Promise<void>;
   /**
    * Redact sensitive payload fields for a given notification. Returns a copy
    * with fields listed in the definition's `redact` array replaced by
@@ -544,6 +567,39 @@ export function createNotifyKit<
   const devCaptured: CapturedSend[] = devResult ? devResult.captured : [];
 
   const { notifications, database, on } = config;
+  const notificationMetadata: readonly NotificationMetadata[] = Object.freeze(
+    notifications.map((definition) =>
+      Object.freeze({
+        id: definition.id,
+        channels: Object.freeze(
+          definition.channels.map((channel) => channel.type),
+        ),
+        payload: Object.freeze({ ...definition.payload }),
+        ...(definition.description !== undefined
+          ? { description: definition.description }
+          : {}),
+        ...(definition.category !== undefined
+          ? { category: definition.category }
+          : {}),
+        ...(definition.version !== undefined
+          ? { version: definition.version }
+          : {}),
+        ...(definition.required !== undefined
+          ? { required: definition.required }
+          : {}),
+        ...(definition.defaultChannels !== undefined
+          ? {
+              defaultChannels: Object.freeze({
+                ...definition.defaultChannels,
+              }),
+            }
+          : {}),
+        ...(definition.classification !== undefined
+          ? { classification: definition.classification }
+          : {}),
+      }),
+    ),
+  );
   const onHookError = config.onHookError;
   const onTimelineError = config.onTimelineError ?? ((err: unknown) => {
     console.error("[notifykit] timeline append error:", err);
@@ -2420,6 +2476,43 @@ export function createNotifyKit<
   }
 
   async function processDeliveryJob(job: DeliveryJob, parentBuffer?: TimelineBuffer): Promise<void> {
+    const storedDelivery = await database.deliveries.findById(job.deliveryId);
+    if (!storedDelivery) {
+      throw new NotifyKitError(
+        `Delivery job references unknown delivery "${job.deliveryId}".`,
+        {
+          code: "DELIVERY_JOB_NOT_FOUND",
+          notificationId: job.notificationId,
+          channel: job.channel,
+          recipientId: job.recipientId,
+          fix: "Only process DeliveryJob objects emitted by the same NotifyKit database.",
+        },
+      );
+    }
+    const jobMatchesRecord =
+      storedDelivery.notificationRecordId === job.notificationRecordId &&
+      storedDelivery.recipientId === job.recipientId &&
+      storedDelivery.tenantId === job.tenantId &&
+      storedDelivery.workspaceId === job.workspaceId &&
+      storedDelivery.notificationId === job.notificationId &&
+      storedDelivery.channel === job.channel &&
+      storedDelivery.provider === job.provider;
+    if (!jobMatchesRecord) {
+      throw new NotifyKitError(
+        `Delivery job "${job.deliveryId}" does not match its stored delivery record.`,
+        {
+          code: "DELIVERY_JOB_MISMATCH",
+          notificationId: job.notificationId,
+          channel: job.channel,
+          recipientId: job.recipientId,
+          fix: "Do not modify serialized DeliveryJob fields before processing them.",
+        },
+      );
+    }
+    // Durable queues are commonly at-least-once. A redelivery after the first
+    // worker committed its terminal state must not call the provider again.
+    if (storedDelivery.status !== "pending") return;
+
     const ownsBuffer = !parentBuffer;
     const jobPending: TimelineBuffer = parentBuffer ?? [];
     const jobTlCtx = {
@@ -3076,6 +3169,14 @@ export function createNotifyKit<
       await runFlushScheduledSends({ force: false });
     },
     definitions: notifications,
+    notificationMetadata,
+    async getRecipient(recipientId) {
+      assertNonEmptyIdentifier(recipientId, "recipientId");
+      return database.recipients.findById(recipientId);
+    },
+    processDeliveryJob(job) {
+      return processDeliveryJob(job);
+    },
     realtime: realtimeAdapter,
     isDev,
     captured: devCaptured,

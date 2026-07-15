@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { sendDemoNotification, signInAsDemoUser } from "./actions";
+import { signInAsDemoUser } from "./actions";
 import { getCurrentUserId } from "../lib/session";
+import { DemoSender } from "./_components/demo-sender";
 import { InboxView } from "./_components/inbox-view";
 
 export default async function HomePage() {
@@ -22,28 +23,7 @@ export default async function HomePage() {
           </p>
           <section>
             <h2>Send a test notification</h2>
-            <form
-              action={sendDemoNotification}
-              style={{ display: "grid", gap: "0.5rem", maxWidth: "24rem" }}
-            >
-              <label>
-                Actor name
-                <input
-                  name="actorName"
-                  defaultValue="Rey"
-                  style={{ width: "100%" }}
-                />
-              </label>
-              <label>
-                Post title
-                <input
-                  name="postTitle"
-                  defaultValue="Launch Plan"
-                  style={{ width: "100%" }}
-                />
-              </label>
-              <button type="submit">Send</button>
-            </form>
+            <DemoSender />
           </section>
           <section style={{ marginTop: "2rem" }}>
             <h2>Your inbox</h2>

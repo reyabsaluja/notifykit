@@ -2,6 +2,7 @@
   "name": "@notifykitjs/nodemailer",
   "version": "0.0.1",
   "description": "Nodemailer email provider for NotifyKit. Works with any SMTP server, SendGrid, Postmark, AWS SES, and more.",
+  "keywords": ["notifications", "typescript", "nodemailer", "smtp", "email"],
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -9,7 +10,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reyabsaluja/notifykit",
+    "url": "git+https://github.com/reyabsaluja/notifykit.git",
     "directory": "packages/nodemailer"
   },
   "homepage": "https://github.com/reyabsaluja/notifykit",

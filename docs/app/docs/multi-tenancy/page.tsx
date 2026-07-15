@@ -581,16 +581,16 @@ await notify.send({
 const globexHandler = createHandler(notify, {
   identify: async () => ({ recipientId: "alice", tenantId: "org_globex" }),
 })
-const res = await globexHandler(new Request("http://localhost/inbox"))
-const items = await res.json()
+const res = await globexHandler(new Request("http://localhost/api/notifykit/inbox"))
+const { data: items } = await res.json()
 expect(items).toHaveLength(0) // ✓ Acme notification not visible
 
 // Handler scoped to org_acme sees the item
 const acmeHandler = createHandler(notify, {
   identify: async () => ({ recipientId: "alice", tenantId: "org_acme" }),
 })
-const acmeRes = await acmeHandler(new Request("http://localhost/inbox"))
-const acmeItems = await acmeRes.json()
+const acmeRes = await acmeHandler(new Request("http://localhost/api/notifykit/inbox"))
+const { data: acmeItems } = await acmeRes.json()
 expect(acmeItems).toHaveLength(1) // ✓ correct isolation`}
       />
       <table>

@@ -123,8 +123,8 @@ export default function SendingPage() {
           <tr>
             <td><strong>3. Deduplication</strong></td>
             <td>Has this <code>dedupeKey</code> been seen within the window?</td>
-            <td>Send is dropped — permanently gone</td>
-            <td><code>notification: null</code></td>
+            <td>Delivery is skipped; an audit record is still created</td>
+            <td><code>skipped[].reason === &quot;duplicate&quot;</code></td>
           </tr>
           <tr>
             <td><strong>4. Rate limit</strong></td>
@@ -367,13 +367,14 @@ await notify.send({
         </thead>
         <tbody>
           <tr><td><code>inlineQueue()</code> (default)</td><td><code>send()</code> awaits provider calls</td><td>Simple apps, scripts, testing</td></tr>
-          <tr><td><code>setTimeoutQueue()</code></td><td><code>send()</code> returns immediately, deliveries run async</td><td>Web servers where response time matters</td></tr>
+          <tr><td><code>setTimeoutQueue()</code></td><td><code>send()</code> returns immediately, deliveries run async</td><td>Prototypes where losing in-flight work is acceptable</td></tr>
           <tr><td>Custom (<code>Queue</code> interface)</td><td>You control when workers run</td><td>BullMQ, SQS, Cloudflare Queues</td></tr>
         </tbody>
       </table>
       <p>
-        Swap in <code>setTimeoutQueue()</code> to return instantly and run
-        deliveries in the background:
+        Swap in <code>setTimeoutQueue()</code> to return quickly and run
+        deliveries later in the same process. This is useful for demos, but it
+        is not a durable production queue:
       </p>
       <Code
         code={`import { setTimeoutQueue } from "@notifykitjs/core"
@@ -448,7 +449,7 @@ await notify.drain()`}
         </div>
         <div className="feature-card">
           <h3>Does the user&apos;s response time depend on delivery?</h3>
-          <p>In server actions and API routes, the user waits. If the send is non-critical → use <code>void notify.send()</code> with <code>setTimeoutQueue()</code>.</p>
+          <p>In server actions and API routes, the user waits. If delivery must outlive the request → write an outbox row or enqueue a durable job.</p>
         </div>
         <div className="feature-card">
           <h3>Can the same logical event fire many times?</h3>
@@ -464,7 +465,7 @@ await notify.drain()`}
           <tr>
             <td><strong>Server action</strong></td>
             <td>User posts a comment → notify mentioned users</td>
-            <td>No — <code>void send()</code></td>
+            <td>Persist an outbox row; otherwise await it</td>
             <td><code>dedupeKey</code> (same mention in same post)</td>
           </tr>
           <tr>
@@ -488,34 +489,43 @@ await notify.drain()`}
         </tbody>
       </table>
       <Code
-        code={`// Server action — fire-and-forget after a mutation
+        code={`// Server action — persist intent with the business mutation
 "use server"
 import { notify } from "@/lib/notifykit"
 
 export async function addComment(postId: string, body: string) {
-  const comment = await db.comments.create({ postId, body, authorId: session.userId })
-  const mentions = extractMentions(body)
+  return db.transaction(async tx => {
+    const comment = await tx.comments.create({ postId, body, authorId: session.userId })
 
-  // Don't await — let notifications happen asynchronously
-  for (const userId of mentions) {
-    void notify.send({
-      recipientId: userId,
-      notificationId: "comment_mentioned",
-      payload: { actorName: session.userName, postTitle: comment.postTitle, postUrl: \`/posts/\${postId}\` },
-      dedupeKey: \`mention:\${postId}:\${session.userId}\`,
-      dedupeWindowMs: 5 * 60_000,
-    })
-  }
+    for (const userId of extractMentions(body)) {
+      await tx.notificationOutbox.create({
+        notificationId: "comment_mentioned",
+        recipientId: userId,
+        payload: {
+          actorName: session.userName,
+          postTitle: comment.postTitle,
+          postUrl: \`/posts/\${postId}\`,
+        },
+        idempotencyKey: \`mention:\${comment.id}:\${userId}\`,
+      })
+    }
 
-  return comment
-}`}
+    return comment
+  })
+}
+
+// A durable worker claims the outbox row, then awaits notify.send({
+//   ...row,
+//   payload: row.payload,
+// }) before marking it complete.
+`}
       />
       <div className="callout callout-warn">
-        <strong>Don&apos;t await in hot paths.</strong> When sending from
-        a server action or API handler where response time matters, use{" "}
-        <code>void notify.send()</code> with <code>setTimeoutQueue()</code> —
-        the user gets their response immediately and delivery happens in the
-        background.
+        <strong>Returning early is not the same as durable delivery.</strong>{" "}
+        If you cannot tolerate loss, persist an outbox row in the same
+        transaction as the business change and let a durable worker process it.
+        Await <code>notify.send()</code> directly when that simpler tradeoff is
+        acceptable.
       </div>
 
       <h2>Sending to multiple recipients</h2>
@@ -699,9 +709,9 @@ function isTransient(error: unknown): boolean {
         </thead>
         <tbody>
           <tr>
-            <td><strong>Awaiting in hot paths</strong></td>
-            <td>User waits 200–500ms for email provider call to complete before seeing a response</td>
-            <td>Use <code>void notify.send()</code> or <code>setTimeoutQueue()</code></td>
+            <td><strong>Provider work in hot paths</strong></td>
+            <td>Response latency includes database and provider work</td>
+            <td>Persist an outbox/queue job and process it in a durable worker</td>
           </tr>
           <tr>
             <td><strong>Generic dedup keys</strong></td>
@@ -727,22 +737,34 @@ function isTransient(error: unknown): boolean {
       </table>
 
       <Code
-        code={`// ❌ Awaiting send in a server action — blocks the user response
+        code={`// ❌ Untracked fire-and-forget can disappear on crash or deploy
 "use server"
 export async function addComment(postId: string, body: string) {
   const comment = await db.comments.create({ postId, body })
-  await notify.send({ recipientId: mentioned, ... })  // 200-500ms delay
+  void notify.send({ recipientId: mentioned, ... })
   return comment
 }
 
-// ✅ Fire-and-forget — user gets their response immediately
+// ✅ Persist notification intent with the business operation
 "use server"
 export async function addComment(postId: string, body: string) {
-  const comment = await db.comments.create({ postId, body })
-  void notify.send({ recipientId: mentioned, ... })  // returns instantly
-  return comment
+  return db.transaction(async tx => {
+    const comment = await tx.comments.create({ postId, body })
+    await tx.notificationOutbox.create({
+      type: "comment_mentioned",
+      recipientId: mentioned,
+      payload: { postId, commentId: comment.id },
+    })
+    return comment
+  })
 }`}
       />
+      <div className="callout callout-warn">
+        <strong><code>setTimeoutQueue()</code> is best-effort only.</strong>{" "}
+        It improves response latency but does not survive process exits or
+        serverless freezes. Use it only when losing an in-flight notification
+        is acceptable.
+      </div>
 
       <Code
         code={`// ❌ Generic dedup key — silences ALL comment notifications globally
@@ -1111,25 +1133,25 @@ describe("onCommentPosted", () => {
 
       <table>
         <thead>
-          <tr><th>Test level</th><th>What it proves</th><th>Speed</th><th>When it catches bugs</th></tr>
+          <tr><th>Test level</th><th>What it proves</th><th>I/O boundary</th><th>When it catches bugs</th></tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>Unit (mocked send)</strong></td>
             <td>Orchestration logic — who, skip-self, key design</td>
-            <td>&lt; 10ms</td>
+            <td>No NotifyKit I/O</td>
             <td>Before the notification system is even involved</td>
           </tr>
           <tr>
             <td><strong>Integration (memory adapter)</strong></td>
             <td>Full pipeline — preferences, dedup, delivery, result shape</td>
-            <td>&lt; 50ms</td>
+            <td>In-memory database and fake providers</td>
             <td>Payload mismatches, template bugs, dedup window issues</td>
           </tr>
           <tr>
             <td><strong>E2E (real provider, staging)</strong></td>
             <td>Actual email arrives, webhook hits endpoint</td>
-            <td>1–5s</td>
+            <td>Real network, DNS, and provider</td>
             <td>Provider config, DNS, auth token expiry</td>
           </tr>
         </tbody>

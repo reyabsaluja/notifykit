@@ -148,7 +148,7 @@ export default function SecurityPage() {
   // Or use the authorize hook for dynamic checks:
   authorize: async (ctx, permission) => {
     if (permission === "deliveries.list") {
-      return ctx.permissions?.includes("admin") ?? false
+      return ctx.identity.permissions?.includes("admin") ?? false
     }
     return false
   },
@@ -166,16 +166,17 @@ export default function SecurityPage() {
           <tr><th>Route</th><th>Permission</th><th>Default if no <code>authorize</code></th></tr>
         </thead>
         <tbody>
-          <tr><td><code>GET /deliveries</code></td><td><code>&quot;deliveries.list&quot;</code></td><td>Denied — returns own records only</td></tr>
-          <tr><td><code>GET /notifications</code> (when protected)</td><td><code>&quot;notifications.list&quot;</code></td><td>Public by default; only checked with <code>protectNotifications: true</code></td></tr>
+          <tr><td><code>GET /deliveries</code></td><td><code>&quot;deliveries.list&quot;</code></td><td>Denied unless identity permissions include <code>deliveries.list</code> or <code>admin</code></td></tr>
         </tbody>
       </table>
       <div className="callout callout-tip">
         <strong>Most routes don&apos;t need authorize.</strong> Inbox, preferences,
         and realtime routes are automatically scoped to the authenticated user
         by <code>identify()</code>. You only need <code>authorize</code> for
-        admin-level access to delivery records or for hiding notification
-        metadata from unauthenticated users.
+        access to delivery records. To hide notification metadata from
+        unauthenticated users, set <code>protectNotifications: true</code>;
+        that route then requires a valid identity but does not call{" "}
+        <code>authorize()</code>.
       </div>
 
       <h2>Delivery record redaction</h2>
@@ -479,7 +480,7 @@ export const { GET, POST, DELETE, OPTIONS, dynamic } = createRouteHandler({
 
   // Admin routes: only admins can list all deliveries
   authorize: async (ctx, permission) => {
-    return ctx.permissions?.includes("admin") ?? false
+    return ctx.identity.permissions?.includes("admin") ?? false
   },
 
   // Unsubscribe: HMAC-signed links in emails
@@ -698,11 +699,11 @@ describe("security boundaries", () => {
       identify: async () => null, // no session
     })
 
-    const res = await handler(new Request("http://localhost/inbox"))
+    const res = await handler(new Request("http://localhost/api/notifykit/inbox"))
     expect(res.status).toBe(401)
 
     const body = await res.json()
-    expect(body.error).toBe("unauthorized")
+    expect(body.code).toBe("UNAUTHENTICATED")
   })
 
   it("rejects cross-tenant inbox access", async () => {
@@ -720,8 +721,8 @@ describe("security boundaries", () => {
       identify: async () => ({ recipientId: "alice", tenantId: "org_b" }),
     })
 
-    const res = await handler(new Request("http://localhost/inbox"))
-    const items = await res.json()
+    const res = await handler(new Request("http://localhost/api/notifykit/inbox"))
+    const { data: items } = await res.json()
     expect(items).toHaveLength(0) // ✓ isolated
   })
 
@@ -734,7 +735,7 @@ describe("security boundaries", () => {
       identify: async () => ({ recipientId: "alice", tenantId: "org_b" }),
     })
 
-    const res = await handler(new Request("http://localhost/preferences", {
+    const res = await handler(new Request("http://localhost/api/notifykit/preferences", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -745,7 +746,7 @@ describe("security boundaries", () => {
 
     // Preference is written to org_b scope (the handler's scope), NOT org_a
     // Verify org_a's preferences are untouched
-    const prefs = await notify.preferences.list({ recipientId: "alice", tenantId: "org_a" })
+    const prefs = await notify.preferences.list("alice", { tenantId: "org_a" })
     expect(prefs).toHaveLength(0)
   })
 
@@ -758,9 +759,9 @@ describe("security boundaries", () => {
 
     // Forged token
     const res = await handler(new Request(
-      "http://localhost/unsubscribe?token=forged_token_value"
+      "http://localhost/api/notifykit/unsubscribe?token=forged_token_value"
     ))
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(400)
   })
 
   it("enforces rate limiting with 429", async () => {
@@ -774,12 +775,12 @@ describe("security boundaries", () => {
 
     // Fire requests up to the limit
     for (let i = 0; i < 3; i++) {
-      const res = await handler(new Request("http://localhost/inbox"))
+      const res = await handler(new Request("http://localhost/api/notifykit/inbox"))
       expect(res.status).toBe(200)
     }
 
     // Next request should be rate-limited
-    const blocked = await handler(new Request("http://localhost/inbox"))
+    const blocked = await handler(new Request("http://localhost/api/notifykit/inbox"))
     expect(blocked.status).toBe(429)
     expect(blocked.headers.get("Retry-After")).toBeDefined()
   })
@@ -801,8 +802,8 @@ describe("security boundaries", () => {
         permissions: role === "admin" ? ["admin"] : [],
       }),
       authorize: async (ctx, permission) => {
-        if (permission === "deliveries:list") {
-          return ctx.permissions?.includes("admin") ?? false
+        if (permission === "deliveries.list") {
+          return ctx.identity.permissions?.includes("admin") ?? false
         }
         return true
       },
@@ -811,19 +812,19 @@ describe("security boundaries", () => {
 
   it("admin can list deliveries", async () => {
     const handler = handlerWithRole("admin")
-    const res = await handler(new Request("http://localhost/deliveries"))
+    const res = await handler(new Request("http://localhost/api/notifykit/deliveries"))
     expect(res.status).toBe(200)
   })
 
   it("regular user cannot list deliveries", async () => {
     const handler = handlerWithRole("user")
-    const res = await handler(new Request("http://localhost/deliveries"))
+    const res = await handler(new Request("http://localhost/api/notifykit/deliveries"))
     expect(res.status).toBe(403)
   })
 
   it("regular user can still access their own inbox", async () => {
     const handler = handlerWithRole("user")
-    const res = await handler(new Request("http://localhost/inbox"))
+    const res = await handler(new Request("http://localhost/api/notifykit/inbox"))
     expect(res.status).toBe(200)
   })
 })`}

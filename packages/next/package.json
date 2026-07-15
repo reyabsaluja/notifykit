@@ -2,6 +2,7 @@
   "name": "@notifykitjs/next",
   "version": "0.0.1",
   "description": "Next.js route handlers, middleware, and server actions for NotifyKit.",
+  "keywords": ["notifications", "typescript", "nextjs", "app-router"],
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -9,7 +10,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reyabsaluja/notifykit",
+    "url": "git+https://github.com/reyabsaluja/notifykit.git",
     "directory": "packages/next"
   },
   "homepage": "https://github.com/reyabsaluja/notifykit",

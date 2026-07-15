@@ -338,12 +338,12 @@ export default function HooksPage() {
         </thead>
         <tbody>
           <tr>
-            <td><strong>Delivery success rate &lt; 95%</strong></td>
+            <td><strong>Delivery success drops below your SLO</strong></td>
             <td>Provider outage or API key revoked</td>
             <td>1. Check provider status page. 2. Verify API key in env. 3. If sustained, swap to backup provider.</td>
           </tr>
           <tr>
-            <td><strong>Delivery latency p95 &gt; 30s</strong></td>
+            <td><strong>Delivery p95 regresses from baseline</strong></td>
             <td>Queue backup, provider slowdown, or event loop congestion</td>
             <td>1. Check queue depth. 2. Check provider response times. 3. Scale workers or increase concurrency.</td>
           </tr>
@@ -353,7 +353,7 @@ export default function HooksPage() {
             <td>1. Check recent deploys. 2. Identify the source notification ID. 3. Add/tighten dedup key on the offending send.</td>
           </tr>
           <tr>
-            <td><strong>Suppression rate rising (&gt;20%)</strong></td>
+            <td><strong>Suppression rate rises unexpectedly</strong></td>
             <td>Stale recipients, or a notification targeting users who&apos;ve all opted out</td>
             <td>1. Check which notification ID dominates. 2. Audit recipient list freshness. 3. Consider removing inactive recipients.</td>
           </tr>
@@ -419,7 +419,7 @@ on: {
           <p>Wrap every hook in try/catch or add <code>.catch()</code> to fire-and-forget promises. A notification that delivers but fails to log is better than one that fails entirely.</p>
         </div>
         <div className="feature-card">
-          <h3>Keep hooks fast (&lt;50ms)</h3>
+          <h3>Keep hooks off the critical path</h3>
           <p>Awaited hooks add directly to <code>send()</code> latency. If your integration needs network calls, use fire-and-forget or batch into a local buffer that flushes on an interval.</p>
         </div>
         <div className="feature-card">

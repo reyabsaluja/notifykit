@@ -16,6 +16,10 @@ export default function DemoPage() {
         else&apos;s inbox. Click a button to send yourself a notification,
         then watch it appear below.
       </p>
+      <p style={{ color: "var(--fg-muted)" }}>
+        Demo data is stored in memory and may reset when the docs deployment
+        restarts.
+      </p>
 
       <h2>Send a test notification</h2>
       <DemoSender />

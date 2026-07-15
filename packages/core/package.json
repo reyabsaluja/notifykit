@@ -2,6 +2,7 @@
   "name": "@notifykitjs/core",
   "version": "0.0.1",
   "description": "App-native notifications for TypeScript.",
+  "keywords": ["notifications", "typescript", "in-app-inbox", "notification-infrastructure"],
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -9,7 +10,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reyabsaluja/notifykit",
+    "url": "git+https://github.com/reyabsaluja/notifykit.git",
     "directory": "packages/core"
   },
   "homepage": "https://github.com/reyabsaluja/notifykit",

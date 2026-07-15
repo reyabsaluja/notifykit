@@ -1,7 +1,6 @@
 import type {
   ChannelPreferenceMap,
   ChannelType,
-  NotificationClassification,
   NotificationDefinition,
   PayloadSchema,
   SecurityScope,
@@ -874,41 +873,8 @@ function redactDelivery(
 
 function buildNotificationsIndex<
   T extends readonly NotificationDefinition<string, PayloadSchema>[],
->(notify: NotifyKit<T>): Array<{
-  id: string;
-  channels: string[];
-  payload: Record<string, string>;
-  description?: string;
-  category?: string;
-  version?: number;
-  required?: boolean;
-  defaultChannels?: import("./types.js").ChannelPreferenceMap;
-  classification?: NotificationClassification;
-}> {
-  return notify.definitions.map((def) => {
-    const entry: {
-      id: string;
-      channels: string[];
-      payload: Record<string, string>;
-      description?: string;
-      category?: string;
-      version?: number;
-      required?: boolean;
-      defaultChannels?: import("./types.js").ChannelPreferenceMap;
-      classification?: NotificationClassification;
-    } = {
-      id: def.id,
-      channels: def.channels.map((c) => c.type),
-      payload: { ...def.payload },
-    };
-    if (def.description !== undefined) entry.description = def.description;
-    if (def.category !== undefined) entry.category = def.category;
-    if (def.version !== undefined) entry.version = def.version;
-    if (def.required !== undefined) entry.required = def.required;
-    if (def.defaultChannels !== undefined) entry.defaultChannels = def.defaultChannels;
-    if (def.classification !== undefined) entry.classification = def.classification;
-    return entry;
-  });
+>(notify: NotifyKit<T>): NotifyKit<T>["notificationMetadata"] {
+  return notify.notificationMetadata;
 }
 
 function decodeParam(raw: string): string | null {

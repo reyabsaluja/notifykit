@@ -1,0 +1,58 @@
+name: Bug report
+description: Report reproducible behavior that is incorrect or unsafe.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Remove all API keys, addresses, recipient data, and secrets from your reproduction.
+  - type: input
+    id: package
+    attributes:
+      label: Package and version
+      description: For example, @notifykitjs/core 0.0.1.
+      placeholder: "@notifykitjs/core 0.0.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Node.js
+        - Bun
+        - Next.js
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Link a small repository or paste the smallest safe code sample that demonstrates the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and logs
+      description: Include the full error and stack trace after removing sensitive data.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for duplicates.
+          required: true
+        - label: I removed secrets and personal data from this report.
+          required: true
+

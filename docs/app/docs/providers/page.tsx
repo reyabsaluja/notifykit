@@ -10,8 +10,8 @@ export default function ProvidersPage() {
       <h1>Email &amp; webhook providers</h1>
       <p>
         The zero-config defaults — memory adapter, fake email — are great
-        for getting started. For production, swap in real providers. Each is
-        a one-line change.
+        for getting started. For real delivery, configure a provider and test
+        its failure behavior as well as its happy path.
       </p>
 
       <table>
@@ -39,11 +39,11 @@ export default function ProvidersPage() {
         </div>
         <div className="feature-card">
           <h3>Provider failover</h3>
-          <p>Chain multiple providers per channel. If Resend is down, Postmark picks up — same email, no user impact.</p>
+          <p>Compose multiple providers behind one provider contract when same-channel failover is worth the added complexity.</p>
         </div>
         <div className="feature-card">
           <h3>Durable queues</h3>
-          <p>Plug in BullMQ or SQS for deliveries that survive deploys and crashes. Or use inline for simplicity.</p>
+          <p>Connect the queue contract to your worker system. NotifyKit does not yet ship a first-party durable queue adapter.</p>
         </div>
         <div className="feature-card">
           <h3>Environment switching</h3>
@@ -58,43 +58,39 @@ export default function ProvidersPage() {
       </p>
       <table>
         <thead>
-          <tr><th>Provider</th><th>Free tier</th><th>Best for</th><th>Integration effort</th></tr>
+          <tr><th>Provider</th><th>Best for</th><th>NotifyKit integration</th></tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>Resend</strong></td>
-            <td>3,000 emails/mo</td>
-            <td>Startups, developer-first apps. Simple API, fast setup.</td>
-            <td>1 line — <code>@notifykitjs/resend</code></td>
+            <td>Developer-first transactional email with a small HTTP API.</td>
+            <td>First-party <code>@notifykitjs/resend</code> package</td>
           </tr>
           <tr>
             <td><strong>Postmark</strong></td>
-            <td>100 emails/mo</td>
-            <td>Transactional email with high deliverability. No marketing allowed.</td>
-            <td>~20 lines — custom provider</td>
+            <td>Transactional email and provider-managed delivery tooling.</td>
+            <td>Custom HTTP provider or SMTP through Nodemailer</td>
           </tr>
           <tr>
             <td><strong>AWS SES</strong></td>
-            <td>62,000 emails/mo (from EC2)</td>
-            <td>High volume, already on AWS. Cheapest at scale ($0.10/1k).</td>
-            <td>~30 lines — custom provider with SDK</td>
+            <td>Teams already operating AWS email and identity infrastructure.</td>
+            <td>Custom SDK provider or SMTP through Nodemailer</td>
           </tr>
           <tr>
             <td><strong>SendGrid</strong></td>
-            <td>100 emails/day</td>
-            <td>Teams needing analytics dashboards and dedicated IPs.</td>
-            <td>~20 lines — custom provider</td>
+            <td>Teams already using its delivery and analytics tooling.</td>
+            <td>Custom HTTP provider or SMTP through Nodemailer</td>
           </tr>
         </tbody>
       </table>
       <div className="features">
         <div className="feature-card">
           <h3>Need to ship fast?</h3>
-          <p>Use Resend — first-party package, one import, generous free tier. Swap later if needed.</p>
+          <p>Use Resend — it has a first-party package and a small configuration surface. Swap later if needed.</p>
         </div>
         <div className="feature-card">
-          <h3>Sending 100k+ emails/month?</h3>
-          <p>Use SES for cost, or Postmark for deliverability. Consider <Link href="/docs/fallbacks">failover</Link> with two providers.</p>
+          <h3>Already standardized on a provider?</h3>
+          <p>Wrap its HTTP/SDK API or use SMTP through Nodemailer. Add same-channel failover only when your reliability requirements justify it.</p>
         </div>
         <div className="feature-card">
           <h3>Not ready to pick?</h3>
@@ -360,14 +356,15 @@ console.log("✓ Sent:", result.providerMessageId ?? "(no message ID returned)")
         <code>inlineQueue()</code> and accept the latency hit.
       </div>
       <p>
-        Implement the <code>Queue</code> interface — two methods:
+        Implement the <code>Queue</code> interface and persist the serializable{" "}
+        <code>DeliveryJob</code>. Never serialize the <code>run</code> callback:
       </p>
       <Code
         code={`import type { Queue } from "@notifykitjs/core"
 
 const bullQueue: Queue = {
-  async enqueue(job, run) {
-    await queue.add("notifykit", { job, run: run.toString() })
+  async enqueue(job) {
+    await queue.add("notifykit", job, { jobId: job.deliveryId })
   },
   async drain() {
     await queue.drain()
@@ -382,9 +379,9 @@ const bullQueue: Queue = {
 
       <h3>Complete BullMQ implementation</h3>
       <p>
-        The stub above shows the contract. Here&apos;s a production-ready
-        implementation with Redis connection, worker setup, and graceful
-        shutdown — copy this into your project:
+        The stub above shows the contract. Here&apos;s a BullMQ starting point with
+        Redis connection, worker setup, and graceful shutdown. Review it against
+        your retry, retention, connection, and monitoring requirements:
       </p>
       <Code
         filename="lib/queue.ts"
@@ -518,7 +515,7 @@ process.on("SIGTERM", async () => {
   },
 })`}
       />
-      <p>With the default exponential backoff, the retry timeline looks like:</p>
+      <p>With the example configuration above, the retry timeline looks like:</p>
       <div className="overview-flow">
         <div className="overview-flow-step">
           <span className="overview-flow-number">1</span>
@@ -626,8 +623,8 @@ export function myProvider(opts): EmailProvider {
       <div className="callout callout-tip">
         <strong>When in doubt, let it retry.</strong> Only mark errors as
         permanent when you&apos;re certain the same input will never succeed.
-        Wasting a few retries on a 400 costs milliseconds; skipping retries
-        on a transient 500 loses the notification entirely.
+        Unnecessary retries add provider traffic and latency, while skipping
+        retries on a transient failure can lose the notification entirely.
       </div>
 
       <h2>Provider failover</h2>
@@ -895,30 +892,30 @@ export const notify = createNotifyKit({
       />
       <table>
         <thead>
-          <tr><th>Metric</th><th>Healthy range</th><th>Alert when</th><th>Likely cause</th></tr>
+          <tr><th>Metric</th><th>Baseline</th><th>Alert when</th><th>Likely cause</th></tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>Delivery success rate</strong></td>
-            <td>&gt; 99%</td>
-            <td>&lt; 95% for 5 min</td>
+            <td>Your channel/provider SLO</td>
+            <td>Sustained breach of that SLO</td>
             <td>Provider outage, expired API key, domain verification lost</td>
           </tr>
           <tr>
             <td><strong>Delivery latency (p95)</strong></td>
-            <td>&lt; 2s for email, &lt; 1s for SMS</td>
-            <td>&gt; 5s sustained</td>
+            <td>Observed by provider, channel, and region</td>
+            <td>Sustained regression from baseline</td>
             <td>Provider under load, network congestion, DNS resolution slow</td>
           </tr>
           <tr>
             <td><strong>Retry rate</strong></td>
-            <td>&lt; 5% of sends</td>
-            <td>&gt; 20% for 10 min</td>
+            <td>Observed during normal traffic</td>
+            <td>Sudden or sustained increase</td>
             <td>Provider rate limiting you, intermittent 5xx errors</td>
           </tr>
           <tr>
             <td><strong>Permanent failure rate</strong></td>
-            <td>&lt; 2%</td>
+            <td>Observed by notification and source</td>
             <td>Spike above baseline</td>
             <td>Bad recipient data (bounces), payload validation changes upstream</td>
           </tr>

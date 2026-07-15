@@ -2,6 +2,7 @@
   "name": "@notifykitjs/realtime-pg",
   "version": "0.0.1",
   "description": "Postgres LISTEN/NOTIFY realtime adapter for NotifyKit.",
+  "keywords": ["notifications", "typescript", "postgresql", "realtime"],
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -9,7 +10,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reyabsaluja/notifykit",
+    "url": "git+https://github.com/reyabsaluja/notifykit.git",
     "directory": "packages/realtime-pg"
   },
   "homepage": "https://github.com/reyabsaluja/notifykit",

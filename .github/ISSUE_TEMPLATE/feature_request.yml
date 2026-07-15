@@ -1,0 +1,39 @@
+name: Feature request
+description: Propose a focused improvement grounded in an application problem.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What application problem cannot be solved cleanly with the current API?
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current workaround
+      description: Show what you do today and where it breaks down.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed direction
+      description: An API sketch is welcome, but the use case matters more than the exact shape.
+  - type: textarea
+    id: fit
+    attributes:
+      label: Why this belongs in NotifyKit
+      description: Explain how it supports the embedded, app-native notification model.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and the roadmap for this request.
+          required: true
+

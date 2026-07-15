@@ -12,6 +12,7 @@ const NAV: Group[] = [
     heading: "Getting Started",
     entries: [
       { href: "/docs", label: "Overview" },
+      { href: "/docs/why-notifykit", label: "Why NotifyKit?" },
       { href: "/docs/installation", label: "Installation" },
       { href: "/docs/quickstart", label: "Quickstart" },
     ],
@@ -40,6 +41,7 @@ const NAV: Group[] = [
   {
     heading: "Production",
     entries: [
+      { href: "/docs/production-readiness", label: "Production readiness" },
       { href: "/docs/database", label: "Database adapters" },
       { href: "/docs/providers", label: "Email & webhook providers" },
       { href: "/docs/multi-tenancy", label: "Multi-tenancy" },

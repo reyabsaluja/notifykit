@@ -38,6 +38,7 @@ describe("scaffold()", () => {
       "app/api/notifykit/[...route]/route.ts",
       "app/settings/notifications/page.tsx",
       "app/settings/notifications/preferences-view.tsx",
+      "app/_components/demo-sender.tsx",
       "app/_components/inbox-view.tsx",
     ];
     for (const rel of expected) {
@@ -105,9 +106,27 @@ describe("scaffold()", () => {
       "utf8",
     );
     expect(route).toMatch(/createHandler/);
+    expect(route).toMatch(/\/api\/notifykit\/demo-send/);
+    expect(route).toMatch(/notify\.send/);
     expect(route).toMatch(/export const GET/);
     expect(route).toMatch(/export const POST/);
     expect(route).toMatch(/export const OPTIONS/);
+  });
+
+  test("demo send shares the handler route's in-memory adapter", async () => {
+    const target = resolve(workDir, "demo-send");
+    await scaffold({ targetDir: target });
+    const actions = await readFile(resolve(target, "app/actions.ts"), "utf8");
+    const page = await readFile(resolve(target, "app/page.tsx"), "utf8");
+    const sender = await readFile(
+      resolve(target, "app/_components/demo-sender.tsx"),
+      "utf8",
+    );
+
+    expect(actions).not.toMatch(/notify\.send/);
+    expect(page).toMatch(/DemoSender/);
+    expect(sender).toMatch(/fetch\("\/api\/notifykit\/demo-send"/);
+    expect(sender).toMatch(/client\.inbox\.list/);
   });
 
   test("lib/notifykit.ts defines the demo notification", async () => {
@@ -120,5 +139,20 @@ describe("scaffold()", () => {
     expect(content).toMatch(/comment_mentioned/);
     expect(content).toMatch(/createNotifyKit/);
     expect(content).toMatch(/_unsubscribeUrl/);
+  });
+
+  test("preferences expose loading, error, and accessible control states", async () => {
+    const target = resolve(workDir, "preferences-check");
+    await scaffold({ targetDir: target });
+    const content = await readFile(
+      resolve(
+        target,
+        "app/settings/notifications/preferences-view.tsx",
+      ),
+      "utf8",
+    );
+    expect(content).toMatch(/Loading preferences/);
+    expect(content).toMatch(/Failed to load notification definitions/);
+    expect(content).toMatch(/aria-label=/);
   });
 });

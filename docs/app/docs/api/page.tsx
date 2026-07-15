@@ -311,13 +311,13 @@ console.log(explanation.quietHours)      // { active: true, resumesAt: "2026-06-
         with external queues (BullMQ, SQS) or in serverless environments.
       </div>
 
-      <h2>notify.notifications</h2>
+      <h2>Definition metadata</h2>
       <table>
         <thead>
           <tr><th>Property</th><th>Type</th><th>Use for</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>notify.notifications</code></td><td><code>NotificationDefinition[]</code></td><td>Accessing full definitions (channels, payload schemas, config)</td></tr>
+          <tr><td><code>notify.definitions</code></td><td><code>NotificationDefinition[]</code></td><td>Accessing full definitions (channels, payload schemas, config)</td></tr>
           <tr><td><code>notify.notificationMetadata</code></td><td><code>NotificationMeta[]</code></td><td>Driving admin UIs — safe subset with id, channels, category, description</td></tr>
         </tbody>
       </table>
@@ -466,7 +466,7 @@ await Promise.all(
 )
 
 // 4. Prune their timeline data (GDPR / data minimization)
-await notify.pruneTimeline(0)  // 0ms = prune everything`}
+await notify.pruneTimeline(new Date())  // prune all existing timeline events`}
       />
       <div className="callout callout-warn">
         <strong>Order matters.</strong> Call <code>drain()</code> first — otherwise
@@ -606,7 +606,7 @@ await notify.flushScheduledSends()   // fire deferred quiet-hours sends
 await notify.flushDigests()          // flush expired digest buckets
 
 // ─── Instance properties ─────────────────────────────────────────────
-notify.notifications                 // NotificationDefinition[]
+notify.definitions                   // NotificationDefinition[]
 notify.notificationMetadata          // NotificationMeta[] (safe for client)`}
       />
       <table>

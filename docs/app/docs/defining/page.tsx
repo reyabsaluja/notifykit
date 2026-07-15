@@ -1149,33 +1149,33 @@ describe("notification definitions", () => {
       />
       <table>
         <thead>
-          <tr><th>Test level</th><th>What it proves</th><th>Speed</th></tr>
+          <tr><th>Test level</th><th>What it proves</th><th>I/O boundary</th></tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>Template rendering</strong></td>
             <td>Payload fields map to the right template slots</td>
-            <td>&lt; 10ms (in-memory, no I/O)</td>
+            <td>In-memory, no provider or database</td>
           </tr>
           <tr>
             <td><strong>Channel delivery</strong></td>
             <td>Correct channels fire (inbox, email, SMS)</td>
-            <td>&lt; 10ms (fake provider)</td>
+            <td>Fake provider, no network</td>
           </tr>
           <tr>
             <td><strong>Validation rejection</strong></td>
             <td>Malformed payloads fail gracefully with a reason</td>
-            <td>&lt; 10ms</td>
+            <td>In-memory validation</td>
           </tr>
           <tr>
             <td><strong>Digest rendering</strong></td>
             <td>Single and multi-event <code>render()</code> both work</td>
-            <td>&lt; 50ms (flush triggers render)</td>
+            <td>In-memory buffer and renderer</td>
           </tr>
           <tr>
             <td><strong>Rate limit</strong></td>
             <td>Cap is enforced at the configured threshold</td>
-            <td>~100ms (many sends in a loop)</td>
+            <td>In-memory loop; duration depends on the configured limit</td>
           </tr>
         </tbody>
       </table>

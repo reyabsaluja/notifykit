@@ -14,19 +14,29 @@ async function post(request: Request): Promise<Response> {
   }
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (contentLength > 2_048) {
+  if (Number.isFinite(contentLength) && contentLength > 2_048) {
     return Response.json({ error: "Payload too large" }, { status: 413 });
   }
 
-  let body: { notificationId?: unknown; actorName?: unknown; postTitle?: unknown };
+  const rawBody = await request.text();
+  if (new TextEncoder().encode(rawBody).byteLength > 2_048) {
+    return Response.json({ error: "Payload too large" }, { status: 413 });
+  }
+
+  let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody);
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const payload = body as Record<string, unknown>;
+
   const recipientId = await getOrCreateVisitorId();
-  if (body.notificationId === "welcome") {
+  if (payload.notificationId === "welcome") {
     const result = await notify.send({
       recipientId,
       notificationId: "welcome",
@@ -34,12 +44,15 @@ async function post(request: Request): Promise<Response> {
     });
     return Response.json({ data: result });
   }
-  if (body.notificationId === "comment_mentioned") {
-    if (typeof body.actorName !== "string" || typeof body.postTitle !== "string") {
+  if (payload.notificationId === "comment_mentioned") {
+    if (
+      typeof payload.actorName !== "string" ||
+      typeof payload.postTitle !== "string"
+    ) {
       return Response.json({ error: "Actor name and post title are required" }, { status: 400 });
     }
-    const actorName = body.actorName.trim().slice(0, 80);
-    const postTitle = body.postTitle.trim().slice(0, 120);
+    const actorName = payload.actorName.trim().slice(0, 80);
+    const postTitle = payload.postTitle.trim().slice(0, 120);
     if (!actorName || !postTitle) {
       return Response.json({ error: "Actor name and post title are required" }, { status: 400 });
     }

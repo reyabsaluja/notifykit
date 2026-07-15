@@ -33,6 +33,7 @@ await notify.send({
 
       <div className="button-row">
         <Link href="/docs/quickstart" className="primary">Quickstart (5 min)</Link>
+        <Link href="/docs/why-notifykit">Why NotifyKit?</Link>
         <Link href="/docs/installation">Add to existing app</Link>
         <Link href="/docs/api">API reference</Link>
       </div>
@@ -104,7 +105,7 @@ await notify.send({
         </div>
         <div className="feature-card">
           <h3>Providers</h3>
-          <p>Resend, Postmark, Twilio, or your own. NotifyKit calls them — they deliver to the user.</p>
+          <p>Resend and SMTP integrations are included. Email, SMS, and webhook provider contracts let you add your own.</p>
         </div>
       </div>
 
@@ -142,10 +143,10 @@ await notify.send({
       </table>
 
       <div className="callout callout-tip">
-        <strong>Everything stays in your process.</strong> There&apos;s no external
-        queue, no webhook from NotifyKit back to your app, no polling between
-        services. The engine is a function call — <code>send()</code> runs your
-        pipeline and returns a result, all within the same request or job.
+        <strong>The default path stays in your process.</strong> The engine is a
+        function call, and <code>inlineQueue()</code> runs the pipeline before
+        returning. For crash-safe asynchronous delivery, persist jobs through
+        a durable queue and process them with <code>processDeliveryJob()</code>.
       </div>
 
       <h2>The send pipeline</h2>
@@ -180,28 +181,28 @@ await notify.send({
 
       <h2>How NotifyKit compares</h2>
       <p>
-        NotifyKit is a framework, not a platform. Here&apos;s how that choice
-        affects your stack:
+        NotifyKit is an embedded framework, not a managed notification
+        platform. The categories solve overlapping problems but make different
+        operational trade-offs:
       </p>
       <table>
         <thead>
-          <tr><th></th><th>NotifyKit</th><th>Hosted platforms (Novu, Knock, etc.)</th></tr>
+          <tr><th></th><th>NotifyKit</th><th>Managed platforms</th><th>Self-hosted platform</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>Runs where</strong></td><td>In your app process</td><td>External service you call via API</td></tr>
-          <tr><td><strong>Data lives in</strong></td><td>Your database</td><td>Their cloud</td></tr>
-          <tr><td><strong>Notification logic</strong></td><td>TypeScript code, version-controlled</td><td>Dashboard UI or config files</td></tr>
-          <tr><td><strong>Type safety</strong></td><td>Full — payloads, IDs, results all typed</td><td>Partial — runtime validation at best</td></tr>
-          <tr><td><strong>Vendor lock-in</strong></td><td>None — swap any provider, adapter, or queue</td><td>Migration requires rewriting integrations</td></tr>
-          <tr><td><strong>Pricing</strong></td><td>Free, open source</td><td>Per-notification or per-seat fees</td></tr>
-          <tr><td><strong>Trade-off</strong></td><td>You manage infrastructure</td><td>They manage infrastructure</td></tr>
+          <tr><td><strong>Runs where</strong></td><td>Your app or worker</td><td>Vendor infrastructure</td><td>A separate stack you operate</td></tr>
+          <tr><td><strong>State</strong></td><td>Your application database</td><td>Vendor-managed</td><td>Platform database you operate</td></tr>
+          <tr><td><strong>Source of truth</strong></td><td>Imported TypeScript definitions</td><td>Dashboard, API, or synced files</td><td>Dashboard or code-first workflows</td></tr>
+          <tr><td><strong>Visual editing</strong></td><td>No</td><td>Usually included</td><td>Usually included</td></tr>
+          <tr><td><strong>Delivery operations</strong></td><td>You provide durable queueing and monitoring</td><td>Managed for you</td><td>You operate the platform workers</td></tr>
+          <tr><td><strong>Best fit</strong></td><td>TypeScript teams wanting app-owned state</td><td>Teams wanting managed workflows and channels</td><td>Teams wanting a full platform on their infrastructure</td></tr>
         </tbody>
       </table>
       <div className="callout callout-tip">
         <strong>Best fit:</strong> teams that already manage their own database
         and want notifications as a library rather than a service dependency.
-        If you prefer a managed service with a visual editor, a hosted platform
-        may be a better choice.
+        If you prefer managed reliability, many turnkey channels, or a visual
+        editor for non-engineers, a platform is the better choice.
       </div>
 
       <h2>Package architecture</h2>
@@ -572,8 +573,9 @@ await notify.send({
         </div>
         <div className="feature-card">
           <h3>Going to production</h3>
-          <p>Observability, security, multi-tenancy, and scaling realtime.</p>
+          <p>Start with the reliability boundary, then add observability, security, and tenant isolation.</p>
           <p style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
+            <Link href="/docs/production-readiness">Production readiness</Link> →{" "}
             <Link href="/docs/hooks">Hooks</Link> →{" "}
             <Link href="/docs/security">Security</Link> →{" "}
             <Link href="/docs/multi-tenancy">Multi-tenancy</Link> →{" "}
@@ -596,9 +598,9 @@ await notify.send({
 
       <div className="page-nav">
         <span />
-        <Link href="/docs/installation">
+        <Link href="/docs/why-notifykit">
           <span className="page-nav-label">Next</span>
-          <span className="page-nav-title">Installation</span>
+          <span className="page-nav-title">Why NotifyKit?</span>
         </Link>
       </div>
     </article>

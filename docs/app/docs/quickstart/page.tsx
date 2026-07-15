@@ -624,14 +624,14 @@ export const notify = createNotifyKit({
           <span className="overview-flow-number">1</span>
           <div>
             <strong>Can you import <code>notify</code>?</strong>
-            <p>Add <code>console.log(notify.notifications.length)</code> to a server file. If it prints a number, the instance is configured correctly.</p>
+            <p>Add <code>console.log(notify.definitions.length)</code> to a server file. If it prints a number, the instance is configured correctly.</p>
           </div>
         </div>
         <div className="overview-flow-step">
           <span className="overview-flow-number">2</span>
           <div>
             <strong>Does the API route respond?</strong>
-            <p>Visit <code>/api/notifykit/notifications</code> in your browser. You should see a JSON array of notification metadata.</p>
+            <p>Visit <code>/api/notifykit/notifications</code> in your browser. You should see a JSON object with notification metadata in its <code>data</code> array.</p>
           </div>
         </div>
         <div className="overview-flow-step">

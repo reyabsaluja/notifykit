@@ -11,8 +11,8 @@ export default function DatabasePage() {
       <p>
         NotifyKit stores all state (recipients, notifications, inbox items,
         deliveries, preferences) in your database via a pluggable adapter.
-        The memory adapter is great for development; Drizzle adapters are
-        available for SQLite and PostgreSQL in production.
+        The memory adapter is great for development; Drizzle adapters provide
+        persistent SQLite and PostgreSQL storage.
       </p>
 
       <h2>Which adapter?</h2>
@@ -41,7 +41,7 @@ export default function DatabasePage() {
         </div>
         <div className="feature-card">
           <h3>PostgreSQL</h3>
-          <p><strong>Production.</strong> Full ACID, concurrent writes across multiple instances, scales with your app.</p>
+          <p><strong>Persistent multi-instance deployments.</strong> Supports concurrent writers and uses your existing Postgres operations and backups.</p>
           <table style={{ fontSize: "0.85em", marginTop: "0.5rem" }}>
             <tbody>
               <tr><td>Persistence</td><td>Networked DB</td></tr>
@@ -146,30 +146,28 @@ export const notify = createNotifyKit({
       <p>
         NotifyKit uses your existing database connection — it doesn&apos;t open its
         own pool. But notification sends add database load, especially under
-        burst traffic. Here&apos;s how to size your pool:
+        burst traffic. Size the pool from measurements in your deployment, not
+        a generic sends-per-second table.
       </p>
       <table>
         <thead>
-          <tr><th>Deploy type</th><th>Sends/sec</th><th>Recommended pool</th><th>Notes</th></tr>
+          <tr><th>Signal</th><th>What to inspect</th><th>Possible response</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td>Single instance</td>
-            <td>&lt; 10</td>
-            <td>5–10 connections</td>
-            <td>Default for most apps. NotifyKit adds 1–2 queries per send.</td>
+            <td>Connections wait during send bursts</td>
+            <td>Pool wait time and <code>pg_stat_activity</code></td>
+            <td>Reduce concurrency, increase the pool within database limits, or queue work</td>
           </tr>
           <tr>
-            <td>Multi-instance</td>
-            <td>10–100</td>
-            <td>10–20 per instance</td>
-            <td>Keep total across instances under Postgres <code>max_connections</code> (default: 100).</td>
+            <td>Many application instances exhaust total connections</td>
+            <td>Aggregate pool size across every instance</td>
+            <td>Use a pooler and set a smaller per-instance maximum</td>
           </tr>
           <tr>
-            <td>High-volume</td>
-            <td>100+</td>
-            <td>Use a pooler (PgBouncer)</td>
-            <td>Transaction mode. Set app pool to 5–10 and let the pooler multiplex.</td>
+            <td>Queries are slow without pool waits</td>
+            <td><code>EXPLAIN ANALYZE</code>, locks, and database I/O</td>
+            <td>Tune the query/index or reduce contention before adding connections</td>
           </tr>
         </tbody>
       </table>
@@ -182,11 +180,10 @@ const client = postgres(process.env.DATABASE_URL!, {
 })`}
       />
       <div className="callout callout-tip">
-        <strong>Rule of thumb:</strong> each <code>send()</code> uses 2–4 queries
-        (write notification + write inbox + write delivery + optional preference read).
-        Multiply your peak sends/sec by 4, divide by average query time (~5ms on local
-        PG, ~20ms over network) to get the minimum pool size. When in doubt, start
-        at 10 and monitor <code>pg_stat_activity</code> for waiting connections.
+        <strong>Load test the real pipeline.</strong> Query count varies with
+        channels, preferences, rate limits, digests, and fallbacks. Measure the
+        exact notification mix you expect at peak rather than relying on a
+        fixed pool recommendation.
       </div>
 
       <h2>Production migrations</h2>
@@ -207,6 +204,12 @@ npx drizzle-kit migrate`}
         <strong>Why versioned migrations?</strong> Future NotifyKit versions may
         add columns or tables. With drizzle-kit, you get a diff you can review
         before applying — no surprise schema changes in production.
+      </div>
+      <div className="callout callout-warn">
+        <strong>The preview does not yet ship a versioned migration history.</strong>{" "}
+        Generate and commit migrations in your application, review the diff on
+        every NotifyKit upgrade, and do not run table-creation helpers during
+        production startup.
       </div>
 
       <h2>Joining NotifyKit tables with your app</h2>
@@ -457,148 +460,54 @@ prune().catch(err => {
           <tr><th>Section</th><th>Methods</th><th>Priority</th></tr>
         </thead>
         <tbody>
-          <tr><td>Recipients</td><td><code>upsertRecipient</code>, <code>getRecipient</code></td><td>Required</td></tr>
-          <tr><td>Notifications</td><td><code>createNotification</code>, <code>getNotification</code></td><td>Required</td></tr>
-          <tr><td>Inbox</td><td><code>createInboxItem</code>, <code>listInbox</code>, <code>markRead</code>, <code>archive</code>, <code>delete</code></td><td>Required</td></tr>
-          <tr><td>Deliveries</td><td><code>createDelivery</code>, <code>updateDelivery</code></td><td>Required</td></tr>
-          <tr><td>Preferences</td><td><code>getPreferences</code>, <code>updatePreference</code></td><td>Required</td></tr>
-          <tr><td>Rate limits</td><td><code>incrementRateLimit</code>, <code>getRateLimitCount</code></td><td>Optional — only if using rate limits</td></tr>
-          <tr><td>Digests</td><td><code>appendDigest</code>, <code>flushDigests</code></td><td>Optional — only if using digests</td></tr>
-          <tr><td>Scheduled</td><td><code>createScheduledSend</code>, <code>claimScheduledSends</code></td><td>Optional — only if using quiet hours</td></tr>
+          <tr><td>Recipients</td><td><code>upsert</code>, <code>findById</code></td><td>Required</td></tr>
+          <tr><td>Notifications</td><td><code>create</code>, <code>findByIdempotencyKey</code>, <code>clearIdempotencyKey</code></td><td>Required</td></tr>
+          <tr><td>Inbox</td><td><code>create</code>, list/count, recipient-safe mutations</td><td>Required</td></tr>
+          <tr><td>Deliveries</td><td><code>create</code>, <code>findById</code>, <code>list</code>, <code>update</code></td><td>Required</td></tr>
+          <tr><td>Preferences</td><td><code>get</code>, <code>list</code>, <code>upsert</code></td><td>Required</td></tr>
+          <tr><td>Rate limits</td><td><code>reserve</code>, <code>count</code></td><td>Required; reservation must be atomic</td></tr>
+          <tr><td>Digests</td><td><code>append</code>, <code>take</code>, <code>restore</code>, <code>list</code></td><td>Required</td></tr>
+          <tr><td>Scheduled</td><td><code>create</code>, <code>claim</code>, <code>complete</code>, <code>release</code>, list methods</td><td>Required</td></tr>
+          <tr><td>Dedupe</td><td><code>check</code>, <code>exists</code>, <code>prune</code></td><td>Required; check-and-insert must be atomic</td></tr>
+          <tr><td>Timeline</td><td>append, list, prune methods</td><td>Optional; enables persisted diagnostics</td></tr>
         </tbody>
       </table>
 
-      <h3>Implementation skeleton</h3>
+      <h3>Implementation approach</h3>
       <p>
-        Start with the core methods. The optional sections can throw{" "}
-        <code>&quot;not implemented&quot;</code> until you need them:
+        Import <code>DatabaseAdapter</code> and implement its nested stores:
+        <code> recipients</code>, <code>notifications</code>, <code>inbox</code>,
+        <code> deliveries</code>, <code>preferences</code>, <code>digests</code>,
+        <code> rateLimits</code>, <code>scheduledSends</code>, and
+        <code> dedupe</code>. The optional <code>timeline</code> store enables
+        persisted diagnostics. TypeScript reports every missing method and its
+        exact input/result contract.
       </p>
       <Code
         code={`import type { DatabaseAdapter } from "@notifykitjs/core"
-import { prisma } from "./client" // your Prisma client
 
-export function prismaAdapter(): DatabaseAdapter {
+export function customAdapter(): DatabaseAdapter {
   return {
-    // ─── Recipients ──────────────────────────────────
-    async upsertRecipient(input) {
-      return prisma.notifykitRecipient.upsert({
-        where: { id_tenantId: { id: input.id, tenantId: input.tenantId ?? "" } },
-        create: { ...input, tenantId: input.tenantId ?? "" },
-        update: input,
-      })
-    },
-
-    async getRecipient(id, scope) {
-      return prisma.notifykitRecipient.findUnique({
-        where: { id_tenantId: { id, tenantId: scope?.tenantId ?? "" } },
-      })
-    },
-
-    // ─── Notifications ───────────────────────────────
-    async createNotification(input) {
-      return prisma.notifykitNotification.create({ data: input })
-    },
-
-    async getNotification(id) {
-      return prisma.notifykitNotification.findUnique({ where: { id } })
-    },
-
-    // ─── Inbox ───────────────────────────────────────
-    async createInboxItem(input) {
-      return prisma.notifykitInboxItem.create({ data: input })
-    },
-
-    async listInbox(recipientId, scope, filter, limit) {
-      return prisma.notifykitInboxItem.findMany({
-        where: {
-          recipientId,
-          tenantId: scope?.tenantId,
-          ...(filter?.archived === false && { archivedAt: null }),
-          ...(filter?.archived === true && { archivedAt: { not: null } }),
-        },
-        orderBy: { createdAt: "desc" },
-        take: limit ?? 50,
-      })
-    },
-
-    async markRead(itemId, recipientId, scope) {
-      return prisma.notifykitInboxItem.update({
-        where: { id: itemId, recipientId, tenantId: scope?.tenantId },
-        data: { readAt: new Date() },
-      })
-    },
-
-    async archive(itemId, recipientId, scope) {
-      return prisma.notifykitInboxItem.update({
-        where: { id: itemId, recipientId, tenantId: scope?.tenantId },
-        data: { archivedAt: new Date() },
-      })
-    },
-
-    async delete(itemId, recipientId, scope) {
-      await prisma.notifykitInboxItem.delete({
-        where: { id: itemId, recipientId, tenantId: scope?.tenantId },
-      })
-    },
-
-    // ─── Deliveries ──────────────────────────────────
-    async createDelivery(input) {
-      return prisma.notifykitDelivery.create({ data: input })
-    },
-
-    async updateDelivery(id, input) {
-      return prisma.notifykitDelivery.update({ where: { id }, data: input })
-    },
-
-    // ─── Preferences ─────────────────────────────────
-    async getPreferences(recipientId, scope) {
-      return prisma.notifykitPreference.findMany({
-        where: { recipientId, tenantId: scope?.tenantId },
-      })
-    },
-
-    async updatePreference(input) {
-      return prisma.notifykitPreference.upsert({
-        where: {
-          recipientId_notificationId_tenantId: {
-            recipientId: input.recipientId,
-            notificationId: input.notificationId,
-            tenantId: input.tenantId ?? "",
-          },
-        },
-        create: input,
-        update: { channels: input.channels },
-      })
-    },
-
-    // ─── Optional: Rate limits ───────────────────────
-    async incrementRateLimit(key, windowMs) {
-      // Implement when you use rateLimit on notifications
-      throw new Error("Rate limits not implemented")
-    },
-    async getRateLimitCount(key, windowMs) {
-      throw new Error("Rate limits not implemented")
-    },
-
-    // ─── Optional: Digests ───────────────────────────
-    async appendDigest(key, payload) {
-      throw new Error("Digests not implemented")
-    },
-    async flushDigests(olderThan) {
-      throw new Error("Digests not implemented")
-    },
-
-    // ─── Optional: Scheduled sends ───────────────────
-    async createScheduledSend(input) {
-      throw new Error("Scheduled sends not implemented")
-    },
-    async claimScheduledSends(now) {
-      throw new Error("Scheduled sends not implemented")
-    },
+    recipients: createRecipientStore(),
+    notifications: createNotificationStore(),
+    inbox: createInboxStore(),
+    deliveries: createDeliveryStore(),
+    preferences: createPreferenceStore(),
+    digests: createDigestStore(),
+    rateLimits: createRateLimitStore(),
+    scheduledSends: createScheduledSendStore(),
+    dedupe: createDedupeStore(),
+    timeline: createTimelineStore(), // optional
   }
 }`}
       />
-
+      <div className="callout callout-tip">
+        <strong>Use the shipped adapters as executable specifications.</strong>{" "}
+        Copy <code>memoryAdapter()</code> for the simplest complete contract, or
+        the SQLite/Postgres adapter matching your concurrency needs. Atomic
+        dedupe, rate-limit reservations, digest take/restore, and scheduled-send
+        claims are correctness boundaries.
+      </div>
       <h3>Implementation tips</h3>
       <table>
         <thead>
@@ -607,65 +516,26 @@ export function prismaAdapter(): DatabaseAdapter {
         <tbody>
           <tr>
             <td><strong>ID generation</strong></td>
-            <td>The engine passes IDs to <code>create*</code> methods — don&apos;t generate them yourself. Use the provided <code>id</code> field.</td>
+            <td>Adapter <code>create</code> methods receive inputs without generated IDs/timestamps. Generate them consistently with the reference adapters.</td>
           </tr>
           <tr>
             <td><strong>Scope filtering</strong></td>
-            <td>Every read method receives an optional <code>scope</code> with <code>tenantId</code> / <code>workspaceId</code>. Always filter by it when present — this is what enforces tenant isolation.</td>
+            <td>Apply every supplied <code>tenantId</code> and <code>workspaceId</code> on reads and mutations. Scope handling is a security boundary.</td>
           </tr>
           <tr>
-            <td><strong>Atomic claims</strong></td>
-            <td><code>claimScheduledSends</code> must be atomic — use <code>UPDATE ... RETURNING</code> or a transaction with a status flag to prevent duplicate delivery across workers.</td>
+            <td><strong>Atomic operations</strong></td>
+            <td>Implement <code>dedupe.check</code>, <code>rateLimits.reserve</code>, <code>digests.take</code>, and <code>scheduledSends.claim</code> atomically across workers.</td>
           </tr>
           <tr>
-            <td><strong>Rate limit counting</strong></td>
-            <td><code>getRateLimitCount</code> returns events within a sliding window. Use a timestamp column and count <code>WHERE createdAt &gt; now - windowMs</code>.</td>
+            <td><strong>Failure recovery</strong></td>
+            <td>Digest <code>restore</code> must preserve payload order, and scheduled sends must be completed only after delivery succeeds.</td>
           </tr>
           <tr>
             <td><strong>Testing</strong></td>
-            <td>Write your adapter, then run <code>memoryAdapter()</code>&apos;s test suite against it. The behavior contract is identical — same inputs, same expected outputs.</td>
+            <td>Run the same behavioral scenarios as <code>memoryAdapter()</code>, including concurrency, tenant isolation, and claim/release recovery.</td>
           </tr>
         </tbody>
       </table>
-
-      <div className="overview-flow">
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">1</span>
-          <div>
-            <strong>Start with core (5 sections)</strong>
-            <p>Recipients, notifications, inbox, deliveries, preferences. This covers basic send + inbox UI.</p>
-          </div>
-        </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">2</span>
-          <div>
-            <strong>Add rate limits when needed</strong>
-            <p>Two methods: increment and count. Implement when you add <code>rateLimit</code> to a notification.</p>
-          </div>
-        </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">3</span>
-          <div>
-            <strong>Add digests when needed</strong>
-            <p>Two methods: append payload to bucket, flush expired buckets. Implement when you add <code>digest</code>.</p>
-          </div>
-        </div>
-        <div className="overview-flow-step">
-          <span className="overview-flow-number">4</span>
-          <div>
-            <strong>Add scheduled sends when needed</strong>
-            <p>Two methods: create and claim. Implement when you configure quiet hours on recipients.</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="callout callout-tip">
-        <strong>Reference implementations.</strong> The built-in adapters are
-        the canonical reference — start from{" "}
-        <code>@notifykitjs/drizzle/src/sqlite.ts</code> (simplest) or{" "}
-        <code>postgres.ts</code> (handles concurrency). Copy one and
-        translate the Drizzle calls to your ORM.
-      </div>
 
       <h2>Switching adapters by environment</h2>
       <p>
@@ -690,8 +560,8 @@ export const notify = createNotifyKit({
 })`}
       />
       <div className="callout callout-tip">
-        <strong>Tests run 10-50x faster with memory.</strong> No disk I/O, no
-        connection pool, no teardown. Each test gets a fresh{" "}
+        <strong>Memory keeps unit tests isolated.</strong> There is no disk I/O,
+        connection pool, or teardown. Each test gets a fresh{" "}
         <code>memoryAdapter()</code> with zero state — no cleanup needed between
         runs.
       </div>
@@ -718,12 +588,12 @@ export const notify = createNotifyKit({
             <td>Batch with <code>Promise.allSettled</code> in chunks of 10–20, or use an external queue</td>
           </tr>
           <tr>
-            <td><code>flushDigests()</code> takes &gt;10s</td>
+            <td><code>flushDigests()</code> slows as the buffer grows</td>
             <td>Large digest buffer table with no index on <code>expiresAt</code></td>
             <td>Add index on <code>(expiresAt)</code> — the flush query scans by expiry time</td>
           </tr>
           <tr>
-            <td><code>unreadCount()</code> slow (100ms+)</td>
+            <td><code>unreadCount()</code> regresses as inbox history grows</td>
             <td>Table scan on <code>inbox_items</code> for users with 1000+ items</td>
             <td>The default index covers this, but verify with <code>EXPLAIN ANALYZE</code></td>
           </tr>
@@ -733,7 +603,7 @@ export const notify = createNotifyKit({
             <td>Run <code>pruneTimeline()</code> on a cron and set <code>timelineRetentionMs</code></td>
           </tr>
           <tr>
-            <td>Preference resolution adds &gt;20ms per send</td>
+            <td>Preference resolution dominates send latency</td>
             <td>Multiple round-trips for global + category + notification preferences</td>
             <td>The Drizzle adapter fetches all preferences for a recipient in one query — verify your custom adapter does the same</td>
           </tr>
@@ -767,9 +637,8 @@ CREATE INDEX idx_rate_limits_key_time
       <div className="callout callout-tip">
         <strong>Measure before you optimize.</strong> Run{" "}
         <code>EXPLAIN ANALYZE</code> on slow queries before adding indexes.
-        Most apps under 100 sends/day never need manual tuning — the default
-        schema handles it. Start investigating when <code>send()</code> p95
-        exceeds 100ms or inbox loads take &gt;50ms.
+        Establish a baseline with your data volume and alert on meaningful
+        regression against that baseline.
       </div>
 
       <h2>Migration checklist</h2>
@@ -816,9 +685,9 @@ CREATE INDEX idx_rate_limits_key_time
       </div>
 
       <div className="page-nav">
-        <Link href="/docs/realtime">
+        <Link href="/docs/production-readiness">
           <span className="page-nav-label">Previous</span>
-          <span className="page-nav-title">Realtime</span>
+          <span className="page-nav-title">Production readiness</span>
         </Link>
         <Link href="/docs/providers">
           <span className="page-nav-label">Next</span>

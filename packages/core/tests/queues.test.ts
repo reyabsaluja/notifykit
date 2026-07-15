@@ -7,7 +7,7 @@ import {
   notification,
   setTimeoutQueue,
 } from "../src/index.js";
-import type { EmailProvider, Queue } from "../src/index.js";
+import type { DeliveryJob, EmailProvider, Queue } from "../src/index.js";
 
 const inbox = channel.inbox();
 const email = channel.email();
@@ -332,6 +332,64 @@ describe("queues", () => {
     expect(observed).toHaveLength(2);
     expect(observed[0]).toMatch(/^enqueued:dlv_/);
     expect(observed[1]).toMatch(/^ran:dlv_/);
+  });
+
+  test("processDeliveryJob ignores redelivery after the record is terminal", async () => {
+    const provider = makeFlakyProvider(1);
+    let queuedJob: DeliveryJob | undefined;
+    const durableQueue: Queue = {
+      enqueue(job) {
+        queuedJob = job;
+      },
+      async drain() {},
+    };
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: provider },
+      queue: durableQueue,
+      retry: { maxAttempts: 1, delayMs: () => 0 },
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    const result = await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: basePayload,
+    });
+
+    expect(result.deliveries[0]!.status).toBe("pending");
+    expect(queuedJob).toBeDefined();
+    await notify.processDeliveryJob(queuedJob!);
+    await notify.processDeliveryJob(queuedJob!);
+
+    expect(provider.attempts).toBe(1);
+    expect((await notify.deliveries.list("u1"))[0]!.status).toBe("sent");
+  });
+
+  test("processDeliveryJob rejects a job that does not match its delivery record", async () => {
+    let queuedJob: DeliveryJob | undefined;
+    const durableQueue: Queue = {
+      enqueue(job) {
+        queuedJob = job;
+      },
+      async drain() {},
+    };
+    const notify = createNotifyKit({
+      notifications: [commentMentioned] as const,
+      database: memoryAdapter(),
+      providers: { email: makeFlakyProvider(1) },
+      queue: durableQueue,
+    });
+    await notify.upsertRecipient({ id: "u1", email: "u@x.com" });
+    await notify.send({
+      recipientId: "u1",
+      notificationId: "comment_mentioned",
+      payload: basePayload,
+    });
+
+    await expect(
+      notify.processDeliveryJob({ ...queuedJob!, recipientId: "another-user" }),
+    ).rejects.toMatchObject({ code: "DELIVERY_JOB_MISMATCH" });
   });
 
   test("drain() resolves even when there are no jobs", async () => {

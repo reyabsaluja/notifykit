@@ -2,12 +2,13 @@
   "name": "@notifykitjs/testing",
   "version": "0.0.1",
   "description": "Testing utilities for NotifyKit: test harness, assertions, and time-travel.",
+  "keywords": ["notifications", "typescript", "testing", "test-utils"],
   "license": "MIT",
   "engines": { "node": ">=18" },
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reyabsaluja/notifykit",
+    "url": "git+https://github.com/reyabsaluja/notifykit.git",
     "directory": "packages/testing"
   },
   "homepage": "https://github.com/reyabsaluja/notifykit",

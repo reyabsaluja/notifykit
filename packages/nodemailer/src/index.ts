@@ -2,6 +2,12 @@ import type { EmailProvider } from "@notifykitjs/core";
 import { createTransport, type Transporter, type TransportOptions } from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
+type ProviderError = Error & {
+  code?: string | number;
+  responseCode?: number;
+  permanent?: true;
+};
+
 export type NodemailerProviderOptions = {
   /** Default "from" address, e.g. "Acme <no-reply@acme.com>". Required. */
   from: string;
@@ -104,7 +110,7 @@ export function nodemailerProvider(options: NodemailerProviderOptions): EmailPro
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
         if (isPermanent(error)) {
-          (error as any).permanent = true;
+          (error as ProviderError).permanent = true;
         }
         throw error;
       }
@@ -120,7 +126,8 @@ export function nodemailerProvider(options: NodemailerProviderOptions): EmailPro
 
 function isPermanent(err: Error): boolean {
   const msg = err.message.toLowerCase();
-  const code = (err as any).responseCode ?? (err as any).code;
+  const providerError = err as ProviderError;
+  const code = providerError.responseCode ?? providerError.code;
   if (typeof code === "number" && code >= 500 && code <= 599) {
     if (msg.includes("mailbox") || msg.includes("user") || msg.includes("recipient")) {
       return true;

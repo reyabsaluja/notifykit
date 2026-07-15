@@ -283,7 +283,7 @@ function NotificationSettings() {
   useEffect(() => {
     fetch("/api/notifykit/notifications")
       .then(r => r.json())
-      .then(setNotifications)
+      .then(body => setNotifications(body.data))
   }, [])
 
   return (
