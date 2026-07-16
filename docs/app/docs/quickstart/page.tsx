@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { createDocsMetadata } from "../../../lib/site";
 import { Code } from "../../_components/code";
 
-export const metadata: Metadata = { title: "Quickstart" };
+export const metadata = createDocsMetadata("quickstart");
 
 export default function QuickstartPage() {
   return (

@@ -1,10 +1,15 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { createPageMetadata } from "../../lib/site";
 import { DemoInbox } from "./_components/demo-inbox";
 import { DemoPreferences } from "./_components/demo-preferences";
 import { DemoSender } from "./_components/demo-sender";
 
-export const metadata: Metadata = { title: "Live demo" };
+export const metadata = createPageMetadata({
+  title: "Live demo",
+  description:
+    "Send a real NotifyKit notification and inspect its inbox state, delivery result, and recipient preferences in your browser.",
+  path: "/demo",
+});
 
 export default function DemoPage() {
   return (

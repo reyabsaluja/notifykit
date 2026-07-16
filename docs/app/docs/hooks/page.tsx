@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { createDocsMetadata } from "../../../lib/site";
 import { Code } from "../../_components/code";
 
-export const metadata: Metadata = { title: "Hooks & observability" };
+export const metadata = createDocsMetadata("hooks");
 
 export default function HooksPage() {
   return (

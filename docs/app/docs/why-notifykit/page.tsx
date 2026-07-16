@@ -1,10 +1,7 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { createDocsMetadata } from "../../../lib/site";
 
-export const metadata: Metadata = {
-  title: "Why NotifyKit?",
-  description: "When an embedded notification framework is a better fit than a hosted or self-hosted platform.",
-};
+export const metadata = createDocsMetadata("why-notifykit");
 
 export default function WhyNotifyKitPage() {
   return (

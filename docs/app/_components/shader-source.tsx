@@ -136,15 +136,11 @@ type RegisterMirror = (el: HTMLDivElement | null) => () => void;
 
 const ShaderContext = createContext<RegisterMirror | null>(null);
 
-const PROXIMITY_RADIUS = 300;
-const BRIGHTNESS_BOOST = 2.5;
-
 export function ShaderProvider({ children }: { children: ReactNode }) {
   const sourceRef = useRef<HTMLDivElement>(null);
   const mirrorElements = useRef<Set<HTMLDivElement>>(new Set());
   const canvasMap = useRef<WeakMap<HTMLDivElement, HTMLCanvasElement>>(new WeakMap());
   const rafId = useRef<number>(0);
-  const mousePos = useRef<{ x: number; y: number }>({ x: -9999, y: -9999 });
 
   const register: RegisterMirror = useCallback((el) => {
     if (!el) return () => {};
@@ -155,34 +151,12 @@ export function ShaderProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    function onMouseMove(e: MouseEvent) {
-      mousePos.current.x = e.clientX;
-      mousePos.current.y = e.clientY;
-    }
-
-    function onMouseLeave() {
-      mousePos.current.x = -9999;
-      mousePos.current.y = -9999;
-    }
-
-    window.addEventListener("mousemove", onMouseMove, { passive: true });
-    document.addEventListener("mouseleave", onMouseLeave);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseleave", onMouseLeave);
-    };
-  }, []);
-
-  useEffect(() => {
     let running = true;
 
     function draw() {
       if (!running) return;
       const source = sourceRef.current?.querySelector("canvas");
       if (source && source.width > 0 && source.height > 0) {
-        const mx = mousePos.current.x;
-        const my = mousePos.current.y;
-
         for (const el of mirrorElements.current) {
           let canvas = canvasMap.current.get(el);
           if (!canvas) {
@@ -198,14 +172,6 @@ export function ShaderProvider({ children }: { children: ReactNode }) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(source, 0, 0);
           }
-
-          const rect = el.getBoundingClientRect();
-          const cx = rect.left + rect.width / 2;
-          const cy = rect.top + rect.height / 2;
-          const dist = Math.hypot(mx - cx, my - cy);
-          const proximity = Math.max(0, 1 - dist / PROXIMITY_RADIUS);
-          const boost = 1 + proximity * (BRIGHTNESS_BOOST - 1);
-          el.style.filter = boost > 1.01 ? `brightness(${boost})` : "";
         }
       }
       rafId.current = requestAnimationFrame(draw);
@@ -250,7 +216,7 @@ export function ShaderMirror({ className }: { className?: string }) {
   }, [register]);
 
   return (
-    <div ref={wrapperRef} className={className} style={{ transition: "filter 0.2s ease-out" }}>
+    <div ref={wrapperRef} className={className} aria-hidden="true">
       <canvas />
     </div>
   );

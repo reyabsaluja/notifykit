@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { createDocsMetadata } from "../../../lib/site";
 import { Code } from "../../_components/code";
 
-export const metadata: Metadata = { title: "React hooks & components" };
+export const metadata = createDocsMetadata("react");
 
 export default function ReactPage() {
   return (

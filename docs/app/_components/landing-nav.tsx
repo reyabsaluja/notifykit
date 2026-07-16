@@ -8,10 +8,23 @@ export function LandingNav() {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 50);
-    onScroll();
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      setScrolled((current) =>
+        current ? window.scrollY > 16 : window.scrollY > 80,
+      );
+    };
+    const onScroll = () => {
+      if (!frame) frame = window.requestAnimationFrame(update);
+    };
+
+    update();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   return (
@@ -21,7 +34,6 @@ export function LandingNav() {
         NotifyKit
       </Link>
       <div className="landing-nav-links">
-        <Link href="/docs/why-notifykit">Why NotifyKit?</Link>
         <Link href="/docs/installation">Docs</Link>
         <Link href="/demo">Demo</Link>
         <a

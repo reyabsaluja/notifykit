@@ -1,11 +1,8 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { createDocsMetadata } from "../../../lib/site";
 import { Code } from "../../_components/code";
 
-export const metadata: Metadata = {
-  title: "Production readiness",
-  description: "Understand NotifyKit's current reliability boundary and what to add before critical production delivery.",
-};
+export const metadata = createDocsMetadata("production-readiness");
 
 export default function ProductionReadinessPage() {
   return (
